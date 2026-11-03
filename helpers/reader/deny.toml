@@ -5,8 +5,8 @@
 # The owner approved the reader's packages on sign-off card r87-reader-packages, 2026-11-02:
 # Fathom's own SNMPv3 encoder on RustCrypto pieces, russh 0.65.0 on ring with RSA host keys, the
 # rsa advisory, two release candidates and the measured size. The SNMPv3 part adds the RustCrypto
-# pieces, with their records; russh arrives with SSH. No advisory is ignored yet and ring is still
-# denied here.
+# pieces, with their records; the SSH part adds russh on ring, with ring allowed under russh only
+# and the one advisory the owner accepted ignored below.
 
 [graph]
 all-features = true
@@ -15,7 +15,9 @@ all-features = true
 version = 2
 yanked = "deny"
 unmaintained = "workspace"
-ignore = []
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.10.0-rc.18, Marvin: private-key timing. The reader checks RSA host keys and never signs with an RSA private key; ssh::Login::key refuses one (r87-reader-packages, first tick)." },
+]
 
 [licenses]
 version = 2
@@ -52,10 +54,28 @@ name = "aws-lc-sys"
 reason = "C7, as in the workspace's deny.toml. The owner chose ring for SSH (r87-reader-packages, question 2 A), not aws-lc-rs."
 [[bans.deny]]
 name = "ring"
-reason = "C7. Allowed in this reader under russh only once SSH arrives (r87-reader-packages, question 2 A); that part replaces this line with a wrapper rule. Until then nothing here may take it."
+# The owner's exception for this reader (r87-reader-packages, question 2 A): ring under russh, for
+# SSH reads only. `wrappers` makes it mechanical: a second parent fails the build.
+wrappers = ["russh"]
+reason = "C7. ring carries C and assembly. Allowed in the reader under russh only, for SSH (r87-reader-packages, question 2 A; deps/decisions/russh.md)."
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
+
+# Duplicates under russh, each skipped by name and version with a reason (as the workspace's
+# deny.toml does). A new duplicate is not covered and fails the gate. Checked 2026-11-03 with
+# `cargo tree -i`.
+[[bans.skip]]
+crate = "getrandom@0.2.17"
+reason = "ring 0.17.14 pins getrandom 0.2; everything else in the reader, the reader itself included, is on 0.4.3. Goes when ring moves."
+
+[[bans.skip]]
+crate = "syn@2.0.119"
+reason = "Build-time only: the proc macros curve25519-dalek-derive, delegate and enum_dispatch under russh. Not linked into the reader."
+
+[[bans.skip]]
+crate = "windows-sys@0.52.0"
+reason = "ring 0.17.14 on Windows targets only. The reader is built for Linux, where it is absent."

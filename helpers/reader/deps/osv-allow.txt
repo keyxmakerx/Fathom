@@ -1,3 +1,6 @@
 # OSV.dev allow-list for the device reader's lockfile only (scripts/gate-reader.sh). Fathom's own
 # is deps/osv-allow.txt, and the format and rules are that file's. Empty: serde_json's closure has
-# no finding. The rsa advisory the owner accepted on r87-reader-packages arrives with russh.
+# no finding. The SSH part brings the rsa advisory the owner accepted on r87-reader-packages.
+RUSTSEC-2023-0071 | 2026-11-03 | rsa 0.10.0-rc.18, Marvin. Private-key timing; the reader checks RSA host keys and never signs with an RSA private key (r87-reader-packages, first tick).
+GHSA-c38w-74pg-36hr | 2026-11-03 | Alias of RUSTSEC-2023-0071 (rsa 0.10.0-rc.18), same reason.
+GHSA-4grx-2x9w-596c | 2026-11-03 | Alias of RUSTSEC-2023-0071 (rsa 0.10.0-rc.18), same reason.

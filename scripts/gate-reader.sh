@@ -5,7 +5,8 @@
 # The reader is its own workspace (`helpers/reader/`) so that its SNMP and SSH packages never
 # enter Fathom's lockfile. That is only safe if its lockfile passes the same gates Fathom's does,
 # with its own records: this script runs each of them with the reader's lock, decisions and
-# deny.toml. No advisory is ignored yet; the rsa one the owner accepted arrives with russh.
+# deny.toml. One advisory is ignored, the rsa one the owner accepted with russh (r87, first tick);
+# anything else fails.
 #
 # POSIX sh. Run from the repository root, with cargo-deny and cargo-audit on PATH (CI fetches
 # them pinned and checksummed, `scripts/ci/fetch-audit-tools.sh`).
@@ -31,7 +32,8 @@ echo "== cargo-deny (finds helpers/reader/deny.toml beside the manifest)"
 cargo-deny --manifest-path $H/Cargo.toml --locked check
 
 echo "== cargo-audit"
-cargo-audit audit --file $LOCK
+# The same one as deny.toml's [advisories] ignore, whose reason is written there.
+cargo-audit audit --file $LOCK --ignore RUSTSEC-2023-0071
 
 echo "== cooldown"
 COOLDOWN_LOCK=$LOCK COOLDOWN_EXCEPTIONS=$H/deps/decisions/00-COOLDOWN-EXCEPTIONS.md \

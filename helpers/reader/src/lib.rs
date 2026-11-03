@@ -1,7 +1,7 @@
 //! **Fathom's device reader** (ADR-0082 §4.3). The only part of Fathom that may open a connection
 //! to a network device, and only to read: SNMPv3 GetRequest, GetNextRequest and GetBulkRequest, and
 //! SSH `exec` of an exact command from a fixed per-platform list. Nothing here can write to a
-//! device. It answers `ping` and `snmp_read`; SSH comes in the next part.
+//! device. It answers `ping`, `snmp_read` and `ssh_read`.
 //!
 //! # The protocol
 //!
@@ -20,8 +20,11 @@ use serde_json::{json, Map, Value};
 
 pub mod address;
 pub mod ber;
+pub mod commands;
+pub mod gate;
 pub mod purposes;
 pub mod snmp;
+pub mod ssh;
 pub mod usm;
 
 /// The longest frame either way.
@@ -82,6 +85,10 @@ fn run(m: &Map<String, Value>) -> Result<Value, Refused> {
         "snmp_read" => {
             only(m, &["op", "protocol", "job", "login"])?;
             snmp_read(m)
+        }
+        "ssh_read" => {
+            only(m, &["op", "protocol", "job", "login"])?;
+            ssh_read(m)
         }
         _ => Err(refused("unknown step")),
     }
@@ -257,6 +264,149 @@ fn snmp_read(m: &Map<String, Value>) -> Result<Value, Refused> {
     v["failed"] = Value::Object(failures);
     v["durationMs"] = json!(started.elapsed().as_millis() as u64);
     Ok(v)
+}
+
+/// The job's address and port, checked against its ranges and the never-read blocks.
+fn target(job: &Map<String, Value>) -> Result<(std::net::IpAddr, u16), Refused> {
+    let ip: std::net::IpAddr = field(job, "address")?
+        .parse()
+        .map_err(|_| refused("the job's address is not an IP address"))?;
+    let port = job
+        .get("port")
+        .and_then(Value::as_u64)
+        .and_then(|p| u16::try_from(p).ok())
+        .filter(|p| *p > 0)
+        .ok_or_else(|| refused("the job has no port"))?;
+    if let Some(why) = address::refused(ip) {
+        return Err(refused(format!("{ip} is {why} and is never read")));
+    }
+    let ranges: Vec<&str> = job
+        .get("ranges")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if !ranges.iter().any(|r| address::inside(ip, r)) {
+        return Err(refused(format!(
+            "{ip} is not inside a range listed for reading"
+        )));
+    }
+    Ok((ip, port))
+}
+
+/// `ssh_read`. The job is `{version: 1, device, address, port, ranges, platform, hostKey}` and
+/// the login `{user, password}` or `{user, key}` (an unencrypted OpenSSH Ed25519 or ECDSA key).
+///
+/// - Without `hostKey` the reader only learns the device's host key and answers
+///   `outcome: "host_key"`: no login is sent to a key nobody confirmed. The login may be absent.
+/// - With it, a different key stops the read (`host_key_changed`, with the new `hostKey`).
+/// - Otherwise each of the platform's fixed commands runs once and its output, through the gate,
+///   is answered in `outputs`. The job never names a command.
+fn ssh_read(m: &Map<String, Value>) -> Result<Value, Refused> {
+    use std::net::SocketAddr;
+    use std::time::Instant;
+
+    let job = m
+        .get("job")
+        .and_then(Value::as_object)
+        .ok_or_else(|| refused("the request has no job"))?;
+    only(
+        job,
+        &[
+            "version", "device", "address", "port", "ranges", "platform", "hostKey",
+        ],
+    )?;
+    if job.get("version").and_then(Value::as_u64) != Some(1) {
+        return Err(refused("this reader reads job version 1 only"));
+    }
+    let device = field(job, "device")?.to_string();
+    let (ip, port) = target(job)?;
+    let platform = commands::platform(field(job, "platform")?)
+        .ok_or_else(|| refused("the reader has no SSH command list for that platform"))?;
+    let expected = match job.get("hostKey") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) if s.starts_with("SHA256:") && s.len() <= 64 => Some(s.clone()),
+        Some(_) => return Err(refused("the job's hostKey is not a SHA256 fingerprint")),
+    };
+    let login = if expected.is_some() {
+        Some(ssh_login(m.get("login"))?)
+    } else {
+        None
+    };
+
+    let started = Instant::now();
+    let base = |outcome: &str| json!({"device": device, "address": ip.to_string(), "port": port, "outcome": outcome});
+    let elapsed = || json!(started.elapsed().as_millis() as u64);
+    match ssh::read(
+        SocketAddr::new(ip, port),
+        platform,
+        expected,
+        login,
+        started + READ_BUDGET,
+    ) {
+        Ok(ssh::Outcome::HostKey {
+            fingerprint,
+            algorithm,
+        }) => {
+            let mut v = base("host_key");
+            v["hostKey"] = json!(fingerprint);
+            v["keyType"] = json!(algorithm);
+            v["durationMs"] = elapsed();
+            Ok(v)
+        }
+        Ok(ssh::Outcome::Read { fingerprint, ran }) => {
+            let outputs: Vec<Value> = ran
+                .into_iter()
+                .map(|r| {
+                    json!({"command": r.command, "text": r.text, "drops": r.drops,
+                           "incomplete": r.incomplete, "exit": r.exit})
+                })
+                .collect();
+            let reading = json!({ "outputs": outputs });
+            let mut v = base("read");
+            v["hostKey"] = json!(fingerprint);
+            v["platform"] = json!(platform.id);
+            v["digest"] = json!(digest(&reading));
+            v["reading"] = reading;
+            v["durationMs"] = elapsed();
+            Ok(v)
+        }
+        Err(f) => {
+            let mut v = base("failed");
+            if f.code == "host_key_changed" {
+                if let Some(fp) = f
+                    .message
+                    .split_whitespace()
+                    .find(|w| w.starts_with("SHA256:"))
+                {
+                    v["hostKey"] = json!(fp.trim_end_matches(';'));
+                }
+            }
+            v["failure"] = json!({"code": f.code, "message": f.message});
+            v["durationMs"] = elapsed();
+            Ok(v)
+        }
+    }
+}
+
+fn ssh_login(v: Option<&Value>) -> Result<ssh::Login, Refused> {
+    let l = v
+        .and_then(Value::as_object)
+        .ok_or_else(|| refused("the request has no login"))?;
+    let user = field(l, "user")?.to_string();
+    match (l.get("password"), l.get("key")) {
+        (Some(Value::String(p)), None) => {
+            only(l, &["user", "password"])?;
+            Ok(ssh::Login::Password {
+                user,
+                password: p.clone(),
+            })
+        }
+        (None, Some(Value::String(k))) => {
+            only(l, &["user", "key"])?;
+            ssh::Login::key(user, k).map_err(|f| refused(f.message))
+        }
+        _ => Err(refused("the login has a password or a key, and not both")),
+    }
 }
 
 fn login_from(v: Option<&Value>) -> Result<snmp::Login, Refused> {
