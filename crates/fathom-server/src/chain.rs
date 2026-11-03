@@ -628,10 +628,10 @@ pub enum EntryType {
     /// A difference between a reading and the drawing dismissed (migration `0073`): the
     /// `design`, `element`, the `actor`. Never the field or the value.
     DeviceReadDismissed,
-    /// An order type saved, or a new version of one (migration `0074`, ADR-0084): the
+    /// An order type saved, or a new version of one (migration `0075`, ADR-0084): the
     /// `definition` id, the `version`, the `actor`. Never the file.
     OrderTypeSaved,
-    /// One thing done on one order (migration `0074`, ADR-0084): the `order` id, the `seq`, the
+    /// One thing done on one order (migration `0075`, ADR-0084): the `order` id, the `seq`, the
     /// `action` word, the `actor`. Never an answer, a reason or any other text.
     OrderEvent,
 }

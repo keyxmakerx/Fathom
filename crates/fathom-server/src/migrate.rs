@@ -444,11 +444,17 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0073_device_readings.sql",
         sql: include_str!("../migrations/0073_device_readings.sql"),
     },
-    // Orders: order types, orders and each order's history (ADR-0084 piece 2; r103, r105).
+    // The system account: the actor of a change the server makes itself (sign-off r107).
     Migration {
         version: 74,
-        name: "0074_orders.sql",
-        sql: include_str!("../migrations/0074_orders.sql"),
+        name: "0074_system_account.sql",
+        sql: include_str!("../migrations/0074_system_account.sql"),
+    },
+    // Orders: order types, orders and each order's history (ADR-0084 piece 2; r103, r105).
+    Migration {
+        version: 75,
+        name: "0075_orders.sql",
+        sql: include_str!("../migrations/0075_orders.sql"),
     },
 ];
 
@@ -551,11 +557,18 @@ pub async fn run(client: &mut Client) -> Result<u32, MigrateError> {
     }
 }
 
-/// `CREATE ROLE` lost a race with another database's migration.
+/// `CREATE ROLE` lost a race with another database's migration. It loses in
+/// one of two ways: while the winner's transaction is still open, as a unique
+/// violation on `pg_authid`; or after the winner committed but past this
+/// transaction's "role missing?" check, as "role ... already exists"
+/// (42710, raised by PostgreSQL's `CreateRole`; seen on main's CI 2026-11-03,
+/// run 41573203757, once the Rust tests ran in more databases at once).
 fn is_role_race(e: &tokio_postgres::Error) -> bool {
+    use tokio_postgres::error::SqlState;
     e.as_db_error().is_some_and(|d| {
-        d.code() == &tokio_postgres::error::SqlState::UNIQUE_VIOLATION
-            && d.constraint() == Some("pg_authid_rolname_index")
+        (d.code() == &SqlState::UNIQUE_VIOLATION
+            && d.constraint() == Some("pg_authid_rolname_index"))
+            || (d.code() == &SqlState::DUPLICATE_OBJECT && d.routine() == Some("CreateRole"))
     })
 }
 

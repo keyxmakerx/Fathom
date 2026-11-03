@@ -339,14 +339,14 @@ const TABLES: &[TableClaim] = &[
             columns: &["ciphertext"],
             under: "the organisation content key, which is wrapped under the tenant key",
         },
-        why: "order types (ADR-0084, migration 0074): the Steward's file, its shared field sets \
+        why: "order types (ADR-0084, migration 0075): the Steward's file, its shared field sets \
               and the teams its slugs were matched to, one sealed blob. In the clear: the type \
               id, a version, who saved it and when, the chain entry's sequence, the key epoch.",
     },
     TableClaim {
         name: "orders",
         protection: Protection::NoKeyProtectedMaterial,
-        why: "one row per order (migration 0074): ids, the W- number, the order type and \
+        why: "one row per order (migration 0075): ids, the W- number, the order type and \
               version it was opened from, who opened it and when, a status word. Every answer \
               and reason is in `order_events`, sealed.",
     },
@@ -356,7 +356,7 @@ const TABLES: &[TableClaim] = &[
             columns: &["ciphertext"],
             under: "the organisation content key, which is wrapped under the tenant key",
         },
-        why: "each thing done on an order (migration 0074): the action's words (answers, \
+        why: "each thing done on an order (migration 0075): the action's words (answers, \
               reasons, which job or stage) sealed. In the clear: ids, a sequence, when, who, \
               the action word, the chain entry's sequence, the key epoch.",
     },

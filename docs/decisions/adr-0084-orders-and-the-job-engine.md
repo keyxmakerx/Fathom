@@ -212,7 +212,7 @@ format covers it too: it does, as `lanes`, `starts_after`, `use` and `field_sets
     job left out by its `when` counts as met for `needs`.
 
 **Built (piece 2):** `fathom_orders::engine`, pure and deterministic, with `People` as the server's
-answer to who is on which team and holds what. The server half (migration 0074, `orders.rs`):
+answer to who is on which team and holds what. The server half (migration 0075, `orders.rs`):
 order types as sealed, versioned records, saved by a Steward with every slug matched to a standing
 team; orders opened by any member of the organisation; each action one sealed row and one
 `order_event` on the organisation chain, and the order rebuilt by replay on every read. Replay

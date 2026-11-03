@@ -1,4 +1,4 @@
--- 0074 -- orders (ADR-0084 piece 2, sign-off r103 and r105). An organisation's order types, the
+-- 0075 -- orders (ADR-0084 piece 2, sign-off r103 and r105). An organisation's order types, the
 -- orders opened from them, and each order's history.
 --
 -- An order type is a Steward's YAML file (`crates/fathom-orders`), stored as written with the

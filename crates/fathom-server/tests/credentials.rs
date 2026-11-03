@@ -756,6 +756,45 @@ async fn forgot_my_password_answers_the_same_for_an_address_that_belongs_to_nobo
     assert!(site_entries_of("reset_requested").await >= 1);
 }
 
+/// **The system account (`0074`) signs in to nothing and resets nothing.** Its
+/// address answers a password sign-in and a forgotten-password request exactly
+/// as an address that belongs to nobody does, and no reset token is minted.
+#[tokio::test]
+async fn the_system_accounts_address_answers_as_an_address_that_belongs_to_nobody() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions = Arc::new(sessions_store(&pool, Arc::clone(&ring)).await);
+    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+
+    let addr = serve(api::router(ApiState {
+        sessions: Arc::clone(&sessions),
+        watch: Arc::new(EpochWatch::new()),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::peer(),
+    }))
+    .await;
+    let system = one_failed_sign_in(addr, "system@fathom.invalid").await;
+    let nobody = one_failed_sign_in(addr, &unique("nobody@example.org")).await;
+    assert_eq!(system, nobody, "the system account's address names nobody");
+
+    let token = creds
+        .issue_reset_token("system@fathom.invalid", "198.51.100.1")
+        .await
+        .expect("answers");
+    assert!(token.is_none(), "no reset token for the system account");
+    let tokens: i64 = superuser()
+        .await
+        .query_one(
+            "SELECT count(*) FROM password_reset_tokens WHERE account_id = $1",
+            &[&fathom_server::system_account::SYSTEM_ACCOUNT_ID],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(tokens, 0);
+}
+
 // ---------------------------------------------------------------------------
 // Reset — decision 7
 // ---------------------------------------------------------------------------

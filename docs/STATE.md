@@ -291,7 +291,7 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   stages wait for a sign-off by the stage's power and never by the opener or a worker; a send-back
   restarts its lane from the target stage; answers follow decision 16. A job's `holds` (a device or a
   `port` field) counts as busy from when it is ready until the order closes. No screens yet.
-- **Orders on the server (ADR-0084 piece 2's server half; migration 0074; 2026-11-03).**
+- **Orders on the server (ADR-0084 piece 2's server half; migration 0075; 2026-11-03).**
   `orders.rs` keeps order types (a Steward's, each save a new version, slugs matched to standing
   teams) and orders (any member opens one; W- numbers from the shared work counter). An order's
   history is its only record: one sealed row per action under the organisation content key, each

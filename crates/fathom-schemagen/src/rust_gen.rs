@@ -664,11 +664,6 @@ fn edge_tables(o: &mut String, x: &Extracted) -> Result<(), ExtractError> {
         );
     }
     o.push_str("            }\n        }\n");
-    o.push_str(
-        "        /// `true` means `(a,b)` and `(b,a)` are the same edge: one \
-         stored\n        /// instance, canonical order by `NodeId` (62 §6.2; \
-         11 §7.4).\n",
-    );
     o.push_str("        /// As `NodeKind::since_minor`.\n");
     o.push_str(
         "        pub const fn since_minor(self) -> Option<u32> {\n            match self {\n",
@@ -682,6 +677,20 @@ fn edge_tables(o: &mut String, x: &Extracted) -> Result<(), ExtractError> {
         );
     }
     o.push_str("            }\n        }\n");
+    o.push_str(
+        "        /// `retired: true`: still read wherever history names it, but \
+         no new\n        /// change may add one.\n",
+    );
+    o.push_str("        pub const fn retired(self) -> bool {\n            match self {\n");
+    for e in &x.edges {
+        let _ = writeln!(o, "                EdgeKind::{} => {},", e.name, e.retired);
+    }
+    o.push_str("            }\n        }\n");
+    o.push_str(
+        "        /// `true` means `(a,b)` and `(b,a)` are the same edge: one \
+         stored\n        /// instance, canonical order by `NodeId` (62 §6.2; \
+         11 §7.4).\n",
+    );
     o.push_str("        pub const fn symmetric(self) -> bool {\n            match self {\n");
     for e in &x.edges {
         let _ = writeln!(

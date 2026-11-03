@@ -1207,6 +1207,9 @@ impl Connector {
         else {
             return Err(BearerRefusal::Invalid);
         };
+        if crate::system_account::is_system(&key.owner) {
+            return Err(BearerRefusal::Invalid);
+        }
         let mut nonce = [0u8; 32];
         getrandom::fill(&mut nonce)
             .map_err(|_| AiError::Crypto(crypto::CryptoError::NoRandomness))?;

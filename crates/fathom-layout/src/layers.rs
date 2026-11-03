@@ -469,7 +469,8 @@ pub fn layers_of(kind: NodeKind) -> LayerMask {
 pub fn layers_of_edge(kind: EdgeKind) -> LayerMask {
     match kind {
         // Physical and L2, per §4.1. At L2 §4.1 says *"collapsed through
-        // aggregates"*, which this build does not do.
+        // aggregates"*, which this build does not do. Link is retired: this
+        // draws an old one until the server turns it into a cable.
         EdgeKind::Link => LayerMask(PHY | L2),
         // *"line, with trunk/access marking"* — the marking is `56` §5.2 G6 and
         // is not drawn here.
