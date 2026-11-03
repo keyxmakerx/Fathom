@@ -8,6 +8,7 @@ import { useContext, useMemo, useState, type ReactNode } from 'react';
 import { dismissDifference, enginePairs, lastEight, type DeviceReading, type KeptReading, type ReadKind, type ReadRange } from '../../api/deviceRead';
 import { SNMP_AUTH_LABELS, type VaultEntry } from '../../api/vault';
 import { asString, fieldValue, findNode } from '../../document/model';
+import { DEVICE_WORDS } from '../drawing/contextMenuItems';
 import { VaultModal } from '../vault/Modal';
 import { useVault } from '../vault/useVault';
 import { acceptAll, acceptable, againstPlan, compare, withWork, type Comparison, type Difference } from './differences';
@@ -209,7 +210,7 @@ function WorkNote({ work }: { work: WorkOnDevice }) {
       ) : null}
       {issue ? (
         <div>
-          <span className="q">It's down</span>“{issue.title || 'Untitled'}” is open on this device{work.issues.length > 1 ? ` with ${work.issues.length - 1} more` : ''}. A
+          <span className="q">{DEVICE_WORDS.itsDown}</span>“{issue.title || 'Untitled'}” is open on this device{work.issues.length > 1 ? ` with ${work.issues.length - 1} more` : ''}. A
           reading may help answer its steps.
         </div>
       ) : null}

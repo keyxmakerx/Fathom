@@ -78,8 +78,17 @@ impl ReadingNow {
     /// The claim, or `None` when this server is reading that address for that organisation now.
     pub fn claim(tenant: &str, address: IpAddr) -> Option<Self> {
         let key = (tenant.to_string(), address);
-        let mut now = READING_NOW.lock().unwrap_or_else(|e| e.into_inner());
-        now.insert(key.clone()).then_some(Self { key })
+        let fresh = READING_NOW
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.clone());
+        // The lock is released before a claim exists: a refused claim must never be built, since
+        // dropping one frees the key it names (and would wait on this same lock).
+        if fresh {
+            Some(Self { key })
+        } else {
+            None
+        }
     }
 }
 
