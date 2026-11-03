@@ -86,6 +86,16 @@ pub fn ir_types_ts(x: &Extracted) -> String {
         }
     }
     o.push_str("};\n");
+    o.push_str("/** Edge kinds marked `retired: true`: read where history names them, never added by a new change. */\n");
+    list(
+        &mut o,
+        "RETIRED_EDGE_KINDS",
+        "EdgeKind",
+        x.edges
+            .iter()
+            .filter(|e| e.retired)
+            .map(|e| e.name.as_str()),
+    );
     o.push_str("/** Node kinds of the `plan` layer: the IP plan store's records, never held by a design. */\n");
     list(
         &mut o,

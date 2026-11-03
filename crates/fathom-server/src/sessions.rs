@@ -1975,6 +1975,11 @@ impl SessionStore {
             // planes and reasons.
             return Err((bucket, "no_such_principal", SessionError::SignInRefused));
         };
+        // The system account never signs in (`0074`): it is no principal, so this
+        // cannot be reached, and is refused by name anyway, answering as nobody.
+        if crate::system_account::is_system(&account) {
+            return Err((bucket, "system_account", SessionError::SignInRefused));
+        }
         if principal_kind.as_deref() != Some(kind.as_str()) {
             return Err((
                 Some(AccountBucket::Account(account)),
@@ -4541,7 +4546,11 @@ async fn account_by_address(
     let row = tx
         .query_opt("SELECT id FROM accounts WHERE email = $1", &[&address])
         .await?;
-    Ok(row.map(|r| r.get(0)))
+    // The system account (`0074`) never signs in: its address names nobody, so it
+    // takes the unknown-address path, and the database refuses its nonce besides.
+    Ok(row
+        .map(|r| r.get::<_, String>(0))
+        .filter(|id| !crate::system_account::is_system(id)))
 }
 
 /// Resolve what an operator typed to an operator id, for sign-in only.

@@ -105,6 +105,7 @@ pub mod rls;
 pub mod roles;
 pub mod secret;
 pub mod sessions;
+pub mod system_account;
 pub mod teaching;
 pub mod teams;
 pub mod termix;

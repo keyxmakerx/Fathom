@@ -1998,6 +1998,19 @@ async fn newest_base(tx: &Transaction<'_>, design: &str, tenant: &str) -> Result
     Ok(row.get(0))
 }
 
+/// Whether any record or removal in `change` names the system account.
+fn names_system(change: &fathom_workspace::Change) -> bool {
+    use fathom_graph::{Actor, Op};
+    let system = |a: &Actor| match a {
+        Actor::User(u) => crate::system_account::is_system(&u.0.encode()),
+    };
+    change.provenance.iter().any(|p| system(&p.asserted_by))
+        || change.batch.ops.iter().any(|op| match op {
+            Op::Tombstone { by, .. } | Op::Revive { by, .. } => system(by),
+            _ => false,
+        })
+}
+
 /// A stored change: the new version and the head that goes with it once the
 /// transaction commits.
 pub struct ChangeWritten {
@@ -2032,17 +2045,89 @@ pub async fn write_change_in_tx(
     exactly_after: bool,
     bounds: &audit::SpoolBounds,
 ) -> Result<ChangeWritten, DesignError> {
+    write_change_as(
+        tx,
+        auth,
+        store,
+        design,
+        scope,
+        doc,
+        schema,
+        after,
+        exactly_after,
+        bounds,
+        *auth.ctx,
+    )
+    .await
+}
+
+/// A change the server built itself, stored as the system account (`0074`, sign-off
+/// r107), on top of exactly `after`. The caller (`auth`) must hold Draw: a reader with
+/// Read only never causes a write. Nothing a request carries reaches here; a change
+/// submitted over the API goes through [`write_change_in_tx`] and is applied as its
+/// sender, so one naming the system account is refused as another's work.
+#[allow(clippy::too_many_arguments)]
+pub async fn write_system_change_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    store: &HeadStore,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    change: &fathom_workspace::Change,
+    after: i64,
+    bounds: &audit::SpoolBounds,
+) -> Result<ChangeWritten, DesignError> {
+    let doc = fathom_workspace::write_change(change);
+    write_change_as(
+        tx,
+        auth,
+        store,
+        design,
+        scope,
+        &doc,
+        current_schema_number(),
+        after,
+        true,
+        bounds,
+        auth.ctx.as_system(),
+    )
+    .await
+}
+
+/// [`write_change_in_tx`], storing the change and its chain entry under `writer`'s
+/// actor: the caller's own, or the system account's for a server-made change.
+#[allow(clippy::too_many_arguments)]
+async fn write_change_as(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    store: &HeadStore,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    doc: &[u8],
+    schema: i32,
+    after: i64,
+    exactly_after: bool,
+    bounds: &audit::SpoolBounds,
+    writer: TenantContext,
+) -> Result<ChangeWritten, DesignError> {
     refuse_if_spool_beyond_bounds(tx, bounds).await?;
     grants::authorise_account(tx, auth, scope, Capability::Draw)
         .await
         .map_err(DesignError::Authority)?;
-    let ctx = auth.ctx;
+    let ctx = &writer;
     let tenant = ctx.tenant().to_string();
     let design_text = design.to_string();
     lock_design(tx, &design_text, &tenant).await?;
 
     let parsed = fathom_workspace::read_change(doc)
         .map_err(|e| DesignError::ChangeRefused(e.to_string()))?;
+    // Only the server makes a change as the system account (`0074`). The head would
+    // refuse one naming another account anyway; this says why, before any lookup.
+    if !crate::system_account::is_system(&ctx.actor().to_string()) && names_system(&parsed) {
+        return Err(DesignError::ChangeRefused(
+            "only Fathom itself makes a change as the system account".to_owned(),
+        ));
+    }
     let batch_id = parsed.batch.id.0.encode();
     let digest = change_digest(auth.ring, &tenant, &design_text, doc);
 
@@ -2064,6 +2149,10 @@ pub async fn write_change_in_tx(
             Err(DesignError::BatchIdUsed)
         };
     }
+    // A new change may not add a retired kind; a retry of one stored before the
+    // kind retired was answered above, and stored changes replay without this.
+    fathom_workspace::refuse_retired_kinds(&parsed)
+        .map_err(|e| DesignError::ChangeRefused(e.to_string()))?;
 
     let (current, tip) = head_snapshot(tx, &design_text, &tenant).await?;
     if current == 0 {

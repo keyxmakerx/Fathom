@@ -43,8 +43,10 @@
 
 mod change;
 mod compact;
+mod retire;
 pub use change::*;
 pub use compact::*;
+pub use retire::{links_to_cables, live_links, refuse_retired_kinds, LINKS_TO_CABLES_LABEL};
 
 use std::collections::BTreeMap;
 

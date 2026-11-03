@@ -1,5 +1,5 @@
--- 0075 -- reading a device over SSH (ADR-0082 §4.1 and §4.4; r87-reader-packages, the owner,
--- 2 November 2026). Number 0075: 0074 is claimed by another thread.
+-- 0076 -- reading a device over SSH (ADR-0082 §4.1 and §4.4; r87-reader-packages, the owner,
+-- 2 November 2026). Number 0076: 0075 is claimed by another thread (orders).
 --
 -- A. HOST KEYS beside ENGINE IDS. An SSH server's host key is confirmed before any login exactly
 --   as an SNMPv3 agent's engine id is (0073 A): typed last 8 characters for one device, or a

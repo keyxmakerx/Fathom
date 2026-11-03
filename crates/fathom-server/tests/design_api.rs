@@ -8132,3 +8132,288 @@ async fn the_ip_plan_routes_plan_look_take_and_answer_the_same_block_twice() {
     assert!(listed.contains("\"lapsed\":false"), "{listed}");
     assert!(listed.contains("10.20.0.0/24"), "{listed}");
 }
+
+// ---------------------------------------------------------------------------
+// Retired Link (sign-off r107): an old Link turns into a cable when the design
+// opens for someone with Draw, in a change by the system account (`0074`).
+// ---------------------------------------------------------------------------
+
+mod retired_links {
+    use super::*;
+    use fathom_graph::ElementId;
+    use fathom_ir::bag::typed;
+    use fathom_ir::generated::ir_types::{CableField, InterfaceField, LinkField, LinkMedia};
+    use fathom_server::system_account::SYSTEM_ACCOUNT_ID;
+
+    const AT: u64 = 1_700_000_000_000;
+
+    fn u(n: u128) -> Ulid {
+        Ulid::from_parts(AT, n).expect("48-bit timestamp")
+    }
+
+    fn prov(n: u128, by: AccountId) -> ProvenanceRecord {
+        ProvenanceRecord {
+            id: ProvenanceId(u(1_000_000 + n)),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(AT),
+            asserted_by: Actor::User(UserId(by.0)),
+            confidence: Confidence::Asserted,
+            supersedes: None,
+        }
+    }
+
+    /// Two devices, each with an interface on a port, and a Link between the
+    /// interfaces labelled "patch 12".
+    fn a_design_with_a_link(by: AccountId) -> Vec<u8> {
+        let mut g = Graph::new();
+        let mut n = 0u128;
+        let mut next = || {
+            n += 1;
+            n
+        };
+        g.begin_batch(BatchId(u(900_000)), "drawn before Link retired")
+            .unwrap();
+        let mut ifaces = Vec::new();
+        for _ in 0..2 {
+            let i = next();
+            let dev = g.insert_node(NodeKind::Device, u(i), prov(i, by)).unwrap();
+            let i = next();
+            let iface = g
+                .insert_node(NodeKind::Interface, u(i), prov(i, by))
+                .unwrap();
+            g.set_field(
+                iface.into(),
+                InterfaceField::Name.key(),
+                scalar::InterfaceName("ge-0/0/1".into()),
+                prov(next(), by),
+            )
+            .unwrap();
+            let i = next();
+            g.insert_edge(EdgeKind::HasInterface, u(i), dev, iface, prov(i, by))
+                .unwrap();
+            let i = next();
+            let chassis = g.insert_node(NodeKind::Chassis, u(i), prov(i, by)).unwrap();
+            let i = next();
+            g.insert_edge(EdgeKind::HasChassis, u(i), dev, chassis, prov(i, by))
+                .unwrap();
+            let i = next();
+            let port = g
+                .insert_node(NodeKind::PhysicalPort, u(i), prov(i, by))
+                .unwrap();
+            let i = next();
+            g.insert_edge(EdgeKind::HasPort, u(i), chassis, port, prov(i, by))
+                .unwrap();
+            let i = next();
+            g.insert_edge(EdgeKind::Occupies, u(i), iface, port, prov(i, by))
+                .unwrap();
+            ifaces.push(iface);
+        }
+        let i = next();
+        let link = g
+            .insert_edge(EdgeKind::Link, u(i), ifaces[0], ifaces[1], prov(i, by))
+            .unwrap();
+        g.set_field(
+            ElementId::Edge(link),
+            LinkField::Label.key(),
+            scalar::Text("patch 12".into()),
+            prov(next(), by),
+        )
+        .unwrap();
+        g.set_field(
+            ElementId::Edge(link),
+            LinkField::Media.key(),
+            LinkMedia::Dac,
+            prov(next(), by),
+        )
+        .unwrap();
+        g.end_batch().unwrap();
+        fathom_workspace::write_plain(&g).unwrap()
+    }
+
+    async fn created_by(design: DesignId, version: i64) -> Option<String> {
+        let su = support::superuser_client_on_test_database().await;
+        su.query_opt(
+            "SELECT created_by FROM design_change WHERE design_id = $1 AND design_version = $2",
+            &[&design.to_string(), &version],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get(0))
+    }
+
+    #[tokio::test]
+    async fn a_reader_opens_it_unchanged_and_someone_with_draw_turns_the_link_into_a_cable() {
+        let _site = support::lock_the_site_chain().await;
+        let pool = support::migrated_pool().await;
+        let ring = ring();
+        let estate = bootstrap(&pool, &ring).await;
+        let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+        designs::write_version(
+            &pool,
+            &ring,
+            estate.organisation,
+            estate.steward.account,
+            design,
+            &a_design_with_a_link(estate.steward.account),
+            CURRENT_SCHEMA_WIRE_VERSION as i32,
+        )
+        .await
+        .expect("version 1");
+        let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+        let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+        let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+        let open = format!("/organisations/{}/designs/{}", estate.organisation, design);
+        let latest = || async {
+            designs::read_version(
+                &pool,
+                &ring,
+                estate.organisation,
+                estate.steward.account,
+                design,
+                None,
+            )
+            .await
+            .expect("the head")
+        };
+
+        // A reader causes no write: the design opens as it is, Link and all.
+        let (status, body) = call(addr, &reader, "GET", &open, b"").await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+        let g = fathom_workspace::read_plain(&body).expect("opens");
+        assert_eq!(fathom_workspace::live_links(&g).len(), 1);
+        assert_eq!(latest().await.version, 1, "a reader wrote nothing");
+
+        // Someone with Draw opens it: the server converts it as the system account.
+        let (status, body) = call(addr, &drawer, "GET", &open, b"").await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+        let g = fathom_workspace::read_plain(&body).expect("opens");
+        assert!(
+            fathom_workspace::live_links(&g).is_empty(),
+            "the Link is closed"
+        );
+        let cables: Vec<_> = g
+            .nodes_of_kind(NodeKind::Cable)
+            .filter(|c| c.absent_since.is_none())
+            .collect();
+        assert_eq!(cables.len(), 1, "one cable in its place");
+        assert_eq!(
+            typed::<scalar::Text, _>(cables[0], CableField::Label.key())
+                .map(|t| t.0.as_str())
+                .ok(),
+            Some("patch 12")
+        );
+        assert_eq!(g.out(cables[0].id, EdgeKind::Terminates).count(), 2);
+        let last = g.log().last().expect("a batch");
+        assert_eq!(last.label, fathom_workspace::LINKS_TO_CABLES_LABEL);
+        let note = last
+            .comment
+            .as_ref()
+            .map(|c| c.0.clone())
+            .unwrap_or_default();
+        assert!(
+            note.contains(&drawer.account.to_string()),
+            "the note names who opened it: {note}"
+        );
+        assert_eq!(latest().await.version, 2);
+        assert_eq!(
+            created_by(design, 2).await.as_deref(),
+            Some(SYSTEM_ACCOUNT_ID),
+            "stored as the system account, never the person who opened it"
+        );
+
+        // The history verifies with the system change in it.
+        let verify = format!("{open}/verify");
+        let (status, body) = call(addr, &estate.steward, "GET", &verify, b"").await;
+        assert_eq!(status, "200");
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("\"outcome\":\"verified\""), "{text}");
+
+        // Opening again changes nothing more.
+        let (status, _) = call(addr, &estate.steward, "GET", &open, b"").await;
+        assert_eq!(status, "200");
+        assert_eq!(latest().await.version, 2);
+    }
+
+    #[tokio::test]
+    async fn a_change_sent_over_the_api_as_the_system_account_or_adding_a_link_is_refused() {
+        let _site = support::lock_the_site_chain().await;
+        let pool = support::migrated_pool().await;
+        let ring = ring();
+        let estate = bootstrap(&pool, &ring).await;
+        let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+        designs::write_version(
+            &pool,
+            &ring,
+            estate.organisation,
+            estate.steward.account,
+            design,
+            &a_plain_face_payload(1),
+            CURRENT_SCHEMA_WIRE_VERSION as i32,
+        )
+        .await
+        .expect("version 1");
+        let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+        let changes = format!(
+            "/organisations/{}/designs/{}/changes?after=1",
+            estate.organisation, design
+        );
+        let base = fathom_workspace::read_plain(&a_plain_face_payload(1)).unwrap();
+        let system: AccountId = SYSTEM_ACCOUNT_ID.parse().unwrap();
+
+        let send = |who: AccountId, kind: Option<EdgeKind>| {
+            let mut g = base.clone();
+            g.begin_batch(BatchId(u(950_000 + kind.is_some() as u128)), "sent")
+                .unwrap();
+            let rec = prov(500 + kind.is_some() as u128 * 10, who);
+            let mut recs = vec![rec.clone()];
+            let a = g.insert_node(NodeKind::Interface, u(800), rec).unwrap();
+            if let Some(k) = kind {
+                let r2 = prov(501, who);
+                let r3 = prov(502, who);
+                let b = g
+                    .insert_node(NodeKind::Interface, u(801), r2.clone())
+                    .unwrap();
+                g.insert_edge(k, u(802), a, b, r3.clone()).unwrap();
+                recs.push(r2);
+                recs.push(r3);
+            }
+            g.end_batch().unwrap();
+            recs.sort_by_key(|r| r.id);
+            save_body(
+                CURRENT_SCHEMA_WIRE_VERSION,
+                &fathom_workspace::write_change(&fathom_workspace::Change {
+                    batch: g.log().last().unwrap().clone(),
+                    provenance: recs,
+                    values: Vec::new(),
+                }),
+            )
+        };
+
+        let (status, body) =
+            call(addr, &estate.steward, "POST", &changes, &send(system, None)).await;
+        assert_ne!(
+            status, "200",
+            "a change naming the system account is refused"
+        );
+        assert!(
+            String::from_utf8_lossy(&body).contains("system account"),
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+
+        let (status, body) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &changes,
+            &send(estate.steward.account, Some(EdgeKind::Link)),
+        )
+        .await;
+        assert_ne!(status, "200", "a new Link is refused");
+        assert!(
+            String::from_utf8_lossy(&body).contains("retired"),
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+}

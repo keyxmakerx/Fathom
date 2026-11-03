@@ -427,6 +427,16 @@ impl TenantContext {
         self.actor
     }
 
+    /// This context with the system account as the actor (`0074`): the same pinned
+    /// tenant and role, for the write a server-made change stores. Only the server
+    /// calls it, for a change it built itself; nothing a request carries reaches it.
+    pub(crate) fn as_system(&self) -> TenantContext {
+        TenantContext {
+            actor: crate::system_account::system_account(),
+            ..*self
+        }
+    }
+
     /// The acting account's role in this organisation.
     pub fn role(&self) -> Role {
         self.role
