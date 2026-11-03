@@ -2268,7 +2268,10 @@ impl CredentialStore {
 
         let found = tx
             .query_opt(
-                "SELECT id FROM accounts WHERE email = $1 AND disabled_at IS NULL",
+                // The system account (`0074`) holds no password, so its address takes
+                // the unknown branch: same answer, and no token row it would refuse.
+                "SELECT id FROM accounts WHERE email = $1 AND disabled_at IS NULL \
+                   AND id <> fathom_system_account_id()",
                 &[&address],
             )
             .await?;

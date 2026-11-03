@@ -444,6 +444,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0073_device_readings.sql",
         sql: include_str!("../migrations/0073_device_readings.sql"),
     },
+    // The system account: the actor of a change the server makes itself (sign-off r107).
+    Migration {
+        version: 74,
+        name: "0074_system_account.sql",
+        sql: include_str!("../migrations/0074_system_account.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

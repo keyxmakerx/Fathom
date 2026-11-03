@@ -1566,6 +1566,10 @@ async fn register(
 ) -> Result<AiKey, AiError> {
     let organisation = auth.ctx.tenant().to_string();
     let me = auth.ctx.actor().to_string();
+    // The system account owns no AI connection (`0074`); the database refuses it too.
+    if crate::system_account::is_system(&me) {
+        return Err(AiError::Refused);
+    }
     if !read_switch(tx, auth.ring).await?.allowed {
         return Err(AiError::SiteOff);
     }
@@ -2375,6 +2379,9 @@ pub async fn verify_request(
     let Some(public_key) = &key.public_key else {
         return Err(AiError::Refused);
     };
+    if crate::system_account::is_system(&key.owner) {
+        return Err(AiError::Refused);
+    }
     if authority::verify_es256(public_key, &message, &request.signature).is_err() {
         return Err(AiError::Refused);
     }

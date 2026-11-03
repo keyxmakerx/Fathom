@@ -146,7 +146,7 @@ export function sinceWords(since: number, now: number): string {
 export function whoWords(authors: ReadonlyArray<{ account: string }>, nameOf: (account: string) => string | null): string {
   const named: string[] = [];
   for (const a of authors) {
-    const name = nameOf(a.account)?.trim();
+    const name = a.account === SYSTEM_ACCOUNT_ID ? SYSTEM_ACCOUNT_NAME : nameOf(a.account)?.trim();
     if (name) named.push(name);
   }
   const unnamed = authors.length - named.length;
@@ -227,8 +227,13 @@ export function rememberNames(accountId: string | null, designId: string | undef
 /** Sign-off rua-ui-audit, "real names": who made a change, in words, the same in every history.
  * "you", the name this design has heard for them, or "a colleague" when none has been heard;
  * never a piece of an account id, which made one person read as two different codes. */
+/** The server's own account (migration 0074): the actor of a change Fathom makes itself. */
+export const SYSTEM_ACCOUNT_ID = '0000000000000000000000SYST';
+export const SYSTEM_ACCOUNT_NAME = 'Fathom (system change)';
+
 export function whoWord(account: string | null | undefined, accountId: string | null, designId: string | undefined, you = 'you'): string {
   if (account == null || account === '') return 'unknown';
+  if (account === SYSTEM_ACCOUNT_ID) return SYSTEM_ACCOUNT_NAME;
   if (account === accountId) return you;
   return loadNames(accountId, designId).get(account) ?? 'a colleague';
 }
