@@ -438,6 +438,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0072_plan_approvals.sql",
         sql: include_str!("../migrations/0072_plan_approvals.sql"),
     },
+    // Reading a device: confirmed engines, readings and dismissals (ADR-0082; r90, r100).
+    Migration {
+        version: 73,
+        name: "0073_device_readings.sql",
+        sql: include_str!("../migrations/0073_device_readings.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

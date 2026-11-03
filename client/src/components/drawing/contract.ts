@@ -169,7 +169,7 @@ export interface DrawingActions {
  * `removeSupply`/`fitSupply` — and may still be refused (an unknown slot, a
  * slot already fitted, a fixed slot) the same way a field edit can. */
 export type EditorChange =
-  | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address'; value: string | null }
+  | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address' | 'os_version'; value: string | null }
   | { kind: 'chassis'; id: string; field: 'serial'; value: string | null }
   | { kind: 'rack'; id: string; field: 'row' | 'bay' | 'label'; value: string | null }
   /** ADR-0060 decision 5: a rack's height in units, refused below anything mounted in it. */
@@ -301,7 +301,13 @@ export type EditorChange =
   | { kind: 'card'; id: string; field: 'name' | 'model' | 'serial'; value: string | null }
   /** `optic: null` records an empty cage. */
   | { kind: 'optic'; portId: string; optic: Optic | null }
-  | { kind: 'optic-move'; fromPortId: string; toPortId: string };
+  | { kind: 'optic-move'; fromPortId: string; toPortId: string }
+  /** A cable between two free ports (`document/cables.ts`'s `connectPorts`), as device reading's
+   * "Add cable" makes one from an LLDP neighbour (ADR-0082). */
+  | { kind: 'cable-connect'; fromPortId: string; toPortId: string }
+  /** Several changes as one undo step: device reading's "Accept all" (sign-off r100). Refused whole
+   * when any one is refused. */
+  | { kind: 'all'; changes: readonly EditorChange[] };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through

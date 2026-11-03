@@ -1,0 +1,75 @@
+/* Device reading in the device panel (ADR-0082 §5; sign-off r100). */
+.dev-panel__kind .kind-actions { display: flex; align-items: center; gap: 6px; }
+.read-now { height: 24px; padding: 0 10px; font-size: var(--t-micro); }
+
+/* The one line under the chips: when it was last read. */
+.read-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--t-small); color: var(--muted); }
+.read-line b { color: var(--ink); font-weight: 400; }
+.dev-tag--differs { color: var(--caution); border-color: color-mix(in srgb, var(--caution) 45%, transparent); background: var(--caution-wash); }
+.tab-count { margin-left: 4px; color: var(--caution); }
+
+.reading-tab { display: flex; flex-direction: column; gap: 8px; }
+.reading-tab .muted, .read-dialog .muted { color: var(--muted); }
+.reading-tab .small, .read-dialog .small { font-size: var(--t-small); }
+.read-meta { font-size: var(--t-small); color: var(--muted); line-height: 1.6; }
+.read-meta b { color: var(--ink); font-weight: 400; }
+.read-ro { color: var(--safe); }
+
+/* A difference: what the device says, what the drawing says, and the two answers. */
+.diff { display: grid; grid-template-columns: 70px minmax(0, 1fr); column-gap: 10px; align-items: start; padding: 7px 0 7px 10px; border-left: 2px dashed var(--caution); font-size: var(--t-small); }
+.diff__what { color: var(--muted); overflow-wrap: anywhere; }
+.diff__vals { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.diff__was { color: var(--muted); }
+.diff__now { color: var(--ink); font-family: var(--mono); font-size: var(--t-mono); overflow-wrap: anywhere; }
+.diff__why { color: var(--muted); font-size: var(--t-micro); letter-spacing: 0.02em; }
+.diff__acts { display: flex; gap: 4px; margin-top: 4px; }
+.diff__error { color: var(--danger); }
+.group-acts { display: flex; justify-content: flex-end; }
+.fold { font-size: var(--t-small); color: var(--muted); }
+.fold b { color: var(--ink); font-weight: 400; }
+.earlier { font-size: var(--t-small); display: flex; flex-direction: column; gap: 3px; }
+.earlier__row { display: grid; grid-template-columns: 140px 1fr; column-gap: 10px; }
+.earlier__row span:first-child { color: var(--muted); }
+
+/* MAC and ARP. */
+.find { display: flex; gap: 6px; }
+.find input { flex: 1; font-family: var(--mono); }
+table.macs { border-collapse: collapse; width: 100%; font-size: var(--t-small); }
+table.macs th { text-align: left; font-size: var(--t-micro); letter-spacing: var(--track-head); text-transform: uppercase; color: var(--muted); font-weight: 700; padding: 4px 6px 4px 0; border-bottom: var(--rule-hair) solid var(--hairline); }
+table.macs td { padding: 4px 6px 4px 0; border-bottom: var(--rule-hair) solid var(--hairline); font-variant-numeric: tabular-nums; }
+table.macs td.m { font-family: var(--mono); font-size: var(--t-mono); }
+table.macs tr.hit td { background: var(--caution-wash); }
+
+/* The Read dialog. */
+.read-dialog { display: flex; flex-direction: column; gap: 14px; font-size: var(--t-small); }
+.read-dialog .lbl { font-size: var(--t-micro); letter-spacing: var(--track-head); text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
+.read-dialog .opt { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: var(--rule-hair) solid var(--hairline); }
+.read-dialog .opt + .opt { border-top: 0; }
+.read-dialog .opt.on { background: var(--surface); }
+.read-dialog .opt .sub { color: var(--muted); }
+.read-dialog .engine { font-family: var(--mono); font-size: var(--t-mono); letter-spacing: 0.04em; margin: 6px 0; }
+.read-dialog .engine mark { background: var(--caution-wash); color: var(--ink); padding: 0 1px; }
+.read-dialog .type8 { width: 130px; font-family: var(--mono); letter-spacing: 0.12em; text-transform: uppercase; }
+.read-dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.okline { color: var(--safe); }
+
+/* A refusal, said once in plain words. */
+.read-fail { border-left: 2px solid var(--danger); padding: 8px 10px; background: var(--danger-wash); font-size: var(--t-small); display: flex; flex-direction: column; gap: 6px; }
+.read-fail b { color: var(--danger); font-weight: 700; }
+.why-off { font-size: var(--t-small); }
+.why-off div { padding: 6px 8px; border: var(--rule-hair) solid var(--hairline); }
+.why-off .q { color: var(--muted); font-size: var(--t-micro); letter-spacing: var(--track-head); text-transform: uppercase; display: block; margin-bottom: 2px; }
+.progress { display: flex; flex-direction: column; gap: 4px; font-size: var(--t-small); }
+.progress .now { color: var(--ink); }
+.progress .wait { color: var(--muted); }
+
+/* The Steward's page: agents waiting for approval. */
+.engines { border: var(--rule-hair) solid var(--hairline); }
+.engines__head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: var(--rule-hair) solid var(--hairline); background: var(--surface); }
+.engines__head b { font-family: var(--mono); font-size: var(--t-mono); font-weight: 400; }
+.engines table { width: 100%; border-collapse: collapse; }
+.engines td, .engines th { text-align: left; padding: 5px 12px; border-bottom: var(--rule-hair) solid var(--hairline); }
+.engines th { font-size: var(--t-micro); letter-spacing: var(--track-head); text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.engines td.m { font-family: var(--mono); font-size: var(--t-mono); }
+.engines__foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; }
+.engines .chg { color: var(--danger); }

@@ -78,6 +78,7 @@ import { createDesign, renameDesign } from '../../api/designs';
 import { writePlain } from '../../document/plain';
 import type { SideTab } from '../shell/sideSlot';
 import { VaultPlaceContext, type VaultPlace } from '../vault/useVault';
+import { ReadingContext, type ReadingPlace } from '../reading/store';
 import { usePhone } from '../phone/usePhone';
 import { PhoneTabs } from '../phone/PhoneTabs';
 import { ScanSheet } from '../phone/ScanSheet';
@@ -760,6 +761,14 @@ export function DesignPlace(props: DesignPlaceProps) {
     const names = new Map(devices.map((n) => [n.id, asString(fieldValue(n.fields, 'Device.hostname')) || 'unnamed device']));
     return { organisation: organisationId, organisationName, design: designId, deviceIds: devices.map((n) => n.id), deviceName: (id) => names.get(id) ?? null };
   }, [vaultDoc, organisationId, organisationName, designId]);
+  // Device reading (ADR-0082): only on a saved design; Accept is an ordinary edit through the session.
+  const readingPlace = useMemo<ReadingPlace | null>(
+    () =>
+      session.doc && designId
+        ? { organisation: organisationId, design: designId, doc: session.doc, canDraw: session.canDraw, onEdit: session.handleEdit }
+        : null,
+    [organisationId, designId, session.doc, session.canDraw, session.handleEdit],
+  );
   const firmwareApi = useFirmwareApi({
     organisationId,
     scopeId,
@@ -1183,6 +1192,7 @@ export function DesignPlace(props: DesignPlaceProps) {
       <div className="print-hide-under-preview" inert={printMode === 'preview' || (docs.view != null && props.place !== 'racks') || learn.view != null}>
         <FirmwareContext.Provider value={firmwareApi}>
           <VaultPlaceContext.Provider value={vaultPlace}>
+          <ReadingContext.Provider value={readingPlace}>
           <PaletteRegistryContext.Provider value={paletteRegistry}>
             <DocsContext.Provider value={docs.api}>
               <LearnContext.Provider value={learn.api}>
@@ -1192,6 +1202,7 @@ export function DesignPlace(props: DesignPlaceProps) {
               </LearnContext.Provider>
             </DocsContext.Provider>
           </PaletteRegistryContext.Provider>
+          </ReadingContext.Provider>
           </VaultPlaceContext.Provider>
         </FirmwareContext.Provider>
       </div>

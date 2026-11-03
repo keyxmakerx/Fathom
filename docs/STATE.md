@@ -828,7 +828,21 @@ learns the engine id without sending a login; a read needs that id confirmed and
 changes. It reads fixed lists only (system, entity inventory, interfaces, LLDP, MAC and ARP
 tables) and signs each reading with a SHA-256 digest. Proved in CI against net-snmp's `snmpd` with
 each protocol, and refused by name for a wrong password, a wrong privacy password, an unknown user
-and MD5. The server does not call it yet: Read on a device is the next part.
+and MD5.
+
+**Device reading, read on a device** (ADR-0082 §4.2, §4.4; sign-off r100, all A; migration 0073;
+`src/device_reading.rs`, `src/design_api/device_read_routes.rs`, `components/reading/`). Read now in
+the device panel's head, a "differs from drawing" chip and a Readings tab after Ports. Before any login
+is sent, the agent a device answers with (its SNMP engine ID) must be confirmed: by someone with Draw
+typing its last 8 characters, or by a Steward approving a range's new ones at once (Steward › Device
+reading); a changed one stops reads and is approved alone. A read uses a read-only SNMP login marked on
+the device, or one a Steward set for its range, opened from Fathom's copy. What the device said passes the
+redaction gate's detector and is kept sealed under the organisation's key, the last 10 per device. The
+browser compares it with the drawing: name, serial, firmware, and LLDP neighbours against cables. Accept,
+Add and Add cable are ordinary edits; Accept all is one undo step; Dismiss holds until the device says
+something else. MAC and ARP are read on request, with Find, what changed since the last, and CSV. Not
+built: port descriptions (the drawing keeps none on a physical port), logins by folder, scheduled reads,
+SSH (next).
 
 **Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
 `components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is

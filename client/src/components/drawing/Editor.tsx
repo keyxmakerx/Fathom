@@ -27,6 +27,7 @@ import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
 import { DevicePhoto } from '../docs/DevicePhoto';
 import { FirmwareChip, FirmwareSection } from '../firmware/FirmwareSection';
+import { ReadLine, ReadNow, ReadingChip, ReadingsTab, ReadingsTabLabel, useReadingShown } from '../reading/Reading';
 import { AboutSection } from '../learn/AboutSection';
 import { TermixActions } from '../termix/TermixActions';
 import { ConnectLines } from '../termix/ConnectLines';
@@ -1210,7 +1211,15 @@ function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; 
 
 /** A panel's tabs (UI-SPEC "Look"): every tab's body stays in the page,
  * the others hidden, so a tab never loses what was typed in it. */
-type PanelTab = { id: string; label: ReactNode; body: ReactNode; /** Shown only while this lens is lit. */ lens?: 'routing' };
+type PanelTab = {
+  id: string;
+  label: ReactNode;
+  body: ReactNode;
+  /** Shown only while this lens is lit. */
+  lens?: 'routing';
+  /** Shown only where devices can be read (ADR-0082): a saved design on a server that reads them. */
+  needs?: 'reading';
+};
 
 /** 'flat' where the page around the panel already has tabs of its own (Inventory's item page). */
 export const PanelTabsMode = createContext<'tabs' | 'flat'>('tabs');
@@ -1261,7 +1270,8 @@ function PanelTabs({ tabs: all, initial }: { tabs: readonly PanelTab[]; initial?
   const mode = useContext(PanelTabsMode);
   // A lens's own tab shows only while that lens is lit, and is the one shown first then (sign-off r101).
   const routingLit = useRoutingLit();
-  const tabs = all.filter((t) => t.lens == null || (t.lens === 'routing' && routingLit));
+  const readingShown = useReadingShown();
+  const tabs = all.filter((t) => (t.lens == null || (t.lens === 'routing' && routingLit)) && (t.needs == null || readingShown));
   const lensTab = tabs.find((t) => t.lens != null)?.id;
   const [picked, setPickedState] = useState(lensTab ?? initial ?? lastTab ?? tabs[0].id);
   const setPicked = (id: string) => {
@@ -2277,6 +2287,8 @@ function panelFor(
         <div className="dev-panel__head">
           <div className="dev-panel__kind">
             <span>{kindLine}</span>
+            <span className="kind-actions">
+            <ReadNow deviceId={chassis.deviceId} />
             {actions.onEdit != null || more != null ? (
               <details className="dev-more" data-testid="device-more">
                 <summary className="dev-more__button" aria-label="More for this device" title="More for this device">
@@ -2298,6 +2310,7 @@ function panelFor(
                 )}
               </details>
             ) : null}
+            </span>
           </div>
           <div className="drawing-editor__title dev-panel__name">
             <EditableValue
@@ -2313,8 +2326,10 @@ function panelFor(
           {sub ? <div className="dev-panel__sub">{sub}</div> : null}
           <div className="dev-panel__chips">
             <FirmwareChip deviceId={chassis.deviceId} />
+            <ReadingChip deviceId={chassis.deviceId} />
             {chassisSketch ? <span className="dev-tag">Typed by hand</span> : null}
           </div>
+          <ReadLine deviceId={chassis.deviceId} />
           {/* r30-device: said once for the whole panel, not under every field. */}
           <TypedNote shown={[chassis.hostname, chassis.role, chassis.serial, chassis.managementAddress].some((v) => (v ?? '').length > 0)} />
         </div>
@@ -2488,6 +2503,12 @@ function panelFor(
               label: 'Routing',
               lens: 'routing',
               body: <RoutingTab deviceId={chassis.deviceId} />,
+            },
+            {
+              id: 'readings',
+              label: <ReadingsTabLabel deviceId={chassis.deviceId} />,
+              body: <ReadingsTab deviceId={chassis.deviceId} />,
+              needs: 'reading',
             },
             {
               id: 'logins',

@@ -618,6 +618,16 @@ pub enum EntryType {
     /// A plan approved, started in an emergency, or approved after one (migration `0072`):
     /// the `design`, the `plan`, the `kind`, the `actor`. Never the reason.
     PlanApprovalSigned,
+    /// One read of one device finished (migration `0073`): the `design`, `element`, `kind`,
+    /// `outcome`, the reader that read it, the SHA-256 `digest` of what it read, the `login`'s
+    /// id, the `actor`. Never what the device answered.
+    DeviceReadDone,
+    /// SNMPv3 engines confirmed (migration `0073`): `how` (`typed` for one device, `range` for a
+    /// Steward's batch), the `count`, the `actor`. One entry per batch (r90 "log": A).
+    DeviceReadEngineApproved,
+    /// A difference between a reading and the drawing dismissed (migration `0073`): the
+    /// `design`, `element`, the `actor`. Never the field or the value.
+    DeviceReadDismissed,
 }
 
 impl EntryType {
@@ -730,6 +740,9 @@ impl EntryType {
             Self::TeamRoleDefined => "team_role_defined",
             Self::PlanRuleSet => "plan_rule_set",
             Self::PlanApprovalSigned => "plan_approval_signed",
+            Self::DeviceReadDone => "device_read_done",
+            Self::DeviceReadEngineApproved => "device_read_engine_approved",
+            Self::DeviceReadDismissed => "device_read_dismissed",
         }
     }
 
@@ -842,6 +855,9 @@ impl EntryType {
             "team_role_defined" => Some(Self::TeamRoleDefined),
             "plan_rule_set" => Some(Self::PlanRuleSet),
             "plan_approval_signed" => Some(Self::PlanApprovalSigned),
+            "device_read_done" => Some(Self::DeviceReadDone),
+            "device_read_engine_approved" => Some(Self::DeviceReadEngineApproved),
+            "device_read_dismissed" => Some(Self::DeviceReadDismissed),
             _ => None,
         }
     }
@@ -959,7 +975,10 @@ impl EntryType {
             | Self::TeamGrantRevoked
             | Self::TeamRoleDefined
             | Self::PlanRuleSet
-            | Self::PlanApprovalSigned => &[ChainKind::Org],
+            | Self::PlanApprovalSigned
+            | Self::DeviceReadDone
+            | Self::DeviceReadEngineApproved
+            | Self::DeviceReadDismissed => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

@@ -35,6 +35,7 @@ import {
   type FathomCopy,
   type LoginKind,
   type ShareBody,
+  type SnmpAuth,
   type UsedOn,
   type VaultEntry,
   type VaultKeyView,
@@ -62,6 +63,7 @@ import {
   wrapTo,
   type OpenVaultKey,
   type Secret,
+  secretFields,
 } from './crypto';
 import { readPref, writePref } from '../prefs';
 
@@ -367,6 +369,8 @@ export interface NewLogin {
   usedOn: UsedOn[];
   /** "This is a read-only account" (ADR-0082 §4.1). */
   readOnly?: boolean;
+  /** An SNMP login's SNMPv3 authentication (ADR-0082 §4.5). */
+  snmpAuth?: SnmpAuth | null;
   secret: Secret;
 }
 
@@ -376,7 +380,7 @@ export async function storeLogin(organisation: string, recipients: Recipients, l
   const contentKey = newContentKey();
   const sealed = await sealSecret(organisation, id, 1, contentKey, login.secret);
   const share = await buildShare(organisation, u.account, id, 1, contentKey, recipients.keys);
-  return createLogin(organisation, { id, name: login.name, kind: login.kind, usedOn: login.usedOn, readOnly: login.readOnly, secretCt: sealed.ct, secretNonce: sealed.nonce, share });
+  return createLogin(organisation, { id, name: login.name, kind: login.kind, usedOn: login.usedOn, readOnly: login.readOnly, snmpAuth: login.snmpAuth ?? null, secretCt: sealed.ct, secretNonce: sealed.nonce, share });
 }
 
 /** Open my copy of a login. Refuses a copy no verified share covers, or whose digest is not the
@@ -464,7 +468,7 @@ export const FATHOM_OFF_TEXT =
 const recipientsOf = (entry: VaultEntry): Recipient[] =>
   entry.holders.map((h) => ({ who: h.kind === 'recovery' ? RECOVERY_RECIPIENT : (h.account ?? ''), keyFpr: h.fpr, digest: h.digest }));
 
-const copyOf = (secret: Secret) => ({ u: secret.username, p: secret.password, n: secret.note });
+const copyOf = (secret: Secret) => secretFields(secret);
 
 /** Whether Fathom's copy is behind the login: the password changed or the holders did. */
 export function fathomCopyStale(entry: VaultEntry): boolean {

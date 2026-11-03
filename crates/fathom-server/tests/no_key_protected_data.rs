@@ -296,8 +296,42 @@ const TABLES: &[TableClaim] = &[
         name: "organisation_device_read",
         protection: Protection::NoKeyProtectedMaterial,
         why: "Device reading switched on for an organisation, and the management ranges a read \
-              may reach (0067): an id, one boolean, address ranges with their ports, who set them \
-              and when. No login, no community string and nothing a device answered.",
+              may reach (0067): an id, one boolean, address ranges with their ports and the id of \
+              the vault login a Steward set for each, who set them and when. No login itself, no \
+              community string and nothing a device answered.",
+    },
+    TableClaim {
+        name: "device_read_engines",
+        protection: Protection::KeyProtected {
+            columns: &["sealed"],
+            under: "the device reading key, derived from the tenant key by HKDF under its own \
+                    label `fathom/device-reading/v1` (migration 0073)",
+        },
+        why: "one SNMPv3 agent someone saw or confirmed: its address, engine id and the device it \
+              was read for, sealed. Beside it in the clear: an HMAC of the address under the \
+              same derived key, a state word, who saw or approved it and when, the key epoch.",
+    },
+    TableClaim {
+        name: "device_readings",
+        protection: Protection::KeyProtected {
+            columns: &["sealed"],
+            under: "the device reading key, derived from the tenant key by HKDF under its own \
+                    label `fathom/device-reading/v1` (migration 0073)",
+        },
+        why: "what one read of one device found, after the redaction gate's detector: sealed. \
+              Beside it in the clear: ids, the design and element, the kind, who read it and \
+              when, the chain entry's sequence and the key epoch.",
+    },
+    TableClaim {
+        name: "device_read_dismissals",
+        protection: Protection::KeyProtected {
+            columns: &["sealed"],
+            under: "the device reading key, derived from the tenant key by HKDF under its own \
+                    label `fathom/device-reading/v1` (migration 0073)",
+        },
+        why: "one difference someone dismissed: the field and the value read, sealed. Beside it \
+              in the clear: the design and element ids, an HMAC of the field, who dismissed it \
+              and when, the key epoch.",
     },
     TableClaim {
         name: "member_termix",

@@ -133,6 +133,11 @@ fn reads_a_real_agent_with_every_offered_protocol_and_refuses_what_it_should() {
         login("fathom256", "sha256", "authpassword256", "privpassword256"),
     );
     assert_eq!(r["failure"]["code"], "engine_changed", "{r}");
+    assert_eq!(
+        r["engineId"],
+        engine.as_str(),
+        "the new id comes back to be confirmed"
+    );
 
     // An address outside the job's ranges is refused before anything is sent.
     let mut j = job(&addr, port, Some(&engine), &["system"]);

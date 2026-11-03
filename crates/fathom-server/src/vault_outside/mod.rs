@@ -2237,7 +2237,11 @@ pub async fn use_finish(
             }
         }
     };
-    Ok(Ok(UsedLogin { user, password }))
+    Ok(Ok(UsedLogin {
+        user,
+        password,
+        privacy: None,
+    }))
 }
 
 #[cfg(test)]
