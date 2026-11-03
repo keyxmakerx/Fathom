@@ -2064,6 +2064,10 @@ pub async fn write_change_in_tx(
             Err(DesignError::BatchIdUsed)
         };
     }
+    // A new change may not add a retired kind; a retry of one stored before the
+    // kind retired was answered above, and stored changes replay without this.
+    fathom_workspace::refuse_retired_kinds(&parsed)
+        .map_err(|e| DesignError::ChangeRefused(e.to_string()))?;
 
     let (current, tip) = head_snapshot(tx, &design_text, &tenant).await?;
     if current == 0 {

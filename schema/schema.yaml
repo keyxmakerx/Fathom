@@ -3193,6 +3193,7 @@ edges:
     in: "0..1"
     reverse_index: true
     symmetric: true
+    retired: true
     fields:
       # NOTE (form vs content): the declared variant `unknown` trips 62 §7 rule 2 / §18.1
       # schema.enum.reserved-variant (the unknown arm is generated, never declared), but 11 §7.4
@@ -3207,10 +3208,11 @@ edges:
       - { name: provider_circuit, type: Text, card: "0..1", emit: "—", doc: Free prose until Circuit exists. }
     emit_dict: null
     doc: |
-      SUPERSEDED by Cable + Terminates (19 §3.8) and kept per 19 §7.5 — removal would be a
-      major bump. Direction is normalised on write (smaller NodeId becomes from, 11 §7.4);
-      consumers must never read meaning into the direction of a symmetric edge. The Cabled
-      traversal is now a derived edge.
+      RETIRED (r107): a Cable with two Terminates says this better. Kept only so that history
+      naming a Link still reads and its chain still verifies; no change may add one, and the
+      server turns each live Link into a Cable in a system change
+      (fathom_workspace::links_to_cables). Direction is normalised on write (smaller NodeId
+      becomes from, 11 §7.4); never read meaning into it.
   - edge: PeersWith
     class: reference
     from: [Device]

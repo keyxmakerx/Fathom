@@ -47,11 +47,11 @@ use fathom_ir::generated::ir_types::{
     AddressField, AggregateInterfaceField, CableField, CableRunField, CableTieField, CardField,
     ChassisField, ContainerField, ContainerNetworkField, DeviceField, EdgeKind, ExternalPeerField,
     FieldValueField, FixedToField, InterfaceField, IssueField, IssueStepField, LabelField,
-    LineEndField, LineField, LinkField, LogicalUnitField, MaintenancePlanField, MountedInField,
-    NodeKind, NoteField, OccupiesField, PassiveNodeField, PhysicalPortField, PlanStepField,
-    PowerSupplyField, PremisesField, PublishedPortField, RackField, SiteField, SitsOnField,
-    StockItemField, StockLevelField, StoreField, SurfaceField, TagField, TerminatesField,
-    VlanField, VlanMemberField,
+    LineEndField, LineField, LogicalUnitField, MaintenancePlanField, MountedInField, NodeKind,
+    NoteField, OccupiesField, PassiveNodeField, PhysicalPortField, PlanStepField, PowerSupplyField,
+    PremisesField, PublishedPortField, RackField, SiteField, SitsOnField, StockItemField,
+    StockLevelField, StoreField, SurfaceField, TagField, TerminatesField, VlanField,
+    VlanMemberField,
 };
 
 /// The three things a key may be allowed to see.
@@ -476,11 +476,6 @@ const EDGES: &[EdgeRow] = &[
         tier: Tier::Layout,
         kind: EdgeKind::Occupies,
         fields: fields!(OccupiesField: Lane),
-    },
-    EdgeRow {
-        tier: Tier::Layout,
-        kind: EdgeKind::Link,
-        fields: fields!(LinkField: Media, LengthM, Label),
     },
     EdgeRow {
         tier: Tier::Layout,
