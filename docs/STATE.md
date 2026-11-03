@@ -274,7 +274,10 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   there at the top. The engine decides all of it: `fathom_inventory::work` (`plan_clashes`, `running_on`), asked
   through `OP_WORK_CLASHES` (faces 39 to 42), so the server's part 2 reads the same answer;
   `components/plans/clashes.ts` only words it. Not built: across designs, one person on two things, work you can't
-  open (part 2, the server's work index), and orders (with ADR-0084 piece 2).
+  open (part 2, the server's work index), and orders (with ADR-0084 piece 2; r105 v2 picked orders B, so an
+  order type may name, as an optional key, the devices or ports a job holds while open). For part 2: `work.rs` compares
+  windows as wall time, so across sites compare them in each site's time zone; and an HA pair drawn as two devices is
+  missed by device-level matching. Later, per-folder opt-ins: a Steward's hard stop on a clash, and a change freeze.
 - **Order types, read and checked (ADR-0084 piece 1 and decisions 14 to 17, sign-offs r103,
   2026-11-02).** `crates/fathom-orders` reads an order definition (`order-definition/1`) or a shared
   field set (`field-set/1`) through the YAML subset and returns every problem with its line: unknown
