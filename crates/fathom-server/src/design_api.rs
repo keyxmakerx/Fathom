@@ -350,6 +350,7 @@ pub fn router(state: DesignApiState) -> Router {
         .merge(plan_approval_routes::routes())
         .merge(ipam_routes::routes())
         .merge(device_read_routes::routes())
+        .merge(orders_routes::routes())
         .with_state(state)
 }
 
@@ -363,6 +364,8 @@ mod ipam_routes;
 // The password vault's routes (ADR-0071). A child module, so it shares this file's extractor,
 // transaction opening and body helpers without making any of them public.
 mod vault_routes;
+// Orders (ADR-0084 piece 2): order types, orders and acting on them.
+mod orders_routes;
 // Teams (ADR-0081): propose, sign, list, rename, history.
 mod plan_approval_routes;
 mod teams_routes;

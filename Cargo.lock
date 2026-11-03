@@ -541,6 +541,7 @@ dependencies = [
  "fathom-id",
  "fathom-ingest",
  "fathom-ir",
+ "fathom-orders",
  "fathom-schema",
  "fathom-workspace",
  "getrandom 0.4.3",

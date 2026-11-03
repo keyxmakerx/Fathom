@@ -212,8 +212,15 @@ format covers it too: it does, as `lanes`, `starts_after`, `use` and `field_sets
     job left out by its `when` counts as met for `needs`.
 
 **Built (piece 2):** `fathom_orders::engine`, pure and deterministic, with `People` as the server's
-answer to who is on which team and holds what. Not yet: the server's tables, routes and sealed rows
-for orders (the next PR), the overdue clock (piece 3), and the Work tab and order page (piece 4).
+answer to who is on which team and holds what. The server half (migration 0074, `orders.rs`):
+order types as sealed, versioned records, saved by a Steward with every slug matched to a standing
+team; orders opened by any member of the organisation; each action one sealed row and one
+`order_event` on the organisation chain, and the order rebuilt by replay on every read. Replay
+trusts history for who could act, so a later team change never rewrites an order; everything that
+does not depend on people is checked again. Every text in a definition, answer and reason goes
+through the redaction gate's bare check (decision 2), the definition's texts one by one rather
+than its raw lines, because YAML's own `key:` reads as a secret's keyword. Not yet: the overdue
+clock (piece 3), and the Work tab and order page (piece 4).
 The two later items from r105 are issues #315 (a Steward makes a clash a hard stop for a folder)
 and #316 (change freezes).
 
