@@ -146,9 +146,15 @@ export function ReadNow({ deviceId }: { deviceId: string }) {
       >
         {busy ? 'Reading…' : 'Read now'}
       </button>
-      {d.state.dialog ? <ReadDialog d={d} deviceId={deviceId} kind={d.state.dialog} /> : null}
     </>
   );
+}
+
+/** The Read dialog, when open. Placed outside the head's small-capitals kind line so its text keeps its own case. */
+export function ReadDialogHost({ deviceId }: { deviceId: string }) {
+  const d = useDevice(deviceId);
+  if (!d || !d.place.canDraw || !d.state.dialog) return null;
+  return <ReadDialog d={d} deviceId={deviceId} kind={d.state.dialog} />;
 }
 
 /** "4 differ from drawing", beside the firmware chip. Nothing when nothing differs. */

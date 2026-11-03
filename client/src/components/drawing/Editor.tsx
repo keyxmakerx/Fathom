@@ -27,7 +27,7 @@ import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
 import { DevicePhoto } from '../docs/DevicePhoto';
 import { FirmwareChip, FirmwareSection } from '../firmware/FirmwareSection';
-import { ReadLine, ReadNow, ReadingChip, ReadingsTab, ReadingsTabLabel, useReadingShown } from '../reading/Reading';
+import { ReadDialogHost, ReadLine, ReadNow, ReadingChip, ReadingsTab, ReadingsTabLabel, useReadingShown } from '../reading/Reading';
 import { AboutSection } from '../learn/AboutSection';
 import { TermixActions } from '../termix/TermixActions';
 import { ConnectLines } from '../termix/ConnectLines';
@@ -2330,6 +2330,7 @@ function panelFor(
             {chassisSketch ? <span className="dev-tag">Typed by hand</span> : null}
           </div>
           <ReadLine deviceId={chassis.deviceId} />
+          <ReadDialogHost deviceId={chassis.deviceId} />
           {/* r30-device: said once for the whole panel, not under every field. */}
           <TypedNote shown={[chassis.hostname, chassis.role, chassis.serial, chassis.managementAddress].some((v) => (v ?? '').length > 0)} />
         </div>
