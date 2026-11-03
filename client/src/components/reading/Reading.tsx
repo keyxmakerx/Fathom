@@ -3,14 +3,14 @@
 // each answered on its own or all at once as one undo step. A dismissed difference stays dismissed
 // until the device says something else. Nothing is drawn on the canvas.
 
-import { useContext, useState, type ReactNode } from 'react';
+import { useContext, useMemo, useState, type ReactNode } from 'react';
 
 import { dismissDifference, enginePairs, lastEight, type DeviceReading, type KeptReading, type ReadKind, type ReadRange } from '../../api/deviceRead';
 import { SNMP_AUTH_LABELS, type VaultEntry } from '../../api/vault';
 import { asString, fieldValue, findNode } from '../../document/model';
 import { VaultModal } from '../vault/Modal';
 import { useVault } from '../vault/useVault';
-import { acceptAll, compare, type Comparison, type Difference } from './differences';
+import { acceptAll, acceptable, againstPlan, compare, withWork, type Comparison, type Difference } from './differences';
 import { asCsv, macRows, matches } from './macTable';
 import { inRange } from './ranges';
 import {
@@ -25,6 +25,7 @@ import {
   type DeviceState,
   type ReadingPlace,
 } from './store';
+import { NO_WORK, plannedWords, workOnDevice, type WorkOnDevice } from './workOnDevice';
 import '../vault/vault.css';
 import './reading.css';
 
@@ -75,6 +76,8 @@ function useDevice(deviceId: string) {
   const shown = place != null && settings?.status === 'ready' && settings.value.server;
   const state = useDeviceReading(place, deviceId, shown);
   const vault = useVault(shown ? place.organisation : '');
+  const doc = place?.doc ?? null;
+  const work = useMemo(() => (doc ? workOnDevice(doc, deviceId) : NO_WORK), [doc, deviceId]);
   if (!shown || !state) return null;
   const s = settings.value;
   const node = findNode(place.doc, deviceId);
@@ -85,8 +88,8 @@ function useDevice(deviceId: string) {
   const off = vault.load.status === 'loading' ? { head: 'Loading logins', todo: '' } : whyOff(s, address, logins);
   const latest = state.panel.status === 'ready' ? (state.panel.value.readings[0] ?? null) : null;
   const dismissed = state.panel.status === 'ready' ? state.panel.value.dismissed : [];
-  const comparison = compare(place.doc, deviceId, latest?.reading ?? null, dismissed);
-  return { place, settings: s, state, address, hostname, logins, off, latest, comparison };
+  const comparison = withWork(compare(place.doc, deviceId, latest?.reading ?? null, dismissed), work);
+  return { place, settings: s, state, address, hostname, logins, off, latest, comparison, work };
 }
 
 /** True when this device's panel has a Readings tab: a saved design on a server that reads devices. */
@@ -140,7 +143,7 @@ export function ReadNow({ deviceId }: { deviceId: string }) {
         type="button"
         className="btn-main read-now"
         disabled={busy || d.off !== null}
-        title={d.off ? `${d.off.head}. ${d.off.todo}` : 'Reads it over SNMPv3. Nothing on the device is changed.'}
+        title={d.off ? `${d.off.head}. ${d.off.todo}` : `Reads it over SNMPv3. Nothing on the device is changed.${d.work.running.length ? ` ${underWay(d.work)} is under way on it; what it reads may be half way through.` : ''}`}
         onClick={() => startRead(d, deviceId, 'device')}
         data-testid="read-now"
       >
@@ -179,6 +182,37 @@ export function ReadLine({ deviceId }: { deviceId: string }) {
   return (
     <div className="read-line" data-testid="read-line">
       Read <b>{when(d.latest.readAt)}</b> by <b>{who(d.latest)}</b>
+      {d.work.running.length ? <span className="read-line__work" data-testid="read-line-work">{underWay(d.work)} under way</span> : null}
+    </div>
+  );
+}
+
+/** “Core swap”, or “Core swap” and 1 more. */
+function underWay(w: WorkOnDevice): string {
+  const [first, ...rest] = w.running;
+  if (!first) return '';
+  return `Plan “${first.title || 'Untitled'}”${rest.length ? ` and ${rest.length} more` : ''}`;
+}
+
+/** Other work on this device, at the top of the Readings tab (r106). Nothing when there is none. */
+function WorkNote({ work }: { work: WorkOnDevice }) {
+  if (work.running.length === 0 && work.issues.length === 0) return null;
+  const issue = work.issues[0];
+  return (
+    <div className="work-note" data-testid="work-note">
+      {work.running.length ? (
+        <div>
+          <span className="q">Plan under way</span>
+          {underWay(work)} is under way on this device. Read now still reads and changes nothing on it, but what it reads may be half way
+          through the plan.
+        </div>
+      ) : null}
+      {issue ? (
+        <div>
+          <span className="q">It's down</span>“{issue.title || 'Untitled'}” is open on this device{work.issues.length > 1 ? ` with ${work.issues.length - 1} more` : ''}. A
+          reading may help answer its steps.
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -232,6 +266,12 @@ function DiffRow({ diff, place, deviceId, canDraw }: { diff: Difference; place: 
             </button>
           </span>
         ) : null}
+        {diff.planned ? (
+          <span className="diff__plan" data-testid="diff-plan">
+            {plannedWords(diff.planned)}{' '}
+            {againstPlan(diff) ? 'Accepting it here would put back what the plan changes.' : 'The device already says this.'}
+          </span>
+        ) : null}
         {error ? <span className="diff__error" role="alert">{error}</span> : null}
       </span>
     </div>
@@ -269,9 +309,10 @@ function Refusal({ d, deviceId }: { d: NonNullable<ReturnType<typeof useDevice>>
     );
   }
   const refusedLogin = halt.code === 'login_refused';
+  const busyElsewhere = halt.code === 'already_reading';
   return (
     <div className="read-fail" role="alert" data-testid="read-fail">
-      <b>{refusedLogin ? 'Not read: the login was refused' : 'Not read'}</b>
+      <b>{refusedLogin ? 'Not read: the login was refused' : busyElsewhere ? 'Not read: someone is reading it now' : 'Not read'}</b>
       <span>{refusedLogin ? 'The device answered SNMP but not this login. Check its privacy password and authentication on the login.' : halt.message}</span>
       {d.place.canDraw ? (
         <span>
@@ -381,7 +422,8 @@ export function ReadingsTab({ deviceId }: { deviceId: string }) {
   const { place, state, latest, comparison } = d;
   const panel = state.panel;
   const all = acceptAll(comparison.differs);
-  const allCount = comparison.differs.filter((x) => x.accept).length;
+  const allCount = acceptable(comparison.differs).length;
+  const leftOut = comparison.differs.filter(againstPlan).length;
   let body: ReactNode;
   if (panel.status === 'loading') body = <div className="small muted">Loading readings…</div>;
   else if (panel.status === 'error') body = <div className="read-fail">{panel.message}</div>;
@@ -413,6 +455,11 @@ export function ReadingsTab({ deviceId }: { deviceId: string }) {
                 <button type="button" className="btn-small btn-quiet" onClick={() => place.onEdit(all)} data-testid="accept-all">
                   Accept all {allCount}
                 </button>
+                {leftOut ? (
+                  <span className="small muted" data-testid="accept-all-leaves">
+                    Leaves out {leftOut} a plan changes.
+                  </span>
+                ) : null}
               </div>
             ) : null}
           </>
@@ -444,6 +491,7 @@ export function ReadingsTab({ deviceId }: { deviceId: string }) {
           </span>
         </div>
       ) : null}
+      <WorkNote work={d.work} />
       <Refusal d={d} deviceId={deviceId} />
       {d.off && d.off.todo && place.canDraw ? (
         <div className="why-off" data-testid="why-off">

@@ -52,6 +52,45 @@ pub const KEEP: i64 = 10;
 pub const WITHHELD: &str = "[withheld: it looked like a password]";
 
 // ---------------------------------------------------------------------------
+// One read per device at a time
+// ---------------------------------------------------------------------------
+
+/// The devices this server is reading now, by organisation and address.
+static READING_NOW: std::sync::Mutex<std::collections::BTreeSet<(String, IpAddr)>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// The failure code when a device is being read already.
+pub const ALREADY_READING: &str = "already_reading";
+
+/// A claim on one device for the length of one read (sign-off r106: one read per device at a
+/// time). A second Read now on the same address in the same organisation is turned away until
+/// the first is answered; dropping the claim frees it, on every path out of the handler.
+///
+/// The claim is held in this server's memory. Behind a load balancer two servers could each read
+/// the same device once at the same moment; both reads are read-only, so that costs the device a
+/// second walk and nothing more.
+#[derive(Debug)]
+pub struct ReadingNow {
+    key: (String, IpAddr),
+}
+
+impl ReadingNow {
+    /// The claim, or `None` when this server is reading that address for that organisation now.
+    pub fn claim(tenant: &str, address: IpAddr) -> Option<Self> {
+        let key = (tenant.to_string(), address);
+        let mut now = READING_NOW.lock().unwrap_or_else(|e| e.into_inner());
+        now.insert(key.clone()).then_some(Self { key })
+    }
+}
+
+impl Drop for ReadingNow {
+    fn drop(&mut self) {
+        let mut now = READING_NOW.lock().unwrap_or_else(|e| e.into_inner());
+        now.remove(&self.key);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Keys
 // ---------------------------------------------------------------------------
 
@@ -1087,6 +1126,26 @@ pub async fn dismiss(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn one_read_per_device_at_a_time() {
+        let a: std::net::IpAddr = "192.0.2.77".parse().unwrap();
+        let b: std::net::IpAddr = "192.0.2.78".parse().unwrap();
+        let first = super::ReadingNow::claim("org-r106", a).expect("free");
+        assert!(
+            super::ReadingNow::claim("org-r106", a).is_none(),
+            "the same device twice"
+        );
+        let other = super::ReadingNow::claim("org-r106", b).expect("another device");
+        let elsewhere =
+            super::ReadingNow::claim("org-r106-other", a).expect("another organisation");
+        drop(first);
+        assert!(
+            super::ReadingNow::claim("org-r106", a).is_some(),
+            "free again once answered"
+        );
+        drop((other, elsewhere));
+    }
+
     use super::*;
 
     fn j(text: &str) -> Json {
