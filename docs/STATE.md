@@ -756,6 +756,14 @@ dashed spoke to each, a two-member VPN as one dashed arc with its name, and each
 box; a badge opens a card with range, members, exit node and routes. Not yet: pasting `tailscale status` or
 `netbird status`, and the Rack look. `scripts/drive-vpns.mjs` drives it.
 
+**Links lens on the canvas** (sign-off r109, borrowed from homelab-diagram's grammar in Fathom's theme; no
+schema change). With the Links lens lit, the Diagram look draws an access line in its VLAN's colour
+(`--vlan-1` to `--vlan-6` in `design/tokens.css`, then they repeat), a line carrying more than one VLAN hollow
+(ink with a page core), and every line's weight by the slower end's `Interface.speed` (none set draws the
+copper weight). A Networks key sits bottom left. Boxes are never coloured. In the Rack look the lens says it
+draws in the Diagram look and offers to switch. `components/drawing/linksLens.ts`;
+`scripts/drive-links-lens.mjs` drives it. Nothing yet sets `Interface.speed` by hand (r109 item 5).
+
 **Routing lens on the canvas** (sign-off r101, option A; no schema change). With the Routing lens lit, the
 Diagram look writes on the same boxes: a device that routes says `ROUTES · n TABLES`, a VLAN gateway says
 `GW VLAN 11 · 10.10.11.1`, a host names its default gateway or says `NO GATEWAY` in caution, and a switch

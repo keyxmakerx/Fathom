@@ -96,6 +96,7 @@ import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
 import { routingMarks, tableLit, tableNames } from '../drawing/routingLens';
+import { linksMarks } from '../drawing/linksLens';
 import { RoutingContext, type RoutingApi } from '../drawing/RoutingTab';
 import { TracePanel } from '../trace/TracePanel';
 import { useTraceElsewhere } from '../trace/traceElsewhere';
@@ -878,6 +879,8 @@ export function RacksPlace(props: RacksPlaceProps) {
   const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
   // The Routing lens (sign-off r101): routed against switched, on the same boxes.
   const routing = useMemo(() => (shellProps.lens === 'routing' ? routingMarks(doc, displayView) : undefined), [shellProps.lens, doc, displayView]);
+  // The Links lens (r109): VLAN colours, hollow trunks and weight by speed, drawn in the Diagram look.
+  const links = useMemo(() => (shellProps.lens === 'links' && look === 'diagram' ? linksMarks(doc, displayView) : undefined), [shellProps.lens, look, doc, displayView]);
   // The Routing lens's table picker (r101): one table lit, the rest faded; a trace walks in it.
   const [pickedTable, setPickedTable] = useState<string | null>(null);
   const tableChoice = useMemo(() => {
@@ -2268,6 +2271,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           overlays={vpns}
           routing={routing}
           table={tableChoice}
+          links={links}
         />
       ) : (
         <Drawing
@@ -2343,6 +2347,14 @@ export function RacksPlace(props: RacksPlaceProps) {
           onRedo={shellProps.onRedo}
         />
       )}
+      {doc != null && look === 'rack' && shellProps.lens === 'links' ? (
+        <div className="drawing-lens-key" data-testid="links-lens-rack-note">
+          <span>The Links lens draws in the Diagram look</span>
+          <button type="button" className="drawing-lens-key__go" onClick={() => changeLook('diagram')}>
+            Show Diagram
+          </button>
+        </div>
+      ) : null}
       {shelfOpen != null && doc != null ? (
         <ShelfRoom
           key={shelfOpen}
