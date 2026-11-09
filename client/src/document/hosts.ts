@@ -38,7 +38,7 @@ import { connectPorts } from './cables';
 import { compatible, PORT_CONNECTOR_VALUES } from './compat';
 import { setDeviceField, setPortMac } from './edit';
 import { BOX_W, createFreeBox } from './freeform';
-import { asString, edgesIn, edgesOut, fieldValue, findNode, macAddress, parseNodeId, readPhysicalPortFields, type Document, type GraphNode } from './model';
+import { asString, edgesIn, edgesOut, fieldValue, findNode, isCanonicalIpv4, macAddress, parseNodeId, readPhysicalPortFields, type Document, type GraphNode } from './model';
 import { portNamed } from './neighbours';
 import { deviceOf } from './portTies';
 
@@ -64,7 +64,6 @@ export interface ArpRow {
 }
 
 const MAC = /^(?:[0-9a-f]{2}(?::[0-9a-f]{2}){5}|[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4})$/i;
-const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 const IPV6 = /^[0-9a-f:]*:[0-9a-f:]*$/i;
 
 const canonMac = (s: string): string | null => {
@@ -135,7 +134,7 @@ export function looksLikeMacTable(text: string): boolean {
   return (readMacTable(text)?.rows.length ?? 0) > 0;
 }
 
-const isIp = (s: string): boolean => IPV4.test(s) || (IPV6.test(s) && s.includes(':') && !MAC.test(s));
+const isIp = (s: string): boolean => isCanonicalIpv4(s) || (IPV6.test(s) && s.includes(':') && !MAC.test(s));
 
 /** Every IP-to-MAC line in `text`: Cisco and Junos tables by their headers, Linux `ip neigh` by its form. */
 export function readArp(text: string): ArpRow[] {
