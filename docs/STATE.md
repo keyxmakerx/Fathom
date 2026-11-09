@@ -14,7 +14,7 @@ deliberately. The schema is real and enforced; read counts off `fathom-schema-ch
 
 **Paste, eight platforms (engine).** The wasm shell holds every dictionary at once, keyed by platform
 (Junos SRX, Junos EX, EdgeOS, OPNsense, and the four below with front ends of their own). The paste
-frame and the "Which device is this from?" picker name the first four only. A paste names its platform (frame flag byte, bits 1-3) or the
+frame and the "Which device is this from?" picker name all ten (2026-11-09). A paste names its platform (frame flag byte, bits 1-4) or the
 engine detects it from lines only one dictionary binds; unsure is `ERR_PLATFORM_CHOICE` with the
 candidates, never a guess. `OP_REDACT_TEXT` runs every set-form dictionary. A paste into a device reads as that
 device's platform; otherwise, when the engine cannot tell, the card asks "Which device is this from?" once.
