@@ -137,7 +137,7 @@ describe('LessonBuilder', () => {
         selectedId: null,
         canDraw,
         apply: () => {},
-        onPublish: async () => '',
+        onPublish: async () => ({ name: '', nameError: null }),
         onClose: () => {},
         boot: () => new Promise<never>(() => {}),
       }),

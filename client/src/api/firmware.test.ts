@@ -322,6 +322,57 @@ describe('sending the bytes', () => {
   });
 });
 
+describe('sendImageBytes, the edges', () => {
+  class Xhr {
+    static made = 0;
+    static last: Xhr;
+    status = 200;
+    responseText = '';
+    upload = { onprogress: null as unknown };
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+    sent = false;
+    constructor() {
+      Xhr.made += 1;
+      Xhr.last = this;
+    }
+    open() {}
+    setRequestHeader() {}
+    send() {
+      this.sent = true;
+    }
+    abort() {
+      this.onabort?.();
+    }
+  }
+  const declared = { imageId: 'I1', uploadPath: '/firmware/uploads/I1', uploadToken: 'tok', tokenHeader: 'fathom-firmware-upload-token', expiresAtUnix: 0 };
+
+  it('sends nothing when the signal was stopped before the call', async () => {
+    vi.stubGlobal('XMLHttpRequest', Xhr);
+    Xhr.made = 0;
+    const stop = new AbortController();
+    stop.abort();
+    await expect(sendImageBytes(declared, new File([new Uint8Array(1)], 'a'), () => {}, stop.signal)).rejects.toThrow('The upload was stopped.');
+    expect(Xhr.made).toBe(0);
+  });
+
+  it('says so when a success answer cannot be read, rather than resolve as nothing', async () => {
+    vi.stubGlobal('XMLHttpRequest', Xhr);
+    const done = sendImageBytes(declared, new File([new Uint8Array(1)], 'a'), () => {});
+    Xhr.last.responseText = '<html>proxy</html>';
+    Xhr.last.onload?.();
+    await expect(done).rejects.toThrow(/answer could not be read.*if this one is there, it was staged/);
+  });
+
+  it('still resolves as nothing for an empty success answer', async () => {
+    vi.stubGlobal('XMLHttpRequest', Xhr);
+    const done = sendImageBytes(declared, new File([new Uint8Array(1)], 'a'), () => {});
+    Xhr.last.onload?.();
+    await expect(done).resolves.toBeNull();
+  });
+});
+
 describe('words', () => {
   it('says 403 plainly', () => {
     expect(firmwareRefusalWords(new ApiRefusal(403, 'not authorised', null))).toBe('Only a steward can do this. Ask someone with steward access.');
