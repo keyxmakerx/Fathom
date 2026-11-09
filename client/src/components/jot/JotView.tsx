@@ -16,6 +16,7 @@ import { boundsOf, faceCaptions, jotPlates, portCentre, type JotPlate } from './
 import type { PortPlace, TemplatePort } from '../../document/plate';
 import type { PortBox } from '../drawing/faceplate';
 import { PlateTools } from './PlateTools';
+import type { TemplateOwner } from './faceplateTemplates';
 import { ALIGN_PX, PLATE_GRID, snapPort, toPlate, type SnappedPort } from './portArrange';
 import { JOT_HINT } from '../racks/emptyHints';
 import './jot.css';
@@ -55,7 +56,7 @@ export interface JotViewProps {
   /** Every dragged port on a box back in the usual order. */
   onResetPorts?: (chassisId: string) => void;
   /** Whose saved faceplates to offer; `undefined` leaves templates out. */
-  templateOwner?: string | null;
+  templateOwner?: TemplateOwner;
   /** Adds a template's ports to an empty hand-typed box, one undo step. */
   onApplyTemplate?: (chassisId: string, ports: readonly TemplatePort[]) => void;
 }

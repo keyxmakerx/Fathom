@@ -8417,3 +8417,298 @@ mod retired_links {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Faceplate templates and Cables lists (migration 0076, sign-off r111)
+// ---------------------------------------------------------------------------
+
+fn a_port(label: &str) -> fathom_canon::Json {
+    fathom_canon::Json::Obj(
+        [
+            ("connector", jstr("rj45")),
+            ("face", jstr("front")),
+            ("label", jstr(label)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect(),
+    )
+}
+
+fn template_body(name: &str, labels: &[&str], replaces: Option<&str>) -> Vec<u8> {
+    let mut fields = vec![
+        ("name", jstr(name)),
+        (
+            "ports",
+            fathom_canon::Json::Arr(labels.iter().map(|l| a_port(l)).collect()),
+        ),
+        ("role", jstr("patch-panel")),
+    ];
+    if let Some(r) = replaces {
+        fields.push(("replaces", jstr(r)));
+    }
+    canon(fields)
+}
+
+#[tokio::test]
+async fn a_template_is_shared_in_the_organisation_and_only_its_maker_or_a_steward_removes_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let maker = a_member_with(&pool, &ring, &estate, "maker", Some(Capability::Draw)).await;
+    let other = a_member_with(&pool, &ring, &estate, "other", Some(Capability::Draw)).await;
+    let viewer = a_member_with(&pool, &ring, &estate, "viewer", Some(Capability::Read)).await;
+    let outsider = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/faceplate-templates", estate.organisation);
+
+    let (status, body) = call(
+        addr,
+        &maker,
+        "POST",
+        &base,
+        &template_body("Keystone 24", &["PP-SECRETLABEL-1", "2"], None),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let made = parsed(&body);
+    let id = text_of(&made, "id");
+    assert_eq!(text_of(&made, "createdBy"), maker.account.to_string());
+    assert_eq!(text_of(&made, "role"), "patch-panel");
+
+    // Everyone in the organisation sees it, a viewer included; another organisation does not.
+    let (status, body) = call(addr, &viewer, "GET", &base, b"").await;
+    assert_eq!(status, "200");
+    let all = list_of(&body);
+    assert_eq!(all.len(), 1);
+    assert_eq!(text_of(&all[0], "name"), "Keystone 24");
+    match &all[0]["ports"] {
+        fathom_canon::Json::Arr(p) => assert_eq!(p.len(), 2),
+        other => panic!("ports: {other:?}"),
+    }
+    let theirs = format!(
+        "/organisations/{}/faceplate-templates",
+        outsider.organisation
+    );
+    let (_, body) = call(addr, &outsider.steward, "GET", &theirs, b"").await;
+    assert!(list_of(&body).is_empty());
+
+    // A viewer cannot save one.
+    let (status, _) = call(
+        addr,
+        &viewer,
+        "POST",
+        &base,
+        &template_body("V", &["1"], None),
+    )
+    .await;
+    assert_eq!(status, "403");
+
+    // Nothing of the name or the ports is in the clear.
+    let client = support::superuser_client_on_test_database().await;
+    let row = client
+        .query_one(
+            "SELECT t::text FROM faceplate_templates t WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap();
+    let raw: String = row.get(0);
+    assert!(
+        !raw.contains("Keystone") && !raw.contains("SECRETLABEL"),
+        "{raw}"
+    );
+    drop(client);
+
+    // Another drawer may not remove it, and the refusal reads the same as for an invented id.
+    let real = format!("{base}/{id}");
+    let ghost = format!("{base}/{}", fathom_server::ids::new_ulid());
+    let refused_real = call(addr, &other, "DELETE", &real, b"").await;
+    let refused_ghost = call(addr, &other, "DELETE", &ghost, b"").await;
+    assert_eq!(refused_real.0, "403");
+    assert_eq!(refused_real, refused_ghost);
+    // Nor replace it by saving under its name.
+    let (status, _) = call(
+        addr,
+        &other,
+        "POST",
+        &base,
+        &template_body("Keystone 24", &["1"], Some(&id)),
+    )
+    .await;
+    assert_eq!(status, "403");
+
+    // The maker replaces it in one go: one template, the new one.
+    let (status, body) = call(
+        addr,
+        &maker,
+        "POST",
+        &base,
+        &template_body("Keystone 24", &["1", "2", "3"], Some(&id)),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let newer = text_of(&parsed(&body), "id");
+    let (_, body) = call(addr, &maker, "GET", &base, b"").await;
+    let all = list_of(&body);
+    assert_eq!(all.len(), 1);
+    assert_eq!(text_of(&all[0], "id"), newer);
+
+    // A Steward who did not make it may remove it; a missing one is 404 to a Steward.
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "DELETE",
+        &format!("{base}/{newer}"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "204");
+    let (status, _) = call(addr, &estate.steward, "DELETE", &ghost, b"").await;
+    assert_eq!(status, "404");
+    let (_, body) = call(addr, &viewer, "GET", &base, b"").await;
+    assert!(list_of(&body).is_empty());
+}
+
+#[tokio::test]
+async fn a_template_with_a_bad_port_is_refused_and_nothing_is_stored() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/faceplate-templates", estate.organisation);
+    for labels in [vec![""], vec!["a\u{202E}b"]] {
+        let (status, _) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &base,
+            &template_body("Bad", &labels, None),
+        )
+        .await;
+        assert_eq!(status, "400");
+    }
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &base,
+        &template_body("", &["1"], None),
+    )
+    .await;
+    assert_eq!(status, "400");
+    let (_, body) = call(addr, &estate.steward, "GET", &base, b"").await;
+    assert!(list_of(&body).is_empty());
+}
+
+fn cable_view_body(hidden: &[&str]) -> Vec<u8> {
+    let view = fathom_canon::Json::parse_canonical(
+        format!(
+            "{{\"groups\":[{{\"on\":true,\"ref\":{{\"kind\":\"type\",\"type\":\"fibre\"}}}}],\"hiddenCableIds\":[{}],\"none\":false}}\n",
+            hidden.iter().map(|h| format!("\"{h}\"")).collect::<Vec<_>>().join(",")
+        )
+        .as_bytes(),
+    )
+    .unwrap();
+    canon(vec![("view", view)])
+}
+
+fn cable_view_path(estate: &Estate, design: impl std::fmt::Display) -> String {
+    format!(
+        "/organisations/{}/designs/{}/cable-view",
+        estate.organisation, design
+    )
+}
+
+#[tokio::test]
+async fn a_cables_list_is_each_persons_own_and_needs_read_on_the_design() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let (other_scope, _other) = a_scope_and_design(&pool, &estate).await;
+    let me = a_member_with(&pool, &ring, &estate, "me", Some(Capability::Read)).await;
+    let colleague = a_member_with(&pool, &ring, &estate, "colleague", Some(Capability::Draw)).await;
+    let elsewhere = a_member_with_scope(
+        &pool,
+        &ring,
+        &estate,
+        "elsewhere",
+        other_scope,
+        Capability::Read,
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = cable_view_path(&estate, design);
+
+    // Nothing saved yet reads as null.
+    let (status, body) = call(addr, &me, "GET", &path, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(parsed(&body)["view"], fathom_canon::Json::Null);
+
+    let (status, body) = call(
+        addr,
+        &me,
+        "PUT",
+        &path,
+        &cable_view_body(&["cable:SECRETID1"]),
+    )
+    .await;
+    assert_eq!(status, "204", "{}", String::from_utf8_lossy(&body));
+    let (_, body) = call(addr, &me, "GET", &path, b"").await;
+    let view = match parsed(&body).remove("view") {
+        Some(fathom_canon::Json::Obj(m)) => m,
+        other => panic!("view: {other:?}"),
+    };
+    assert_eq!(view["hiddenCableIds"], jarr(&["cable:SECRETID1"]));
+
+    // A second save replaces the first.
+    let (status, _) = call(addr, &me, "PUT", &path, &cable_view_body(&[])).await;
+    assert_eq!(status, "204");
+    let (_, body) = call(addr, &me, "GET", &path, b"").await;
+    let view = match parsed(&body).remove("view") {
+        Some(fathom_canon::Json::Obj(m)) => m,
+        other => panic!("view: {other:?}"),
+    };
+    assert_eq!(view["hiddenCableIds"], fathom_canon::Json::Arr(vec![]));
+
+    // A colleague on the same design sees their own (none), never mine.
+    let (_, body) = call(addr, &colleague, "GET", &path, b"").await;
+    assert_eq!(parsed(&body)["view"], fathom_canon::Json::Null);
+
+    // Read on another place is not read on this design; an invented design reads the same.
+    let fake = cable_view_path(&estate, a_design_id_nothing_was_ever_created_under());
+    let real_refused = call(addr, &elsewhere, "GET", &path, b"").await;
+    let fake_refused = call(addr, &elsewhere, "GET", &fake, b"").await;
+    assert_eq!(real_refused.0, "403");
+    assert_eq!(real_refused, fake_refused);
+    let (status, _) = call(addr, &elsewhere, "PUT", &path, &cable_view_body(&[])).await;
+    assert_eq!(status, "403");
+
+    // A wrong shape is refused.
+    let (status, _) = call(
+        addr,
+        &me,
+        "PUT",
+        &path,
+        &canon(vec![("view", fathom_canon::Json::Arr(vec![]))]),
+    )
+    .await;
+    assert_eq!(status, "400");
+
+    // Sealed: one row, no id in the clear.
+    let client = support::superuser_client_on_test_database().await;
+    let rows = client
+        .query(
+            "SELECT t::text FROM member_cable_views t WHERE design_id = $1",
+            &[&design.to_string()],
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    let raw: String = rows[0].get(0);
+    assert!(!raw.contains("fibre"), "{raw}");
+}
