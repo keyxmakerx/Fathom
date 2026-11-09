@@ -1,6 +1,6 @@
 // Drives "It's down" (ADR-0061 troubleshooting) on the real App over the `canvas` scene: right-click, the checklist,
 // answers by key and by button, Why?, the point block, the fade, Plan a fix opening the plan, Save as an issue and
-// the device history, a read holder, phone width and dark mode. Usage: bash scripts/build-wasm.sh (once), then
+// the device history, picking a saved issue up where it stopped, a read holder, phone width and dark mode. Usage: bash scripts/build-wasm.sh (once), then
 // node scripts/drive-troubleshoot.mjs. Overrides: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT, FATHOM_SHOTS.
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -285,17 +285,17 @@ try {
     check('[flow] no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
   }
 
-  // ---------------------------------------------------------------- 2. Save as an issue, the history, Mark closed
+  // ---------------------------------------------------------------- 2. Save as an issue, pick it up later, Mark closed
   {
     const { context, page, pageErrors } = await open();
     await opened(page);
-    await page.keyboard.press('2');
+    await page.keyboard.press('1');
     await settle(page, 300);
-    check('[save] 2 answers Not OK', (await answers(page))[0] === 'not_ok');
+    check('[save] 1 answers OK', (await answers(page))[0] === 'ok');
     await T(page, 'trouble-save').click();
     await settle(page, 1000);
     check('[save] Save as an issue says it is saved to the history', (await T(page, 'trouble-saved').count()) === 1, await T(page, 'trouble-panel').innerText());
-    check('[save] the answers are then read only', (await page.locator('[data-testid=trouble-step][data-state=current] [data-answer]:not([disabled])').count()) === 0);
+    check('[save] the open step still takes an answer once saved', (await page.locator('[data-testid=trouble-step][data-state=current] [data-answer]:not([disabled])').count()) === 3);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await settle(page, 400);
     check('[save] Close after saving closes without asking', (await T(page, 'trouble-panel').count()) === 0 && (await T(page, 'trouble-confirm').count()) === 0);
@@ -305,12 +305,34 @@ try {
     check('[history] the device page lists the saved issue', (await T(page, 'device-issues').count()) === 1 && (await T(page, 'device-issue').count()) === 1, await T(page, 'device-issues').innerText().catch(() => ''));
     await T(page, 'device-issue').click();
     await settle(page, 600);
-    check('[history] opening it shows the saved answers read only', (await T(page, 'trouble-saved-head').count()) === 1 && /✗/.test(await T(page, 'trouble-steps').innerText().catch(() => '')) || (await page.locator('.trouble-steps--saved').count()) === 1);
+    check('[history] opening it shows the saved answers and how many are answered', (await T(page, 'trouble-saved-head').count()) === 1 && /1 of \d+ answered/.test(await T(page, 'trouble-saved-head').innerText()), await T(page, 'trouble-saved-head').innerText());
+    check('[pick up] an open issue offers Pick up where it stopped', (await T(page, 'trouble-continue').count()) === 1 && /Pick up where it stopped/i.test(await T(page, 'trouble-continue').innerText()));
+    await shot(page, '07-saved-open');
+    await T(page, 'trouble-continue').click();
+    await settle(page, 700);
+    check('[pick up] the checklist is back, on the first unanswered step', (await answers(page))[0] === 'ok' && (await page.locator('[data-testid=trouble-step][data-state=current]').count()) === 1 && (await page.locator('[data-testid=trouble-step]').nth(1).getAttribute('data-state')) === 'current');
+    check('[pick up] it says each answer saves as it is given', /Each answer now saves to it/.test(await T(page, 'trouble-saved').innerText()));
+    await shot(page, '08-picked-up');
+    const openBefore = await page.evaluate(() => document.querySelectorAll('[data-testid=trouble-step][data-answer=unanswered]').length);
+    await page.keyboard.press('2');
+    await settle(page, 800);
+    check('[pick up] 2 answers Not OK on the step it stopped at', (await answers(page))[1] === 'not_ok' && openBefore > 0);
+    check('[pick up] the point block says where the answers point now', (await T(page, 'trouble-point').count()) === 1);
+    await shot(page, '09-picked-up-answered');
+    await T(page, 'trouble-close').click();
+    await settle(page, 400);
+    check('[pick up] Close closes without asking: the answer is already saved', (await T(page, 'trouble-panel').count()) === 0 && (await T(page, 'trouble-confirm').count()) === 0);
+    await page.locator('.react-flow__node-chassis', { hasText: 'fw-01' }).click();
+    await settle(page, 600);
+    await T(page, 'device-issue').click();
+    await settle(page, 600);
+    check('[pick up] the saved issue holds the new answer', /2 of \d+ answered/.test(await T(page, 'trouble-saved-head').innerText()) && /✗/.test(await page.locator('.trouble-steps--saved').innerText()), await T(page, 'trouble-saved-head').innerText());
     check('[history] it shows the frozen sentence', (await T(page, 'trouble-outcome').count()) === 1 && /Your answers point at/.test(await T(page, 'trouble-outcome').innerText()));
     await T(page, 'trouble-close-issue').click();
     await settle(page, 800);
     check('[history] Mark closed closes it', /closed/.test(await T(page, 'trouble-saved-head').innerText()), await T(page, 'trouble-saved-head').innerText());
     check('[history] Mark closed is gone once closed', (await T(page, 'trouble-close-issue').count()) === 0);
+    check('[pick up] a closed issue cannot be picked up', (await T(page, 'trouble-continue').count()) === 0);
     await T(page, 'trouble-close').click();
     await settle(page, 300);
 
