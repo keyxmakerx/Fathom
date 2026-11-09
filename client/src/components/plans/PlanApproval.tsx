@@ -23,6 +23,10 @@ export interface PlanApprovalState {
   startHeld: boolean;
   busy: boolean;
   error: string | null;
+  /** Why this plan's approval could not be read just now, or null. Without it a failed read would
+   * look exactly like a folder that does not ask for approval. */
+  loadError: string | null;
+  retry(): void;
   sign(kind: ApprovalKind, reason?: string): Promise<boolean>;
   ask(kind: 'ask' | 'send_back', note: string): Promise<boolean>;
 }
@@ -34,6 +38,9 @@ export function usePlanApproval(plan: Plan): PlanApprovalState | null {
   const [digest, setDigest] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [digestError, setDigestError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const organisation = place?.organisationId;
   const design = place?.designId;
   const doc = place?.doc ?? null;
@@ -43,18 +50,27 @@ export function usePlanApproval(plan: Plan): PlanApprovalState | null {
     if (doc == null) return undefined;
     let cancelled = false;
     planDigest(doc, plan.id)
-      .then((d) => !cancelled && setDigest(toHex(d)))
-      .catch(() => undefined);
+      .then((d) => {
+        if (cancelled) return;
+        setDigest(toHex(d));
+        setDigestError(null);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setDigestError(`Could not read this plan to check its approval: ${messageOf(e)}`);
+      });
     return () => {
       cancelled = true;
     };
-  }, [doc, plan.id]);
+  }, [doc, plan.id, attempt]);
 
   const load = useCallback(() => {
     if (organisation == null || design == null) return Promise.resolve();
     return fetchApprovals(organisation, design)
-      .then(setGot)
-      .catch(() => undefined);
+      .then((g) => {
+        setGot(g);
+        setFetchError(null);
+      })
+      .catch((e: unknown) => setFetchError(`Could not get this plan's approval from the server: ${messageOf(e)}`));
   }, [organisation, design]);
 
   // Asked again when the plan's words or stage change: the server judges the saved plan, a moment
@@ -77,7 +93,7 @@ export function usePlanApproval(plan: Plan): PlanApprovalState | null {
       await load();
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(messageOf(e));
       return false;
     } finally {
       setBusy(false);
@@ -91,10 +107,17 @@ export function usePlanApproval(plan: Plan): PlanApprovalState | null {
     startHeld: required && plan.stage === 'planned' && !(inStep && entry?.approved),
     busy,
     error,
+    loadError: fetchError ?? digestError,
+    retry: () => {
+      setAttempt((a) => a + 1);
+      void load();
+    },
     sign: (kind, reason = '') => (organisation && design ? run(() => signApproval(organisation, design, doc, plan.id, kind, reason)) : Promise.resolve(false)),
     ask: (kind, note) => (organisation && design ? run(() => askApproval(organisation, design, plan.id, kind, note)) : Promise.resolve(false)),
   };
 }
+
+const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 const when = (at: number): string => new Date(at * 1000).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -113,7 +136,8 @@ export function PlanApprovalSection({ state, canEdit, onEmergencyStarted }: { st
   useEffect(() => {
     if (form != null) field.current?.focus();
   }, [form]);
-  if (state == null || !state.required) return null;
+  if (state == null) return null;
+  if (!state.required) return state.loadError ? <ApprovalUnread state={state} /> : null;
   const { entry, names } = state;
   const name = (account: string) => names[account] ?? 'Someone';
   const words = approvalWords(true, entry) ?? 'Needs approval';
@@ -217,11 +241,33 @@ export function PlanApprovalSection({ state, canEdit, onEmergencyStarted }: { st
           </p>
         </form>
       )}
+      {state.loadError && <ApprovalUnread state={state} inline />}
       {state.error && (
         <p className="plans-notice" role="alert">
           {state.error}
         </p>
       )}
+    </section>
+  );
+}
+
+/** A read of the approval failed: say so, with a way to ask again, rather than show nothing. Alone
+ * it stands in for the whole section, since until the server answers no one knows if the folder
+ * asks for approval. */
+function ApprovalUnread({ state, inline = false }: { state: PlanApprovalState; inline?: boolean }) {
+  const line = (
+    <p className="plans-notice" role="alert" data-testid="plans-approval-unread">
+      {state.loadError}{' '}
+      <button type="button" className="plans-btn" onClick={state.retry}>
+        Try again
+      </button>
+    </p>
+  );
+  if (inline) return line;
+  return (
+    <section className="plans-approval" aria-label="Approval" data-testid="plans-approval">
+      <h3 className="plans-label">Approval</h3>
+      {line}
     </section>
   );
 }
