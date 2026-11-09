@@ -69,8 +69,6 @@ export const overlaps = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < 
 export const contains = (outer: Rect, inner: Rect): boolean =>
   inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
 
-export const containsPoint = (r: Rect, p: { x: number; y: number }): boolean => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
-
 export function rectFromPoints(a: { x: number; y: number }, b: { x: number; y: number }): Rect {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
 }

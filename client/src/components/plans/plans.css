@@ -40,11 +40,6 @@
   cursor: pointer;
 }
 
-.plans-bar-chip[aria-pressed='true'] {
-  background: var(--control-on);
-  box-shadow: var(--control-on-mark);
-}
-
 .plans-chip:disabled {
   opacity: 0.5;
   cursor: default;

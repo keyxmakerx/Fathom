@@ -27,10 +27,6 @@ export function pageHeightMm(paper: PaperSize): number {
   return PAPER_SIZES[paper].heightMm;
 }
 
-export function contentWidthMm(paper: PaperSize): number {
-  return pageWidthMm(paper) - 2 * PAGE_MARGIN_MM;
-}
-
 /** The vertical space left for a sheet's own drawing/table once the page
  * margins, the sheet header and the title block are taken out. */
 export function contentHeightMm(paper: PaperSize): number {

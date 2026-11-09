@@ -142,10 +142,6 @@ export function stopWaiting(place: ReadingPlace, element: string) {
   patch(key(place.design, element), { busy: null });
 }
 
-export function clearHalt(place: ReadingPlace, element: string) {
-  patch(key(place.design, element), { halt: null });
-}
-
 /** Opens the Read dialog; `halt` puts an agent to confirm in it ("Confirm the new one"). */
 export function openDialog(place: ReadingPlace, element: string, kind: ReadKind, halt?: Halt) {
   patch(key(place.design, element), halt ? { dialog: kind, halt } : { dialog: kind });
