@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import type { TemplatePort } from '../../document/plate';
 import type { ChassisView } from '../../document/view';
 import { newUlid } from '../../document/ulid';
-import { captureTemplate, useFaceplateTemplates, type FaceplateTemplate } from './faceplateTemplates';
+import { captureTemplate, useFaceplateTemplates, type FaceplateTemplate, type TemplateOwner } from './faceplateTemplates';
 import './plateTools.css';
 
 export interface PlateToolsProps {
@@ -17,7 +17,7 @@ export interface PlateToolsProps {
   /** Absent: ports cannot be moved here. */
   onReset?: () => void;
   /** Whose templates; `undefined` leaves templates out. */
-  templateOwner?: string | null;
+  templateOwner?: TemplateOwner;
   onApplyTemplate?: (ports: readonly TemplatePort[]) => void;
   canArrange: boolean;
 }
@@ -49,8 +49,8 @@ export function PlateTools(props: PlateToolsProps): JSX.Element | null {
   );
 }
 
-function TemplatesButton({ owner, device, empty, onApply }: { owner: string | null; device: ChassisView; empty: boolean; onApply?: (ports: readonly TemplatePort[]) => void }): JSX.Element | null {
-  const { templates, save, remove } = useFaceplateTemplates(owner);
+function TemplatesButton({ owner, device, empty, onApply }: { owner: TemplateOwner; device: ChassisView; empty: boolean; onApply?: (ports: readonly TemplatePort[]) => void }): JSX.Element | null {
+  const { templates, save, remove, error, shared } = useFaceplateTemplates(owner);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
@@ -110,7 +110,7 @@ function TemplatesButton({ owner, device, empty, onApply }: { owner: string | nu
                 <button type="submit">Save</button>
               </div>
               <p className="plate-templates__note">
-                {saved !== null ? `Saved “${saved}”, ${portCount(typed.length)}.` : `${portCount(typed.length)}, with where each sits. Kept in this browser for you.`}
+                {saved !== null ? `Saved “${saved}”, ${portCount(typed.length)}.` : `${portCount(typed.length)}, with where each sits. ${shared ? 'Shared with everyone in this organisation.' : 'Kept in this browser for you.'}`}
               </p>
             </form>
           )}
@@ -140,6 +140,11 @@ function TemplatesButton({ owner, device, empty, onApply }: { owner: string | nu
                 </li>
               ))}
             </ul>
+          )}
+          {error !== null && (
+            <p className="plate-templates__note plate-templates__error" role="alert">
+              {error}
+            </p>
           )}
           {!empty && templates.length > 0 && <p className="plate-templates__note">A template starts an empty box. Add a box, open it, and pick one.</p>}
         </div>
