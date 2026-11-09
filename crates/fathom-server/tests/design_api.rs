@@ -8419,7 +8419,7 @@ mod retired_links {
 }
 
 // ---------------------------------------------------------------------------
-// Faceplate templates and Cables lists (migration 0076, sign-off r111)
+// Faceplate templates and Cables lists (migration 0076, sign-off r114)
 // ---------------------------------------------------------------------------
 
 fn a_port(label: &str) -> fathom_canon::Json {

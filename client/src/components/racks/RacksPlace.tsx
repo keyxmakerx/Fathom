@@ -896,7 +896,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   const vpns = useMemo(() => (doc != null && layerOn(layers, 'vpns') ? listOverlays(doc) : undefined), [doc, layers]);
 
   // The Cables list, each person's own per design. With an organisation it lives on the server
-  // (sign-off r111, `cableViewStore.ts`); the first render draws the memory copy when there is one
+  // (sign-off r114, `cableViewStore.ts`); the first render draws the memory copy when there is one
   // (switching back to a design), else the empty state, which draws exactly what the default
   // (every group unticked) draws. Nothing is written until the server has answered, so a default
   // never overwrites a list saved from another browser.
@@ -1561,7 +1561,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   // The owner's ticked ideas (schema 0.20): drag hand-typed ports on their plate, and faceplate
-  // templates, one shared list per organisation on the server (sign-off r111). Every write to the
+  // templates, one shared list per organisation on the server (sign-off r114). Every write to the
   // design is one undo step through `freeWrite`.
   const templateOwner = useMemo(() => ({ organisationId: session.organisationId ?? null, accountId }), [session.organisationId, accountId]);
   const faceplateTemplates = useFaceplateTemplates(templateOwner);

@@ -1,10 +1,10 @@
-//! Faceplate templates, one shared list per organisation (migration `0076`, sign-off r111).
+//! Faceplate templates, one shared list per organisation (migration `0076`, sign-off r114).
 //!
 //! A template is a saved set of hand-typed ports (a 24-port keystone panel, say) to start a new
 //! box from. It is never a design field: adding one to a box is an ordinary design edit made in
 //! the browser. The name, the box's role and the ports are one JSON blob sealed under the
 //! organisation content key, with tenant, template id, maker and key epoch in the associated
-//! data. There is no plaintext copy and no chain entry (r111 pick A).
+//! data. There is no plaintext copy and no chain entry (r114 pick A).
 //!
 //! Anyone holding `draw` somewhere in the organisation may save one; its maker (while they still
 //! draw) or a Steward may remove it. A template is never edited: saving under a name that is

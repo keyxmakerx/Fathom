@@ -291,7 +291,7 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   stages wait for a sign-off by the stage's power and never by the opener or a worker; a send-back
   restarts its lane from the target stage; answers follow decision 16. A job's `holds` (a device or a
   `port` field) counts as busy from when it is ready until the order closes. No screens yet.
-- **Faceplate templates and Cables lists on the server (migration 0076, sign-off r111; 2026-11-09,
+- **Faceplate templates and Cables lists on the server (migration 0076, sign-off r114; 2026-11-09,
   draft).** `faceplate_templates.rs`: one shared list per organisation, name, role and ports sealed
   under the organisation content key; anyone with `draw` saves, the maker or a Steward removes; at
   most 200. `cable_views.rs`: each person's own Cables list per design, sealed, 64 KB at most, read
@@ -714,7 +714,7 @@ Not yet: door labels (rooms). Drive: `scripts/drive-phone.mjs`.
 
 **Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
 VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Each person's own per design,
-on the server and sealed (migration 0076, sign-off r111; draft), never in the design; both looks. Quick search also finds cables, VLANs and containers by name or tag.
+on the server and sealed (migration 0076, sign-off r114; draft), never in the design; both looks. Quick search also finds cables, VLANs and containers by name or tag.
 
 **Show menu** (#110, #121, #123). Layers on the drawing: Checks (on by default), Addresses, VLANs, Docs,
 Maintenance, Tags. Device style for the Diagram look: Boxes or Icons (outline router, switch, firewall,

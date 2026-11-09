@@ -1,5 +1,5 @@
 // Faceplate templates: a saved set of hand-typed ports (a 24-port keystone panel, say) to start a
-// new box from. Never a document field. Since sign-off r111 they live on the server, one shared
+// new box from. Never a document field. Since sign-off r114 they live on the server, one shared
 // list per organisation, sealed (`api/faceplateTemplates.ts`, migration 0076). Templates this
 // browser kept per account before then are sent up once and the browser copy cleared. With no
 // organisation (no server to ask) the old per-account browser store is used.
@@ -179,7 +179,7 @@ export async function loadOrganisationTemplates(organisationId: string, accountI
         kept += 1;
       }
     }
-    // Once every one is on the server the browser copy goes (sign-off r111 pick A). One the
+    // Once every one is on the server the browser copy goes (sign-off r114 pick A). One the
     // server refused stays here, and is tried again next time.
     if (local.length > 0 && kept === 0) forget(key);
     setOrg(organisationId, {

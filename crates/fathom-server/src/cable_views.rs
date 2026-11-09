@@ -1,9 +1,9 @@
-//! A person's Cables list for one design (migration `0076`, sign-off r111).
+//! A person's Cables list for one design (migration `0076`, sign-off r114).
 //!
 //! The Cables list is a way of looking: which VLAN, tag, type and device groups a person has,
 //! which are ticked, None, and the cables they hid one at a time
 //! (`client/src/components/drawing/cableGroups.ts`'s `StoredCableGroupsState`). It is each
-//! person's own (r111 pick A), so a colleague's untick never hides a cable on your screen. It is
+//! person's own (r114 pick A), so a colleague's untick never hides a cable on your screen. It is
 //! never a design fact and writes no chain entry.
 //!
 //! The whole state is one canonical JSON object sealed under the organisation content key, with

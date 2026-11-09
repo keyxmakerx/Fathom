@@ -1,19 +1,19 @@
--- 0076 -- faceplate templates and Cables lists on the server (sign-off r111, from r110's
+-- 0076 -- faceplate templates and Cables lists on the server (sign-off r114, from r110's
 -- "later" list). Both used to live only in one browser's localStorage.
 --
 -- Neither is a design field: neither enters a design, its undo or its change history, and
--- neither writes a chain entry (r111 pick A; custom field definitions write none either).
+-- neither writes a chain entry (r114 pick A; custom field definitions write none either).
 -- Everything a person wrote or picked is sealed under the organisation content key. In the
 -- clear: ids, who and when, a version, the key epoch. The server decides on nothing it would
 -- have to read the sealed text for.
 --
--- A. FACEPLATE TEMPLATES. One shared list per organisation (r111 pick A): a set of hand-typed
+-- A. FACEPLATE TEMPLATES. One shared list per organisation (r114 pick A): a set of hand-typed
 --   ports to start a box from. Anyone holding `draw` somewhere in the organisation may save
 --   one; its maker or a Steward may remove it (`src/faceplate_templates.rs` decides). Sealed:
 --   the name, the role and the ports. A removed template is deleted: it is a starting point,
 --   not a record.
 --
--- B. MEMBER CABLE VIEWS. One row per person per design (r111 pick A): that person's Cables
+-- B. MEMBER CABLE VIEWS. One row per person per design (r114 pick A): that person's Cables
 --   list, which groups exist and are ticked, None, and the cables hidden one at a time.
 --   Sealed. Only the person reads or writes their own row. Removing the membership or the
 --   design removes the row.

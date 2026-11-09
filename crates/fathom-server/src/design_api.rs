@@ -4529,7 +4529,7 @@ async fn archive_field_definition_handler(
     Ok(json_response(def.to_json()))
 }
 
-// ---- Faceplate templates and Cables lists (migration 0076, sign-off r111) ----
+// ---- Faceplate templates and Cables lists (migration 0076, sign-off r114) ----
 
 /// `GET /organisations/{o}/faceplate-templates`: the organisation's shared list. Any member.
 async fn list_templates_handler(
