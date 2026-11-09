@@ -38,3 +38,17 @@ export function loadJsonPref<T>(key: string, parse: (raw: unknown) => T, fallbac
 export function saveJsonPref(key: string, value: unknown): void {
   writePref(key, JSON.stringify(value));
 }
+
+/** Forget every stored key that starts with `prefix`. Used at sign-out for what names other people. */
+export function forgetPrefsStartingWith(prefix: string): void {
+  try {
+    const doomed: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key !== null && key.startsWith(prefix)) doomed.push(key);
+    }
+    for (const key of doomed) localStorage.removeItem(key);
+  } catch {
+    // storage refused; nothing was kept either
+  }
+}

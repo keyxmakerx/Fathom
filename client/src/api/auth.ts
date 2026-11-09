@@ -34,6 +34,7 @@ import { registerBrowserKey } from './credentials';
 import { ApiRefusal, refusalFrom } from './errors';
 import { signedFetchOn } from './signedFetch';
 import { lockVault } from '../vault/session';
+import { forgetPrefsStartingWith } from '../prefs';
 
 /**
  * Thrown when this browser holds no enrolled key -- and no pending one
@@ -546,6 +547,9 @@ export async function signOut(): Promise<void> {
   // keep offering itself to a reload. Best effort, never re-thrown.
   await clearAccountSession(thisTabId());
   clearGraceToken();
+  // Collaborators' names cached per design (components/collab/changesSince.ts,
+  // NAMES_PREFIX) are other people's details; they leave with the session.
+  forgetPrefsStartingWith('fathom.names.');
   announceSessionsChanged();
   const failed = results.find((r) => r.status === 'rejected');
   if (failed && failed.status === 'rejected') {
