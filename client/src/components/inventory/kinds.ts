@@ -851,10 +851,6 @@ export function applyCellEdits(
   return { doc: working, refused, changed };
 }
 
-export function kindOfNode(id: string): string {
-  return parseNodeId(id).kind;
-}
-
 export { whereText };
 
 // ---------------------------------------------------------------------------

@@ -5,16 +5,6 @@ import { historyLine } from './troubleModel';
 import type { TroubleController } from './useTroubleController';
 import './trouble.css';
 
-/** The "It's down" button alone, quiet, for the head of a device's panel. */
-export function ItsDownButton({ controller, chassisId }: { controller: TroubleController; chassisId: string }) {
-  if (!controller.canEdit) return null;
-  return (
-    <button type="button" className="btn-quiet" onClick={() => controller.start(chassisId)} data-testid="its-down-button">
-      {DEVICE_WORDS.itsDown}
-    </button>
-  );
-}
-
 export function DeviceIssues({ controller, chassisId, deviceId, withButton = true }: { controller: TroubleController; chassisId: string; deviceId: string; withButton?: boolean }) {
   const issues = controller.issuesOf(deviceId);
   if ((!withButton || !controller.canEdit) && issues.length === 0) return null;

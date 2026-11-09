@@ -19,10 +19,6 @@ export interface ScanTarget {
 /** A design id as the server issues it: a ULID, or anything of the same safe alphabet. */
 const DESIGN_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** The kinds a label is printed for, and so the kinds a scan opens. */
-export type LabelKind = 'Rack' | 'Chassis' | 'Cable' | 'PhysicalPort' | 'Store';
-const LABEL_KINDS: readonly LabelKind[] = ['Rack', 'Chassis', 'Cable', 'PhysicalPort', 'Store'];
-
 function nodeIdOk(id: string): boolean {
   try {
     parseNodeId(id);
@@ -68,10 +64,6 @@ export function parseScannedText(text: string, origin: string): ScanTarget | nul
   }
   if (url.origin !== origin) return null;
   return scanFromLocation(url);
-}
-
-export function isLabelKind(nodeId: string): boolean {
-  return LABEL_KINDS.some((k) => isNodeOfKind(nodeId, k));
 }
 
 /**
