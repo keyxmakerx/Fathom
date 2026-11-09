@@ -214,7 +214,10 @@ fn every_platform_can_be_named_in_the_frame() {
         let reply = shell.handle(OP_PASTE, &frame(named(platform), "hostname x\n"));
         if let ReplyView::Error(e) = decode_reply(&reply).unwrap() {
             let code = e.code;
-            assert_ne!(code, ERR_PASTE_FRAME, "{platform} was refused as a bad frame");
+            assert_ne!(
+                code, ERR_PASTE_FRAME,
+                "{platform} was refused as a bad frame"
+            );
         }
     }
 }
