@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** prose brought up to main (b23b646) on 2026-10-31. Test counts are not kept here: read them off a real run.
+**Last confirmed:** prose brought up to main (9fbbfd5) on 2026-11-09; the newest entries are from 2026-11-03. Test counts are not kept here: read them off a real run.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
