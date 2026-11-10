@@ -965,6 +965,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     onPrint: openPrintPanel,
     onDocs: doc != null && pickedSave == null ? () => docs.setView({ kind: 'list' }) : undefined,
     onHistory: doc != null ? () => toggleHistory() : undefined,
+    onShortcuts: () => setShortcutsOpen(true),
     historyOpen,
     // Offered to stewards only; the server refuses anyone else regardless.
     onShare: capability === 'steward' ? () => setSharing(true) : undefined,
