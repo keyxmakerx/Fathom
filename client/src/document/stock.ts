@@ -192,7 +192,6 @@ export function storeById(doc: Document, id: string): StoreView | null {
 
 /** True when `id` names a store; a scanned label is read by its id prefix. */
 export const isStoreId = (id: string): boolean => id.startsWith(STORE_PREFIX);
-export const isStockItemId = (id: string): boolean => id.startsWith(ITEM_PREFIX);
 
 export interface StockFilter {
   states?: readonly StockState[];

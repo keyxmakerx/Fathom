@@ -166,13 +166,6 @@ export function consoleFlag(): Promise<ConsoleFlag> {
   return flagOnce;
 }
 
-/** For a test that needs the next `consoleFlag()` to ask again. Not called
- * by any screen: a page load is what refreshes this. */
-export function forgetConsoleFlag(): void {
-  flagOnce = null;
-  flagSettled = null;
-}
-
 export type ConsoleHostState =
   | { status: 'loading' }
   | { status: 'ready'; flag: ConsoleFlag }
@@ -244,10 +237,6 @@ export async function deploymentId(operatorId: string): Promise<string> {
     deploymentOnce = readDeploymentId(operatorId);
   }
   return deploymentOnce;
-}
-
-export function forgetDeploymentId(): void {
-  deploymentOnce = null;
 }
 
 async function readDeploymentId(operatorId: string): Promise<string> {

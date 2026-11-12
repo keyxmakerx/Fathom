@@ -79,10 +79,6 @@ export function parseHash(hash: string): ListState | null {
   };
 }
 
-export function sameState(a: ListState, b: ListState): boolean {
-  return formatHash(a) === formatHash(b);
-}
-
 /**
  * Back or Forward lands on an older entry, but Where is the one setting that is not the entry's:
  * a Where changed while a page was open (or since) is kept, so it survives the trip.

@@ -47,11 +47,6 @@ export type CableRunSide = (typeof CABLE_RUN_SIDES)[number];
 
 export const CABLE_RUN_FORM_LABEL: Record<CableRunForm, string> = { tray: 'Tray', lacing_bar: 'Lacing bar' };
 
-/** A run along a left or right side runs up and down; along the top or bottom, across. */
-export function runIsVertical(side: CableRunSide): boolean {
-  return side === 'left' || side === 'right';
-}
-
 export interface CableTieView {
   id: string;
   /** Thousandths of the run's length from its top or left end. */
