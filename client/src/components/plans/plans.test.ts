@@ -380,6 +380,7 @@ describe('words for steps, ports and history', () => {
     expect(stepHead({ kind: 'move', change: 'Move sw-02 to Rack A' }).badge).toBeNull();
     expect(stepHead({ kind: 'cable', change: 'Remove sw-02 uplink' }).badge).toBe('Cable');
     expect(stepHead({ kind: 'cable', change: 'Cables on sw-02' }).badge).toBe('Cable');
+    expect(stepHead({ kind: 'other', change: 'Back up first\nshow configuration' })).toEqual({ badge: null, text: 'Back up first' });
   });
 
   it('default step text does not repeat the kind', () => {

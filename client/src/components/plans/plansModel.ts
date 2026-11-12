@@ -63,8 +63,10 @@ export function stateText(step: PlanStep, current: PlanStep | null): string {
   return current?.id === step.id ? '● Under way' : 'Planned';
 }
 
-/** A step's heading: the kind as a badge, unless the change text already opens with it ("Move X", "Cable Y"). */
+/** A step's heading: the kind as a badge, unless the change text already opens with it ("Move X", "Cable Y").
+ *  "Other" says nothing a reader can use, so it is never a badge (the list page's Kind column still says it). */
 export function stepHead(step: Pick<PlanStep, 'kind' | 'change'>): { badge: string | null; text: string } {
+  if (step.kind === 'other') return { badge: null, text: firstLine(step.change) };
   const word = KIND_WORD[step.kind];
   const opens = step.change.toLowerCase().startsWith(word.toLowerCase()) && !/^[\p{L}\p{N}]/u.test(step.change.charAt(word.length));
   return { badge: opens ? null : word, text: firstLine(step.change) };

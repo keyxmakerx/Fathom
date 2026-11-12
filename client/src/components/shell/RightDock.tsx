@@ -12,6 +12,10 @@ import type { RightTab } from './useRightTab';
 export const PANEL_OF: Record<RightTab, PanelId> = { equipment: 'rail', details: 'details', history: 'history', trail: 'trail' };
 const NAME_OF: Record<RightTab, string> = { equipment: 'Equipment', details: 'Details', history: 'History', trail: 'History' };
 
+/** The hover words for the orange mark on a folded tab: say what it means, not just that it is there. */
+export const HISTORY_MARK = 'The orange mark: a past save is still showing on the canvas';
+export const sideMark = (label: string): string => `The orange mark: ${label} is still open, out of sight. Press to show it`;
+
 export interface RightDockProps {
   shown: RightTab | null;
   /** What each tab holds; a tab with nothing behind it is not drawn. The Trail is the History panel's second tab. */
@@ -198,6 +202,7 @@ export function RightDock({
             name={activeTab == null && inHistory ? 'Close the history' : 'Open the history'}
             open={activeTab == null && inHistory}
             marked={historyLive && !inHistory}
+            markNote={HISTORY_MARK}
             testId="dock-history"
             onClick={() => press(shown != null && inHistory ? shown : canOpenHistory ? 'history' : 'trail')}
           />
@@ -211,6 +216,7 @@ export function RightDock({
               name={active === t.id ? `Close ${t.label}` : `Open ${t.label}`}
               open={active === t.id}
               marked={t.open && active !== t.id}
+              markNote={sideMark(t.label)}
               testId={`dock-${t.id}`}
               sideId={t.id}
               onClick={() => pressSide(t)}

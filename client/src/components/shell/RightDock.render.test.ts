@@ -91,6 +91,18 @@ describe('RightDock', () => {
 
   it('marks History when a past save is still showing behind another tab', () => {
     expect(render({ shown: 'details', details: 'fields', historyLive: true })).toContain('dock-tab--marked');
+    expect(render({ shown: 'details', details: 'fields', historyLive: true })).toContain('title="Open the history. The orange mark: a past save is still showing on the canvas"');
+  });
+
+  it('says on hover what the mark on a side tab means', () => {
+    const markup = render({
+      side: [
+        { id: 'checks', label: 'Checks', count: 1, open: true, onOpen: noop, onClose: noop },
+        { id: 'plan', label: 'Plan', open: true, onOpen: noop, onClose: noop },
+      ],
+    });
+    expect(markup).toContain('title="Open Checks. The orange mark: Checks is still open, out of sight. Press to show it"');
+    expect(markup).toContain('aria-label="Open Checks"');
   });
 
   it('puts the strip in order: Equipment, Details, History, then the side tabs (Checks, Docs)', () => {
