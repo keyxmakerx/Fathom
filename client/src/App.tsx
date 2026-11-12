@@ -6,6 +6,7 @@ import { identityOfSlot, PRINCIPAL_KIND_OPERATOR } from './api/constants';
 import { appCodeEnrolmentRequired } from './api/credentials';
 import { ApiRefusal } from './api/errors';
 import { makePracticeSpace } from './components/home/practiceSpace';
+import { describeOwnNetworkFailure, makeOwnNetwork, OwnNetworkFailure, type OwnNetworkProgress, type PreparedOwnNetwork } from './components/home/ownNetwork';
 import {
   beginOperatorBootstrap,
   completeOperatorBootstrap,
@@ -522,6 +523,49 @@ export default function App() {
   }
   // --- end ADR-0055 console entry --------------------------------------
 
+  // Sign-off r123: "Start your own network". Admin's own act first, like the practice space, so the same code prompt
+  // may be asked for; then the claim, the site and an empty design, which opens. A failure part way keeps what was made,
+  // and the next press carries on from it.
+  const [ownBusy, setOwnBusy] = useState(false);
+  const [ownError, setOwnError] = useState<string | null>(null);
+  const ownProgress = useRef<{ prepared: PreparedOwnNetwork; progress: OwnNetworkProgress } | null>(null);
+  const [codeAskedBy, setCodeAskedBy] = useState<'practice' | 'own'>('practice');
+  async function makeOwn(name: string, prepared: PreparedOwnNetwork): Promise<boolean> {
+    const accountSession = getSessionOn(ACCOUNT_PLANE);
+    if (!accountSession) return false;
+    setCodeAskedBy('own');
+    setOwnBusy(true);
+    setOwnError(null);
+    try {
+      if (!getSessionOn(OPERATOR_PLANE)) {
+        await enterConsole(() => {});
+        if (!getSessionOn(OPERATOR_PLANE)) {
+          setOwnError('Admin needs your verification code first. Type it above, then press Start drawing again.');
+          return false;
+        }
+      }
+      const from = ownProgress.current?.prepared === prepared ? ownProgress.current.progress : {};
+      const made = await makeOwnNetwork(name, prepared, accountSession.address, accountSession.accountId, from);
+      ownProgress.current = null;
+      const organisation = (await fetchOrganisations()).find((o) => o.organisationId === made.organisationId);
+      setPlane(ACCOUNT_PLANE);
+      setHomeTab('designs');
+      setDirectEntrySession(accountSession.sessionId);
+      if (organisation) openIn('racks')(organisation, made.design);
+      else setView({ kind: 'home' });
+      return true;
+    } catch (error) {
+      console.error(error);
+      setPlane(ACCOUNT_PLANE);
+      if (error instanceof OwnNetworkFailure) ownProgress.current = { prepared, progress: error.progress };
+      const cause = error instanceof OwnNetworkFailure ? error.cause : error;
+      setOwnError(describeOwnNetworkFailure(error, cause instanceof ApiRefusal ? cause.message : null));
+      return false;
+    } finally {
+      setOwnBusy(false);
+    }
+  }
+
   // ADR-0069: the practice space. Making it is Admin's own act, so it needs the operator session first; when that
   // waits on a verification code, the prompt shows on the practice card and the next press carries on.
   const [practiceBusy, setPracticeBusy] = useState(false);
@@ -530,6 +574,7 @@ export default function App() {
   async function makePractice(): Promise<string | null> {
     const accountSession = getSessionOn(ACCOUNT_PLANE);
     if (!accountSession) return null;
+    setCodeAskedBy('practice');
     setPracticeBusy(true);
     setPracticeError(null);
     try {
@@ -1088,7 +1133,7 @@ export default function App() {
                   error: practiceError,
                   justMade: practiceJustMade,
                   onOpened: () => setPracticeJustMade(null),
-                  codePrompt: operatorCodePending ? (
+                  codePrompt: operatorCodePending && codeAskedBy === 'practice' ? (
                     <AdminCodePromptForm
                       enteringConsole={enteringConsole}
                       operatorCode={operatorCode}
@@ -1096,6 +1141,24 @@ export default function App() {
                       onSubmit={(event, close) => void submitOperatorCode(event, close)}
                     />
                   ) : null,
+                }
+              : undefined
+          }
+          own={
+            admin !== undefined
+              ? {
+                  onMake: makeOwn,
+                  busy: ownBusy || (enteringConsole && codeAskedBy === 'own'),
+                  error: ownError,
+                  codePrompt:
+                    operatorCodePending && codeAskedBy === 'own' ? (
+                      <AdminCodePromptForm
+                        enteringConsole={enteringConsole}
+                        operatorCode={operatorCode}
+                        onCodeChange={setOperatorCode}
+                        onSubmit={(event, close) => void submitOperatorCode(event, close)}
+                      />
+                    ) : null,
                 }
               : undefined
           }

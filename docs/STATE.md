@@ -367,6 +367,13 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   browser, shows the recovery key once, then forgets it (ADR-0057). Not on the console: the two-person
   verbs (no assertion by the enrolled key yet), the site trail, an account list. ADR-0068's Admin rework
   (Health first, a left-hand section list, Engines) is decided, not built.
+- **First Home for the person who set the server up** (ADR-0069; sign-off r123): with no organisation yet, two
+  cards side by side. Open practice lab makes the practice space and opens the home lab. **Start your own
+  network** takes a name (filled in as Home network), shows the new organisation's recovery key once in the
+  card, and on Start drawing makes the organisation by Admin's own two acts (shell, then claim from the
+  account), a site of the same name and an empty design, and opens it. A failure part way keeps what was made
+  and the next press carries on. No server change; `components/home/ownNetwork.ts`,
+  `scripts/drive-own-network.mjs`.
 - **Home** has tabs (ADR-0060 decision 7): Designs, Passwords, Steward (called Organisation until
   2026-10-27; admins and folder stewards; a rail of People, Waiting for you (N), Folders, Passwords, AI
   and AI rules), AI (someone named to connect AI apps who stewards nothing: the AI page alone), and

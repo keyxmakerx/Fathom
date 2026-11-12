@@ -37,6 +37,11 @@ operator cannot grant themselves into an organisation. Any fix has to keep that.
    mistakes, so the canvas can say how many are planted and open Checks. A mistake the document
    model refuses outright (two cables on one port) cannot be planted and is not.
 
+**Added 2026-11-12 (sign-off r123, approved by the owner).** Beside "Open practice lab", first Home also offers
+"Start your own network": an ordinary organisation, not practice, made by the same two acts as decision 1, its root
+key shown once as the recovery key before anything is sent (ADR-0057 decision 5), then a site and an empty design.
+It is an offer, never a step; decision 5 stands.
+
 ## Not decided
 
 - Deleting or resetting a practice space. Today it stays.
