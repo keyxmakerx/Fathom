@@ -586,7 +586,7 @@ function Configuration({ d, deviceId }: { d: Device; deviceId: string }) {
         <div key={o.command} className="config-out">
           <div className="config-out__cmd">
             <span className="m">{o.command}</span>
-            {o.incomplete ? <span className="muted"> · cut short: the device printed more than Fathom keeps</span> : null}
+            {o.incomplete ? <span className="muted"> · cut short: the device printed more than Fathom keeps, or the connection ended early</span> : null}
             {o.exit !== null && o.exit !== 0 ? <span className="muted"> · the device said it did not finish (exit {o.exit})</span> : null}
           </div>
           <pre className="config-text" data-testid="config-text">
