@@ -878,10 +878,13 @@ export function readSurfaceFields(node: GraphNode): SurfaceFields {
 /** ADR-0051 §1 — `SitsOn.slot`: the place on a shelf, left to right, 1 first. */
 export interface SitsOnFields {
   slot?: number;
+  /** Schema 0.40 — millimetres from the shelf's inside left edge; absent when not yet placed by hand. */
+  xMm?: number;
 }
 
 export function readSitsOnFields(edge: GraphEdge): SitsOnFields {
-  return { slot: asNumber(fieldValue(edge.fields, 'SitsOn.slot')) };
+  const xMm = asNumber(fieldValue(edge.fields, 'SitsOn.x_mm'));
+  return { slot: asNumber(fieldValue(edge.fields, 'SitsOn.slot')), ...(xMm !== undefined ? { xMm } : {}) };
 }
 
 /** ADR-0051 §1 — `FixedTo.x_mm`/`.y_mm`, both `0..1` (absent means fixed with

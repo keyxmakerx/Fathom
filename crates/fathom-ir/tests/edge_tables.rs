@@ -140,9 +140,10 @@ fn slot_type_covers_every_registry_key() {
     // 496 -> 571: the IP plan store (562-636, schema 0.36).
     // 571 -> 572: a plan's team (637, schema 0.38).
     // 572 -> 578: NAT on firewalls (638-643, schema 0.39).
+    // 578 -> 579: where a thing sits along a shelf (`SitsOn.x_mm`, 644, schema 0.40).
     assert_eq!(
         FIELD_KEYS.len(),
-        578,
+        579,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

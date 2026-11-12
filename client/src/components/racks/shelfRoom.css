@@ -17,147 +17,166 @@
 }
 .shelf-room__bar {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s2);
   padding: var(--s3);
+  /* Under the tool row, which sits over this view (r116), as the opened device's bar does. */
+  padding-top: calc(var(--s2) + 48px);
   white-space: nowrap;
   min-width: 0;
 }
 .shelf-room__name {
   font-weight: 700;
 }
-.shelf-room__meta,
-.shelf-room__slot {
+.shelf-room__meta {
   font-size: var(--t-micro);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.shelf-room__grow {
+  flex: 1;
+}
+.shelf-room__tools {
+  display: flex;
+  gap: var(--s1);
+}
+.shelf-room__tool {
+  font: inherit;
+  font-size: var(--t-small);
+  padding: 2px var(--s2);
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--page);
+  color: var(--ink);
+  cursor: pointer;
+}
+.shelf-room__tool:hover {
+  border-color: var(--control-line-hover);
+}
+.shelf-room__tool[aria-pressed='true'] {
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
 }
 .shelf-room__stage {
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: var(--s4);
-  min-width: max-content;
+  align-items: center;
+  padding: var(--s3);
+  min-width: 0;
+  overflow-x: auto;
+}
+.shelf-room__svg {
+  display: block;
+  flex-shrink: 0;
+  font-family: var(--sans);
+  touch-action: none;
+}
+.shelf-room__empty {
+  color: var(--muted);
+  padding-bottom: var(--s2);
+}
+.shelf-room__post {
+  fill: var(--surface);
+  stroke: var(--hairline);
 }
 .shelf-room__tray {
-  display: grid;
-  gap: 0;
-  border: var(--rule-hair) solid var(--hairline);
-  border-bottom: none;
-  align-items: stretch;
+  fill: var(--surface-2);
+  stroke: var(--ink);
+  stroke-width: 1.4;
 }
-.shelf-room__thing,
-.shelf-room__gap {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s1);
-  padding: var(--s2) var(--s3);
-  min-height: 132px;
-  border-right: var(--rule-hair) solid var(--hairline);
-  min-width: 0;
+.shelf-room__lip {
+  fill: var(--ink);
 }
-.shelf-room__thing:last-child,
-.shelf-room__gap:last-child {
-  border-right: none;
+.shelf-room__hatch-line {
+  stroke: var(--hairline);
+  stroke-width: 2;
 }
-.shelf-room__gap {
-  background-image: var(--hatch);
-  color: var(--muted);
+.shelf-room__box {
+  fill: var(--surface);
+  stroke: var(--ink);
+  stroke-width: 1.2;
+}
+/* No model records a size yet: the box is a guess, and its edge is dashed to say so. */
+.shelf-room__box--guess {
+  stroke-dasharray: 6 3;
 }
 .shelf-room__thing {
   cursor: pointer;
-  outline: var(--rule-hair) solid var(--ink);
-  outline-offset: calc(-1 * var(--s1));
+  outline: none;
 }
-.shelf-room__thing--selected {
-  outline-width: 2px;
+.shelf-room__thing--movable {
+  cursor: grab;
 }
-.shelf-room__thing:focus-visible {
-  outline: 2px solid var(--ink);
+.shelf-room__thing--movable:active {
+  cursor: grabbing;
 }
-.shelf-room__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s2);
+.shelf-room__thing--selected .shelf-room__box {
+  stroke-width: 2.6;
 }
-.shelf-room__open {
-  font-size: var(--t-micro);
-  padding: 0 var(--s2);
+.shelf-room__thing:focus-visible .shelf-room__box {
+  stroke-width: 2.6;
+  stroke-dasharray: none;
+}
+.shelf-room__thing--over .shelf-room__box {
+  fill: url(#shelf-room-hatch);
 }
 .shelf-room__label {
+  fill: var(--ink);
+  font-size: 11px;
   font-weight: 700;
-  overflow-wrap: anywhere;
+  pointer-events: none;
 }
-.shelf-room__model {
+.shelf-room__mono {
+  fill: var(--muted);
   font-family: var(--mono);
-  font-size: var(--t-micro);
-  color: var(--muted);
-}
-.shelf-room__typed {
-  align-self: flex-start;
-  font-size: var(--t-micro);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-  color: var(--muted);
-  border: var(--rule-hair) dashed var(--muted);
-  padding: 0 3px;
-}
-.shelf-room__ports {
-  list-style: none;
-  margin: var(--s1) 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
 }
 .shelf-room__port {
-  display: flex;
-  align-items: center;
-  gap: var(--s1);
-  width: 100%;
-  min-height: 0;
-  padding: 1px var(--s1);
-  border: var(--rule-hair) solid transparent;
-  background: none;
-  font-size: var(--t-micro);
-  text-align: left;
+  fill: var(--page);
+  stroke: var(--ink);
+  stroke-width: 0.9;
   cursor: pointer;
 }
-.shelf-room__port:hover {
-  border-color: var(--hairline);
+.shelf-room__port--cabled {
+  fill: var(--ink);
 }
 .shelf-room__port--selected {
-  border-color: var(--ink);
+  stroke-width: 2.4;
 }
-.shelf-room__glyph {
-  flex: none;
+.shelf-room__cable {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  pointer-events: none;
 }
-.shelf-room__far {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: var(--t-micro);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.shelf-room__tag rect,
+.shelf-room__measure rect {
+  fill: var(--page);
+  stroke: var(--hairline);
 }
-/* The ink lip the shelf's things sit on, as the tray in the rack draws it. */
-.shelf-room__lip {
-  height: 4px;
-  background: var(--ink);
+.shelf-room__measure path {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 0.8;
 }
-.shelf-room__empty {
-  padding: var(--s4);
-  border: var(--rule-hair) dashed var(--hairline);
-  color: var(--muted);
-  text-align: center;
+.shelf-room__refusal {
+  margin: var(--s2) 0 0;
+  color: var(--caution);
 }
 .shelf-room__hint {
-  margin: var(--s3) 0 0;
+  margin: var(--s2) 0 0;
   color: var(--muted);
-  font-size: var(--t-micro);
+  max-width: 80ch;
+  text-align: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shelf-room__cable {
+    transition: none;
+  }
 }

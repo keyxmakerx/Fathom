@@ -17,6 +17,7 @@ import {
   removeHolder,
   removeSketchPort,
   resizeShelf,
+  arrangeShelf,
 } from '../../document/commands';
 import { connectOneEnd, connectPorts, connectToOutside, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
 import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
@@ -203,6 +204,8 @@ export function applyEditorChange(
     notice = `Copied to ${r.label}: ${r.devices} device${r.devices === 1 ? '' : 's'}, ${r.cables} cable${r.cables === 1 ? '' : 's'}.${r.skipped > 0 ? ` ${r.skipped} patch panel${r.skipped === 1 ? '' : 's'} or other passive${r.skipped === 1 ? ' was' : 's were'} left out.` : ''}`;
   } else if (change.kind === 'shelf-size') {
     next = resizeShelf(doc, change.id, { heightU: change.heightU, slots: change.slots }, { catalogue, ...opts });
+  } else if (change.kind === 'shelf-arrange') {
+    next = arrangeShelf(doc, change.id, change.positions, opts);
   } else if (change.kind === 'cable-run-add') {
     next = addCableRun(doc, change.hostId, { form: change.form, side: change.side, ...opts });
   } else if (change.kind === 'cable-run-remove') {

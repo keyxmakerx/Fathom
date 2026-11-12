@@ -623,6 +623,8 @@ export function seedShelfRoomScene(catalogue: CatalogueModel[], me: string): Doc
   shelfThings.slice(0, 3).forEach((o, i) => {
     working = connectPorts(working, o.ports[0]!.id, swPorts[i]!.id, { sheath: 'blue' as Sheath }, { actor: me });
   });
+  // Sign-off shelf-view: one cable between two things on the same shelf, which hangs between them.
+  working = connectPorts(working, shelfThings[0]!.ports[1]!.id, shelfThings[1]!.ports[1]!.id, { sheath: 'yellow' as Sheath }, { actor: me });
   return working;
 }
 

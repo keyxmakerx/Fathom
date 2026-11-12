@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import type { ClosetView, OccupantView, PortView, RackView, ShelfView } from '../../document/view';
-import { ShelfRoom, shelfRoomSlots } from './ShelfRoom';
+import { ShelfRoom } from './ShelfRoom';
 
 // Render-to-string only, as `ShelfPlate.render.test.ts` does: no DOM testing library is installed.
 
@@ -22,23 +22,20 @@ function viewWith(shelf: ShelfView): ClosetView {
 
 const noop = () => {};
 
-function render(shelf: ShelfView, selected: Parameters<typeof ShelfRoom>[0]['selected'] = null): string {
+function render(shelf: ShelfView, selected: Parameters<typeof ShelfRoom>[0]['selected'] = null, writer = false): string {
   return renderToStaticMarkup(
-    createElement(ShelfRoom, { view: viewWith(shelf), shelfId: shelf.id, selected, paused: false, onSelect: noop, onOpenDevice: noop, onBack: noop }),
+    createElement(ShelfRoom, {
+      view: viewWith(shelf),
+      shelfId: shelf.id,
+      selected,
+      paused: false,
+      onSelect: noop,
+      onOpenDevice: noop,
+      onBack: noop,
+      ...(writer ? { onArrange: noop } : {}),
+    }),
   );
 }
-
-describe('shelfRoomSlots', () => {
-  it('draws every slot of a shelf with a count, the empty ones too', () => {
-    expect(shelfRoomSlots(4, [{ slot: 1 }, { slot: 3 }])).toEqual([1, 2, 3, 4]);
-  });
-  it('never hides a thing in a slot past the count', () => {
-    expect(shelfRoomSlots(2, [{ slot: 3 }])).toEqual([1, 2, 3]);
-  });
-  it('without a count, only the slots in use', () => {
-    expect(shelfRoomSlots(null, [{ slot: 5 }, { slot: 2 }])).toEqual([2, 5]);
-  });
-});
 
 describe('ShelfRoom (render-to-string)', () => {
   const shelf: ShelfView = {
@@ -56,26 +53,50 @@ describe('ShelfRoom (render-to-string)', () => {
   it('names the shelf and where it sits', () => {
     const markup = render(shelf);
     expect(markup).toContain('Top shelf');
-    expect(markup).toContain('SHELF 1U · Rack 1 U20 · 2 on it · 1 slot free');
+    expect(markup).toContain('SHELF 1U · Rack 1 U20 · 2 on it');
   });
 
-  it('draws every thing whole, with its model and ports, and the empty slot hatched', () => {
+  it('draws every thing on the shelf, with its model and its front ports', () => {
     const markup = render(shelf);
     expect(markup).toContain('padparadscha');
     expect(markup).toContain('NUC 13');
-    expect(markup).toContain('eth0');
+    expect(markup).toContain('data-occupant-id="outlets"');
+    expect(markup).toContain('data-port-id="eth0"');
     expect(markup).toContain('to another closet');
-    expect(markup).toContain('shelf-room__gap');
-    expect(markup).toContain('SLOT 2');
   });
 
-  it('offers Open on a device only, not on a passive thing', () => {
-    const markup = render(shelf);
-    expect(markup.match(/shelf-room__open/g)?.length).toBe(1);
+  it('draws every thing even when none has a slot (they all read as slot 0)', () => {
+    const markup = render({ ...shelf, slots: null, occupants: [occupant('a', 0), occupant('b', 0), occupant('c', 0)] });
+    for (const id of ['a', 'b', 'c']) expect(markup).toContain(`data-occupant-id="${id}"`);
+  });
+
+  it('a cable between two things on the shelf hangs between their ports, with no tag', () => {
+    const cable = (far: string) => ({ cableId: 'c9', farPortId: far, farChassisId: null, outsideCloset: false });
+    const markup = render({
+      ...shelf,
+      occupants: [occupant('sw', 1, { ports: [port('p1', { cable: cable('p2') })] }), occupant('pc', 2, { ports: [port('p2', { cable: cable('p1') })] })],
+    });
+    expect(markup.match(/shelf-room__cable/g)?.length).toBe(1);
+    expect(markup).not.toContain('shelf-room__tag');
+  });
+
+  it('from the front, a thing with only rear ports says they are on the back', () => {
+    const rearOnly = occupant('nuc', 1, { ports: [port('lan', { face: 'rear' })] });
+    const markup = render({ ...shelf, occupants: [rearOnly] });
+    expect(markup).not.toContain('data-port-id="lan"');
+    expect(markup).toContain('ports on the back');
   });
 
   it('marks the selected thing', () => {
     expect(render(shelf, { kind: 'occupant', id: 'padparadscha' })).toContain('shelf-room__thing--selected');
+  });
+
+  it('only a writer can drag, and is told how many are not placed by hand yet', () => {
+    expect(render(shelf)).not.toContain('shelf-room__thing--movable');
+    const markup = render(shelf, null, true);
+    expect(markup).toContain('shelf-room__thing--movable');
+    expect(markup).toContain('2 not placed by hand yet');
+    expect(render({ ...shelf, occupants: shelf.occupants.map((o, i) => ({ ...o, xMm: i * 200 })) }, null, true)).not.toContain('not placed by hand');
   });
 
   it('says so when the shelf is gone', () => {

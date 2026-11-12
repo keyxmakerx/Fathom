@@ -587,8 +587,14 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card.
 - **Shelves** (r56, `scripts/drive-shelf-room.mjs`). A shelf draws as a tray: hairline sides, an ink lip
   the things stand on 2px clear of, its name as a caption, names whole, what does not fit folded into one
-  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens everything on it front-on,
-  slot by slot, empty slots hatched; the bar's path and Esc lead back out. Each rack line is drawn once
+  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens the shelf drawn from the
+  front between the rack's posts, to scale (sign-off shelf-view, schema 0.40): each thing sits at its
+  `SitsOn.x_mm`, or is packed by slot until someone drags it; a writer drags it left or right (snapping to
+  neighbours and 10 mm steps, Alt to place freely, arrow keys too) and the slots follow the order. Boxes are
+  sized from their ports with a dashed edge, since no catalogue model records a size yet. Cables hang from
+  their ports with the restored physics (`drawing/cablePhysics.ts`) and swing after a move; one leaving
+  the shelf runs up or down the nearer post to a tag. **Back** turns it round to the rear ports. The bar's
+  path and Esc lead back out. Each rack line is drawn once
   (a shared edge between stacked devices is one line) and a device's name sits level with its U number.
 - **The panel** (r57, r60, r65). Its foot sits on the bottom edge on every tab; inside an opened device
   it says **Back** instead of Open inside. It ends with **Also in**: the plans that touch the device, its

@@ -2366,6 +2366,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onSelect={setSelection}
           onOpenDevice={(id) => handleOpenDevice(id, false, null)}
           onBack={leaveShelf}
+          onArrange={canDraw ? (id, positions) => handleEdit({ kind: 'shelf-arrange', id, positions }) ?? undefined : undefined}
         />
       ) : null}
       {jot != null && jotPlateList != null ? (

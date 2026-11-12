@@ -1039,6 +1039,88 @@ export function placeOnShelf(doc: Document, itemId: string, shelfId: string, slo
   return withBatch(working, batch);
 }
 
+/** Schema 0.40 — the widest a shelf's inside can be in millimetres, the cap `arrangeShelf`
+ * checks against (a 19-inch rack's opening is 450 mm; a 23-inch one's is 552 mm, so 600 keeps
+ * both with room to spare and still refuses a typo). */
+export const SHELF_MAX_INSIDE_MM = 600;
+
+export class ShelfArrangeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ShelfArrangeError';
+  }
+}
+
+/**
+ * Sign-off shelf-view (schema 0.40) — sets where things sit along `shelfId`, in millimetres from
+ * its inside left edge (`SitsOn.x_mm`), and keeps `SitsOn.slot` as the left-to-right order: every
+ * placed occupant is given back the shelf's own slot numbers in order of its position, so the
+ * rack's drawing of the shelf reads the same order. An occupant with no slot, or one sharing a
+ * slot with another (both read as one place before this), is given a free one. Only fields that
+ * change are written, as one undo step. Refuses an item not on this shelf or a position past
+ * `SHELF_MAX_INSIDE_MM`.
+ */
+export function arrangeShelf(
+  doc: Document,
+  shelfId: string,
+  positions: ReadonlyArray<{ itemId: string; xMm: number }>,
+  opts?: Actor,
+): Document {
+  requireShelf(doc, shelfId);
+  const sitters = edgesIn(doc, shelfId, 'SitsOn').filter((e) => {
+    const n = findNode(doc, e.from);
+    return n !== undefined && n.absentSince === undefined;
+  });
+  const byItem = new Map(sitters.map((e) => [e.from, e]));
+  const wanted = new Map<string, number>();
+  for (const { itemId, xMm } of positions) {
+    if (!byItem.has(itemId)) throw new ShelfArrangeError(`${nameOfMounted(doc, itemId)} is not on this shelf`);
+    if (!Number.isFinite(xMm) || xMm < 0 || xMm > SHELF_MAX_INSIDE_MM) {
+      throw new ShelfArrangeError(`A shelf is at most ${SHELF_MAX_INSIDE_MM} mm wide inside`);
+    }
+    wanted.set(itemId, Math.round(xMm));
+  }
+
+  // Each occupant's position after this change, and its slot before it.
+  const rows = sitters.map((e) => {
+    const f = readSitsOnFields(e);
+    return { edge: e, slot: f.slot, x: wanted.get(e.from) ?? f.xMm };
+  });
+  const placed = rows.filter((r) => r.x !== undefined).sort((a, b) => a.x! - b.x! || (a.slot ?? 0) - (b.slot ?? 0));
+  // The placed occupants' own slot numbers, each once, then fresh ones after every slot in use.
+  const unplacedSlots = new Set(rows.filter((r) => r.x === undefined && r.slot !== undefined).map((r) => r.slot!));
+  const pool = [...new Set(placed.map((r) => r.slot).filter((n): n is number => n !== undefined && n >= 1 && !unplacedSlots.has(n)))].sort((a, b) => a - b);
+  let next = Math.max(0, ...rows.map((r) => r.slot ?? 0)) + 1;
+  while (pool.length < placed.length) pool.push(next++);
+  pool.sort((a, b) => a - b);
+
+  const { actor, now } = resolve(opts);
+  let working = doc;
+  const ops: Op[] = [];
+  placed.forEach((row, i) => {
+    const edge = row.edge;
+    const slot = pool[i]!;
+    const updates: Record<string, FieldEntry> = {};
+    if (row.slot !== slot) {
+      const f = setField(working, now, actor, edge.id, edge.fields['SitsOn.slot'], 'SitsOn.slot', uint(slot, 8));
+      working = f.doc;
+      updates['SitsOn.slot'] = f.entry;
+      ops.push(f.op);
+    }
+    const before = readSitsOnFields(edge).xMm;
+    if (wanted.has(edge.from) && before !== row.x) {
+      const f = setField(working, now, actor, edge.id, edge.fields['SitsOn.x_mm'], 'SitsOn.x_mm', uint(row.x!, 16));
+      working = f.doc;
+      updates['SitsOn.x_mm'] = f.entry;
+      ops.push(f.op);
+    }
+    if (Object.keys(updates).length > 0) working = replaceEdge(working, edge.id, (e) => ({ ...e, fields: { ...e.fields, ...updates } }));
+  });
+
+  if (ops.length === 0) return doc;
+  return withBatch(working, { id: newUlid(now), label: 'arrange shelf', ops });
+}
+
 // ---------------------------------------------------------------------------
 
 /** `Surface.form` (`schema/schema.yaml`), verbatim — "deliberately no

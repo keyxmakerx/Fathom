@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.39"    # Each version and how it was priced: docs/SCHEMA-HISTORY.md
+  version: "0.40"    # Each version and how it was priced: docs/SCHEMA-HISTORY.md
                     # 0.1   the first baseline
                     # 0.2   physical placement (ADR-0035)
                     # 0.3   Device.role server and access_point (ADR-0037)
@@ -44,6 +44,7 @@ schema:
                     # 0.37  a plan can be called off
                     # 0.38  a plan's team
                     # 0.39  NAT pools on firewalls
+                    # 0.40  where a thing sits along a shelf
   oldest_readable: "0.10"   # The oldest header a reader opens. Kinds and edges added later say `since:`;
                             # schemagen derives the accepted versions and the kinds each may hold.
 
@@ -3584,6 +3585,15 @@ edges:
           range: { min: 1, max: 64, platforms: [] }
         doc: |
           The place on the shelf counted left to right, 1 first.
+      - name: x_mm
+        type: u16
+        card: "0..1"
+        emit: "—"
+        doc: |
+          0.40 (sign-off shelf-view). Millimetres from the shelf's inside left edge to the
+          thing's left side, as drawn when the shelf is stepped into. Absent means on the
+          shelf with the spot not yet measured -- the same reason FixedTo.x_mm is 0..1. The
+          slot stays the left-to-right order; the client keeps the two agreeing.
     emit_dict: null
     doc: |
       ADR-0051 §1. Seats a Chassis or PassiveNode on the shelf it sits on -- a shelf
