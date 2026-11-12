@@ -39,6 +39,7 @@ import type { OverlayView } from '../../document/overlays';
 import { overlayShapes } from './overlayDraw';
 import { OverlayCard, OverlayLayer } from './OverlayLayer';
 import type { RoutingMarks, RoutingWord } from './routingLens';
+import { speedWidth, TRUNK_MIN_W, type LinksLine, type LinksMarks } from './linksLens';
 
 /** The Routing lens's table picker: the tables to choose from, the lit one, and what it lights. */
 export interface TableChoice {
@@ -106,6 +107,8 @@ interface LineData extends Record<string, unknown> {
   onPath: boolean;
   /** Another cable is lit: this one fades to the phantom level. */
   dimmed: boolean;
+  /** The Links lens, while it is lit: this line's VLAN colour, trunk and speed. */
+  links?: LinksLine | null;
   onSelect: (cableId: string) => void;
   onHover: (cableId: string | null) => void;
   onPanTo: (chassisId: string) => void;
@@ -115,10 +118,13 @@ const WIDTH_VAR: Record<CableView['kind'], string> = { copper: 'var(--cable-copp
 
 function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
   if (!data) return null;
-  const { cable, route, stub, lit, dashed, onPath, dimmed, onSelect, onHover, onPanTo } = data;
+  const { cable, route, stub, lit, dashed, onPath, dimmed, links, onSelect, onHover, onPanTo } = data;
   // Round 10: cables are plain ink on the canvas; sheath colours live in the Rack look only.
-  const colour = 'var(--ink)';
-  const width = onPath ? '4px' : WIDTH_VAR[cable.kind];
+  // The Links lens (r109): an access line in its VLAN's colour, a trunk hollow, weight by speed.
+  const colour = links?.slot != null ? `var(--vlan-${links.slot})` : 'var(--ink)';
+  const linksW = links === undefined ? null : links === null ? speedWidth(null) : links.trunk ? Math.max(speedWidth(links.speedBps), TRUNK_MIN_W) : speedWidth(links.speedBps);
+  const width = onPath ? '4px' : linksW != null ? `${linksW}px` : WIDTH_VAR[cable.kind];
+  const hollow = links?.trunk === true && !onPath;
   const opacity = dimmed ? 'var(--phantom)' : 1;
   const tags =
     stub != null ? (
@@ -144,6 +150,7 @@ function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
       onMouseLeave={() => onHover(null)}
     >
       <path d={route.d} fill="none" stroke={colour} strokeWidth={width} strokeLinejoin="miter" strokeLinecap="butt" strokeDasharray={dashed ? 'var(--cable-dash)' : undefined} />
+      {hollow && <path d={route.d} fill="none" stroke="var(--page)" strokeWidth={`${linksW! * 0.4}px`} strokeLinejoin="miter" strokeLinecap="butt" strokeDasharray={dashed ? 'var(--cable-dash)' : undefined} data-testid="links-trunk-core" />}
       <path d={route.d} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke" />
       <CableCheckBadge id={cable.id} x={(route.a.x + route.b.x) / 2} y={(route.a.y + route.b.y) / 2} />
       {tags}
@@ -187,9 +194,11 @@ export interface DiagramDrawingProps {
   routing?: RoutingMarks;
   /** The Routing lens's table picker, when the design keeps a VRF: one table lit, the rest faded. */
   table?: TableChoice;
+  /** The Links lens, while it is lit: VLAN colours, hollow trunks, weight by speed, and the Networks key. */
+  links?: LinksMarks;
 }
 
-function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds: dashedIn, words: wordsIn, style = 'boxes', cameraHub, minimap, notes, overlays, routing, table }: DiagramDrawingProps) {
+function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds: dashedIn, words: wordsIn, style = 'boxes', cameraHub, minimap, notes, overlays, routing, table, links }: DiagramDrawingProps) {
   const rf = useReactFlow();
   const learn = useLearn();
   // The Routing lens adds to what the Show menu writes: its word takes a line's middle, and a switched line is dashed.
@@ -279,10 +288,10 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         target: line.b,
         selectable: false,
         className: [line.cable.id === selectedCableId && 'drawing-diagram-line--selected', ((trace != null && !trace.cables.has(line.cable.id)) || (table != null && !table.lit.cables.has(line.cable.id))) && 'trace-faded'].filter(Boolean).join(' ') || undefined,
-        data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, onPath: trace?.cables.has(line.cable.id) ?? false, dimmed: litId != null && !lit, onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
+        data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, onPath: trace?.cables.has(line.cable.id) ?? false, dimmed: litId != null && !lit, links: links == null ? undefined : (links.cables.get(line.cable.id) ?? null), onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
       } satisfies Edge<LineData, 'diagramLine'>;
     });
-  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace, table]);
+  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace, table, links]);
 
   // The trace's numbers: on a box's top-left corner, or a line's middle; and the stop's caution box.
   const traceMarks = useMemo(() => {
@@ -480,6 +489,34 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
             </label>
           )}
           <span>Ink: routed · Dashed: switched · Boxes never move</span>
+        </div>
+      )}
+      {links != null && (
+        <div className="drawing-lens-key drawing-links-key" data-testid="links-lens-key">
+          <span className="drawing-links-key__head">Networks</span>
+          {links.key.length === 0 ? (
+            <span className="drawing-lens-key__note">No VLANs in this design yet</span>
+          ) : (
+            <ul className="drawing-links-key__rows">
+              {links.key.map((r) => (
+                <li key={r.vlanId} data-testid="links-key-row">
+                  <svg width="22" height="8" aria-hidden="true">
+                    <line x1="0" y1="4" x2="22" y2="4" stroke={`var(--vlan-${r.slot})`} strokeWidth="2.4" />
+                  </svg>
+                  <span className="drawing-links-key__id">VLAN {r.vlanId}</span>
+                  {r.name != null && <span className="drawing-links-key__name">{r.name}</span>}
+                  {r.cidr != null && <span className="drawing-links-key__cidr">{r.cidr}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          <span className="drawing-links-key__legend">
+            <svg width="22" height="8" aria-hidden="true">
+              <line x1="0" y1="4" x2="22" y2="4" stroke="var(--ink)" strokeWidth="3.2" />
+              <line x1="0" y1="4" x2="22" y2="4" stroke="var(--page)" strokeWidth="1.3" />
+            </svg>
+            Trunk · thicker is faster · boxes never move
+          </span>
         </div>
       )}
       <CanvasTools wheel={wheel} onWheel={setWheel} />

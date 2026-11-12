@@ -50,10 +50,10 @@ describe('Bar — what is present where', () => {
     expect(markup.indexOf('shell-shortcuts-btn')).toBeLessThan(markup.indexOf('class="shell-account"'));
   });
 
-  it('shows only the lenses that change the place: Canvas Cables and Routing; Inventory also Power and Owner', () => {
+  it('shows only the lenses that change the place: Canvas Cables, Links (r109) and Routing; Inventory also Power and Owner', () => {
     const racks = renderToStaticMarkup(createElement(Bar, BASE));
     expect(racks).toContain('>Routing<');
-    expect(racks).not.toContain('>Links<');
+    expect(racks).toContain('>Links<');
     expect(racks).not.toContain('>Power<');
     const inventory = renderToStaticMarkup(createElement(Bar, { ...BASE, place: 'inventory' }));
     expect(inventory).toContain('>Power<');
