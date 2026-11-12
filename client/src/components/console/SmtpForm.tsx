@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 
 import { requestSmtpSetting, sendTestMessage, type PendingChange, type SmtpTlsMode } from '../../api/console';
+import { NotFinishedMark } from '../ui/NotFinished';
 import { describeConsoleError } from './describeConsoleError';
 import '../../styles/console.css';
 
@@ -93,7 +94,9 @@ export function SmtpForm({ actingOperatorId }: SmtpFormProps) {
 
   return (
     <form className="console__form" onSubmit={submit}>
-      <div className="console__form-title">Mail (SMTP)</div>
+      <div className="console__form-title">
+        Mail (SMTP) <NotFinishedMark />
+      </div>
       <p className="console__note">
         Where this install hands its mail. Set it here rather than in a file: the operator console is the one place
         that can change it without a restart, and doing it here is what keeps a lockout from needing one. The value

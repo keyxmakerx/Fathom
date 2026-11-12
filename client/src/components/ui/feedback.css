@@ -179,3 +179,49 @@
     --m-skeleton-fade: 1ms;
   }
 }
+
+/* ---- "Not finished" mark (alpha) --------------------------------------- */
+.not-finished {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: var(--s1);
+  padding: 0 var(--s1);
+  border: var(--rule-hair) solid var(--ink);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label, 0.08em);
+  text-transform: uppercase;
+  line-height: 1.5;
+  color: var(--ink);
+  background: transparent;
+  white-space: nowrap;
+}
+
+.not-finished-page__lead {
+  margin: 0;
+  max-width: var(--measure, 68ch);
+}
+
+.not-finished-page__cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s4);
+}
+
+.not-finished-page__cols > div {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.not-finished-page__head {
+  font-weight: 700;
+  margin-bottom: var(--s1);
+}
+
+.not-finished-page ul {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
