@@ -8,6 +8,7 @@ import { anchorName, clampOffset, findingKey, panelNotes, SEVERITY, sourceView, 
 import type { ChecksController } from './useChecksController';
 import { RefusalCard } from './RefusalCard';
 import { Glossed } from '../learn/Glossed';
+import { PanelHead } from '../shell/PanelHead';
 import { InSideSlot, InSlot } from '../shell/sideSlot';
 import { ThingName } from '../shell/ThingName';
 import './checks.css';
@@ -200,12 +201,11 @@ export function ChecksPanel({ controller, canShow = true }: { controller: Checks
       aria-label="Checks"
       data-testid="checks-panel"
     >
-      <header className="checks-panel__head" {...(inSlot ? {} : { onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp })}>
-        <h2 className="checks-panel__title">Checks</h2>
-        <button type="button" className="checks-link" aria-label="Fold the Checks panel" onClick={() => controller.setOpen(false)}>
-          Fold
-        </button>
-      </header>
+      <PanelHead
+        name="Checks"
+        onFold={() => controller.setOpen(false)}
+        dragProps={inSlot ? undefined : { onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp }}
+      />
       <div className="checks-panel__body">
         {unavailable && <p className="checks-panel__note">Checks are not running</p>}
         {!unavailable && result == null && <p className="checks-panel__note">Checking…</p>}

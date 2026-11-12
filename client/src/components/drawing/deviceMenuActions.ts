@@ -3,7 +3,7 @@
 
 import { deviceFirmware, deviceOfChassis, targetOfDevice } from '../../document/firmware';
 import type { Document } from '../../document/model';
-import { deviceRows } from '../inventory/kinds';
+import { deviceRows, rackRows } from '../inventory/kinds';
 import { deviceChassis } from '../jot/jotLayout';
 import { scanLink } from '../phone/scan';
 import { labelItems, type LabelItem } from '../../print/labels';
@@ -62,6 +62,16 @@ export function deviceMenuActions(place: DeviceMenuPlace): Partial<MenuActions> 
             const items = labelItems('devices', rows, origin(), designId);
             if (items.length > 0) printLabels(items);
             else failed('This device has no label to print.');
+          }
+        : undefined,
+    // r116: a rack's own label, the same sheet a device's goes through.
+    onPrintRackLabel:
+      doc != null && designId != null
+        ? (id) => {
+            const rows = rackRows(doc, view).filter((row) => row.ids.rackId === id);
+            const items = labelItems('racks', rows, origin(), designId);
+            if (items.length > 0) printLabels(items);
+            else failed('This rack has no label to print.');
           }
         : undefined,
   };

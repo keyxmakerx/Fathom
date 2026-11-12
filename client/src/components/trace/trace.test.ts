@@ -72,6 +72,7 @@ const controller = (over: Partial<TraceController> = {}): TraceController => ({
   result: result(),
   error: '',
   openFrom: () => {},
+  openBetween: () => {},
   ask: () => {},
   openWith: () => {},
   close: () => {},

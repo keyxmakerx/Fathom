@@ -1,10 +1,11 @@
-// The quick card (Key Maker, 31 October): click a device, rack, shelf or cable on the canvas and a small card
-// comes out beside it, joined by a dotted line, with what it is, its name and its management address ready
-// to copy. The right panel opens as before; the card is the short answer and the panel the long one.
+// The quick card (Key Maker, 31 October): click a device, rack, shelf, cable or port on the canvas and a small
+// card comes out beside it, joined by a dotted line, with what it is, its name and its management address ready
+// to copy. The card is the short answer and the panel the long one, and a click gives one of them (r116,
+// ADR-0091 decision 3): the card while the Details panel is folded, the panel alone while it is open.
 //
 // It brings back the callout r59 took out, without the rule that hid it: any click on the thing shows it,
 // not only a click on a racked device's name. Like the hover peek it is one listener for the whole canvas,
-// so the things themselves stay as they are; a click on a port counts as a click on its device. It follows the thing as the camera moves, and goes on Escape,
+// so the things themselves stay as they are; a port has its own card. It follows the thing as the camera moves, and goes on Escape,
 // a click on empty canvas, a double-click (which opens the device) or a drag. What it says is `quickCard.ts`.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -12,11 +13,16 @@ import { createPortal } from 'react-dom';
 import '../../styles/canvas-aids.css';
 
 import { copyText } from '../firmware/parts';
+import type { Document } from '../../document/model';
+import { clickAnswer, nextEscape, useDetailsOpen } from '../shell/clickAnswer';
 import { SHOW_DETAILS_EVENT } from '../shell/useRightTab';
 import type { ClosetView } from './contract';
 import { thingOf } from './PortPeek';
-import { quickCard, type QuickCardFacts } from './quickCard';
+import { quickCard, quickPortCard, type QuickCardFacts } from './quickCard';
 import type { PeekTarget } from './thingPeek';
+
+/** What a card can speak for: the peek's things, and a port. */
+type CardTarget = PeekTarget | { kind: 'port'; id: string };
 
 const CANVAS_SELECTOR = '.shell__drawing';
 /** A press that moves further than this is a drag or a pan, not a click. */
@@ -26,7 +32,7 @@ const LEADER_PX = 28;
 const EDGE = 8;
 
 interface Pinned {
-  target: PeekTarget;
+  target: CardTarget;
   el: HTMLElement;
   /** Where on the thing the click landed, as fractions of its box: a rack is tall and a cable long. */
   fx: number;
@@ -44,14 +50,16 @@ interface Placed {
 }
 
 /** The element for a target, found again when the canvas has redrawn the one that was clicked. */
-function refind(target: PeekTarget): HTMLElement | null {
+function refind(target: CardTarget): HTMLElement | null {
   const id = CSS.escape(target.id);
   const selectors =
     target.kind === 'device'
       ? [`[data-device-chassis="${id}"]`, `.react-flow__node[data-id="chassis:${id}"]`, `.react-flow__node[data-id="free:${id}"]`]
       : target.kind === 'cable'
         ? [`[data-cable-id="${id}"]`]
-        : [`.react-flow__node[data-id="${target.kind}:${id}"]`];
+        : target.kind === 'port'
+          ? [`[data-port-id="${id}"]`]
+          : [`.react-flow__node[data-id="${target.kind}:${id}"]`];
   for (const s of selectors) {
     const el = document.querySelector<HTMLElement>(`${CANVAS_SELECTOR} ${s}`);
     if (el != null) return el;
@@ -70,12 +78,19 @@ function anchorOf(p: Pinned, r: DOMRect): { x: number; y: number; left: number; 
   return { x: r.right, y, left: r.left, right: r.right };
 }
 
-export function QuickCard({ view }: { view: ClosetView }) {
+export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Document | null }) {
   const latest = useRef(view);
   latest.current = view;
   const [pinned, setPinned] = useState<Pinned | null>(null);
   const pinnedRef = useRef(pinned);
   pinnedRef.current = pinned;
+  // The panel answers while it is open: no card then, and one already out is put away.
+  const detailsOpen = useDetailsOpen();
+  const detailsOpenRef = useRef(detailsOpen);
+  detailsOpenRef.current = detailsOpen;
+  useEffect(() => {
+    if (detailsOpen) setPinned(null);
+  }, [detailsOpen]);
   const cardRef = useRef<HTMLDivElement>(null);
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -103,8 +118,11 @@ export function QuickCard({ view }: { view: ClosetView }) {
       if (at != null && Math.hypot(e.clientX - at.x, e.clientY - at.y) > CLICK_SLOP_PX) return;
       // Shift, Ctrl or Cmd picks several things: one card cannot speak for all of them.
       if (e.shiftKey || e.ctrlKey || e.metaKey) return close();
-      // A port's click lands on its device: at the rack's zoom the ports cover most of the plate.
-      const t = thingOf(e.target);
+      if (clickAnswer(detailsOpenRef.current) === 'panel') return close();
+      // A port has its own card; any other click on a device's plate is the device's.
+      const portEl = e.target.closest<HTMLElement>('[data-port-id]');
+      const portId = portEl?.dataset.portId;
+      const t = portEl != null && portId != null && portEl.closest(CANVAS_SELECTOR) != null ? { el: portEl, kind: 'port' as const, id: portId } : thingOf(e.target);
       if (t == null) return close();
       const r = t.el.getBoundingClientRect();
       const fx = r.width > 0 ? (e.clientX - r.left) / r.width : 0.5;
@@ -113,9 +131,10 @@ export function QuickCard({ view }: { view: ClosetView }) {
       setPinned({ target: { kind: t.kind, id: t.id }, el: t.el, fx, fy });
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || pinnedRef.current == null) return;
-      // The card is the top thing: Escape puts it away and nothing else (sign-off r60).
-      if (document.querySelector('.port-peek') != null) return;
+      if (e.key !== 'Escape') return;
+      // The card is the top thing after a peek: Escape puts it away and nothing else, so a second Esc is the one
+      // that leaves an opened device (sign-off r60, r116).
+      if (nextEscape({ peek: document.querySelector('.port-peek') != null, card: pinnedRef.current != null }) !== 'card') return;
       e.preventDefault();
       e.stopPropagation();
       close();
@@ -134,7 +153,7 @@ export function QuickCard({ view }: { view: ClosetView }) {
     };
   }, []);
 
-  const facts: QuickCardFacts | null = pinned != null ? quickCard(view, pinned.target) : null;
+  const facts: QuickCardFacts | null = pinned == null ? null : pinned.target.kind === 'port' ? quickPortCard(doc, view, pinned.target.id) : quickCard(view, pinned.target);
 
   // Follow the thing while the camera moves: one read of its box a frame, only while the card is up.
   useLayoutEffect(() => {
@@ -183,7 +202,11 @@ export function QuickCard({ view }: { view: ClosetView }) {
   }, [pinned, facts != null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (pinned == null || facts == null) return null;
-  const showDetails = () => window.dispatchEvent(new CustomEvent(SHOW_DETAILS_EVENT));
+  // The panel opens and stays open; the card has said its piece.
+  const showDetails = () => {
+    window.dispatchEvent(new CustomEvent(SHOW_DETAILS_EVENT));
+    setPinned(null);
+  };
   const copy = async () => {
     if (facts.address == null) return;
     setCopied((await copyText(facts.address)) ? 'Copied' : 'Select it and copy');

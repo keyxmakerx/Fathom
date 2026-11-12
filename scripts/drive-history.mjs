@@ -103,7 +103,7 @@ try {
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
   await page.goto(`${BASE}/drive.html?scene=history`);
-  await page.waitForSelector('[data-testid="dock-history"], [data-testid="shell-history"], [data-testid="shell-more"]', { timeout: 20_000 });
+  await page.waitForSelector('[data-testid="dock-history"]', { timeout: 20_000 });
   await page.waitForTimeout(1500);
 
   await barAction(page, 'history');

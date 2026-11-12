@@ -1,16 +1,16 @@
-// Presses one of Docs, History, Share or Print wherever it is right now. On the drawing (r31-bar A) Docs and
-// History are tabs of the right-hand panel and Print sits in the design's menu; elsewhere the bar folds them into
-// "More" when the row is too wide (Bar.tsx).
+// Presses one of Docs, History, Share or Print wherever it is right now. r116: Docs and History are tabs of the
+// right edge on every view (Inventory and Sheet too), Print sits in the design name's menu, and Share is in the bar
+// (in "More" when the row is too narrow, Bar.tsx).
 export async function barAction(page, id) {
-  const tab = page.locator(`[data-testid="dock-${id}"]`);
-  if ((id === 'docs' || id === 'history') && (await tab.count()) > 0) {
-    await tab.click();
+  if (id === 'docs' || id === 'history') {
+    await page.locator(`[data-testid="dock-${id}"]`).click();
     return;
   }
-  const direct = page.locator(`[data-testid="shell-${id}"]`);
-  if ((await direct.count()) === 0) {
-    if (id === 'print' && (await page.locator('.shell-bar__path-caret').count()) > 0) await page.locator('.shell-bar__path-caret').last().click();
-    else await page.locator('[data-testid="shell-more"]').click();
+  if (id === 'print') {
+    await page.locator('.shell-bar__path-caret').last().click();
+    await page.locator('[data-testid="shell-print"]').click();
+    return;
   }
-  await page.locator(`[data-testid="shell-${id}"]`).click();
+  if ((await page.locator('[data-testid="shell-share"]').count()) === 0) await page.locator('[data-testid="shell-more"]').click();
+  await page.locator('[data-testid="shell-share"]').click();
 }

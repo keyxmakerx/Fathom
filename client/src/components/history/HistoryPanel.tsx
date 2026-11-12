@@ -27,7 +27,6 @@ export interface HistoryPanelProps {
   /** The Restore confirm's sentence for the picked version. */
   restoreText: string;
   onRestore: () => void;
-  onClose: () => void;
   /** A thing's name in the picked save, for its "Changed" line; null for one with no name to show. */
   nameOf?: (id: string, doc: Document) => string | null;
   /** The design, so a save names a colleague this design has heard (rua-ui-audit). */
@@ -37,19 +36,13 @@ export interface HistoryPanelProps {
 /** The most names the Changed line lists before "and N more". */
 const CHANGED_SHOWN = 8;
 
-export function HistoryPanel({ history, accountId, accountAddress, canDraw, restoreText, onRestore, onClose, nameOf, designId }: HistoryPanelProps) {
+export function HistoryPanel({ history, accountId, accountAddress, canDraw, restoreText, onRestore, nameOf, designId }: HistoryPanelProps) {
   const [confirming, setConfirming] = useState(false);
   const { saves, picked } = history;
   const latest = saves?.[0]?.designVersion;
 
   return (
     <div className="history" aria-label="History" data-testid="history-panel">
-      <div className="history__head">
-        <span className="history__title">History</span>
-        <button type="button" className="history__close" onClick={onClose} aria-label="Close history">
-          Close
-        </button>
-      </div>
       <p className="history__verify" data-testid="history-verify">
         {history.verifyLine.startsWith('Checked') ? '\u2713 ' : ''}
         {history.verifyLine}

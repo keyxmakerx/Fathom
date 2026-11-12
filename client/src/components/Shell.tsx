@@ -10,6 +10,7 @@ import { PlacesMap } from './places/PlacesMap';
 import { focusFor, upperStopsFor, type UpperStop } from './places/placesMap';
 import { MIN_ZOOM } from './drawing/geometry';
 import { nextActive, SideSlots } from './shell/sideSlot';
+import { DetailsOpenContext } from './shell/clickAnswer';
 import { rememberedTab, SHOW_DETAILS_EVENT, useRightTab, type RightTab } from './shell/useRightTab';
 import { loadResume, patchResume } from './design/resume';
 import { isTypingTarget, matches } from './shell/shortcuts';
@@ -43,7 +44,6 @@ export function Shell({
   look,
   layers,
   views,
-  viewsFolded,
   presence,
   zoom,
   onZoomIn,
@@ -55,7 +55,6 @@ export function Shell({
   onRedo,
   onPrint,
   onShare,
-  onDocs,
   onHistory,
   historyOpen,
   account,
@@ -138,7 +137,7 @@ export function Shell({
   const [anchored, setAnchored] = useState(false);
   const inEditor = editor != null && anchored;
 
-  // The side panels: Equipment, Details, History and Trail share one slot on the right, one open at a time.
+  // The side panels: Equipment, Details and History (with the Trail inside it) share one slot on the right, one open at a time.
   // It folds to a strip of labelled tabs, slides, and is resized by its handle, and the canvas keeps its width.
   const accountId = resume?.accountId ?? null;
   const designId = resume?.designId;
@@ -152,7 +151,7 @@ export function Shell({
   const rememberEquipmentClosed = useCallback(() => {
     if (designId != null) patchResume(accountId, designId, { equipmentClosedOnce: true });
   }, [accountId, designId]);
-  const { shown, choose, fold } = useRightTab({
+  const { shown, choose, fold, pick } = useRightTab({
     hasEquipment: rail != null,
     initialEquipment: stored?.equipmentOpen ?? false,
     hasDetails: editor != null,
@@ -273,26 +272,13 @@ export function Shell({
         onPlaceChange={onPlaceChange}
         path={path}
         tree={tree}
-        lens={lens}
-        onLensChange={onLensChange}
-        look={look}
-        layers={layers}
-        views={views}
-        viewsFolded={viewsFolded}
         presence={presence}
-        zoom={zoom}
-        onZoomIn={onZoomIn}
-        onZoomOut={onZoomOut}
-        onZoomFit={onZoomFit}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={onUndo}
         onRedo={onRedo}
         onPrint={onPrint}
         onShare={onShare}
-        onDocs={onDocs}
-        onHistory={onHistory}
-        historyOpen={historyOpen}
         account={account}
         viewOnly={viewOnly}
         barExtra={barExtra}
@@ -300,21 +286,18 @@ export function Shell({
         adminPill={adminPill}
         onHome={onHome}
         search={search}
-        cablesGroupsPopover={groupsPopover}
-        cablesGroupsSummary={cablesGroupsSummary}
-        hiddenCablesCount={hiddenCablesCount}
-        onShowAllHiddenCables={onShowAllHiddenCables}
         mainView={mainView}
         work={work}
         designExtra={designExtra}
         doing={doing}
-        toolsOnCanvas={toolsOnCanvas}
         task={task}
       />
       {band}
       <div className="shell__body" ref={bodyRef} data-resizing={resizing ? '' : undefined}>
         <main className="shell__drawing" aria-label="Drawing">
-          <SideSlots.Provider value={slots}>{children}</SideSlots.Provider>
+          <DetailsOpenContext.Provider value={pick === 'details' && sideActive == null}>
+            <SideSlots.Provider value={slots}>{children}</SideSlots.Provider>
+          </DetailsOpenContext.Provider>
           {toolsOnCanvas && above && places && (
             <PlacesMap
               scopes={places.scopes}
@@ -345,7 +328,7 @@ export function Shell({
                 onShowAllHiddenCables={onShowAllHiddenCables}
                 slotRef={sideRef}
               />}
-              <BottomPill canUndo={canUndo} canRedo={canRedo} onUndo={onUndo} onRedo={onRedo} zoom={{ value: zoom, onIn: zoomIn, onOut: zoomOut, onFit: above ? undefined : onZoomFit, stops: pillStops }} />
+              <BottomPill zoom={{ value: zoom, onIn: zoomIn, onOut: zoomOut, onFit: above ? undefined : onZoomFit, stops: pillStops }} />
             </>
           )}
           {!inEditor && notices != null && <div className="shell__notices-corner">{notices}</div>}

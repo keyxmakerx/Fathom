@@ -64,7 +64,6 @@ export function Trail({ doc, accountId, accountAddress, sealedBatchIds, undoRefu
   return (
     <div className="racks-trail" aria-label="Trail">
       <div className="racks-trail__head">
-        <span className="racks-trail__title">Trail</span>
         <span className="racks-trail__sub">append-only · nothing here is ever rewritten</span>
       </div>
 

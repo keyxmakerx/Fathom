@@ -108,6 +108,13 @@ try {
   }
   const T = (page, id) => page.locator(`[data-testid=${id}]`);
   const settle = (page, ms = 700) => page.waitForTimeout(ms);
+  // r116: a click shows the quick card, not the panel; its Details button opens the panel.
+  const showDetails = (page) => T(page, 'quick-card').locator('.quick-card__details').click();
+  // r116: the panel's head has one fold arrow and a ⋯ menu; "Stop this" (the old Close) is in the menu.
+  const stopSession = async (page) => {
+    await T(page, 'trouble-panel').locator('[data-testid=panel-head-dots]').click();
+    await T(page, 'trouble-close').click();
+  };
   const optionTexts = (sel) => sel.locator('option').allInnerTexts();
   // Pick an option by a pattern on its text (the design's own names, never typed ids).
   async function pick(sel, re) {
@@ -296,11 +303,12 @@ try {
     await settle(page, 1000);
     check('[save] Save as an issue says it is saved to the history', (await T(page, 'trouble-saved').count()) === 1, await T(page, 'trouble-panel').innerText());
     check('[save] the answers are then read only', (await page.locator('[data-testid=trouble-step][data-state=current] [data-answer]:not([disabled])').count()) === 0);
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await stopSession(page);
     await settle(page, 400);
     check('[save] Close after saving closes without asking', (await T(page, 'trouble-panel').count()) === 0 && (await T(page, 'trouble-confirm').count()) === 0);
     check('[save] the canvas is back at full strength', (await page.locator('.react-flow__node.checks-faded').count()) === 0);
     await page.locator('.react-flow__node-chassis', { hasText: 'fw-01' }).click();
+    await showDetails(page);
     await settle(page, 600);
     check('[history] the device page lists the saved issue', (await T(page, 'device-issues').count()) === 1 && (await T(page, 'device-issue').count()) === 1, await T(page, 'device-issues').innerText().catch(() => ''));
     await T(page, 'device-issue').click();
@@ -311,7 +319,7 @@ try {
     await settle(page, 800);
     check('[history] Mark closed closes it', /closed/.test(await T(page, 'trouble-saved-head').innerText()), await T(page, 'trouble-saved-head').innerText());
     check('[history] Mark closed is gone once closed', (await T(page, 'trouble-close-issue').count()) === 0);
-    await T(page, 'trouble-close').click();
+    await stopSession(page);
     await settle(page, 300);
 
     // The Issue page in the Inventory: rows open it, keyboard too; Show on canvas goes back with it open.
@@ -342,7 +350,7 @@ try {
     await opened(page);
     await page.keyboard.press('1');
     await settle(page, 300);
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await stopSession(page);
     await settle(page, 300);
     check('[close] Close with unsaved answers asks first', (await T(page, 'trouble-confirm').count()) === 1);
     await page.getByRole('button', { name: 'Keep going' }).click();
@@ -361,7 +369,7 @@ try {
     await T(page, 'trouble-folded').getByRole('button', { name: /^Open/ }).click();
     await settle(page, 400);
     check('[close] opening it again finds the answer where it was', (await answers(page))[0] === 'ok');
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await stopSession(page);
     await page.getByRole('button', { name: 'Close anyway' }).click();
     await settle(page, 400);
     check('[close] Close anyway drops the session and nothing was saved', (await T(page, 'trouble-panel').count()) === 0 && (await page.evaluate(() => window.__saveCount__)) === 0);
@@ -390,6 +398,7 @@ try {
     check("[read] the right-click menu does not offer It's down", !items.some((t) => /It's down/.test(t)), items.join(' | '));
     await page.keyboard.press('Escape');
     await page.locator('.react-flow__node-chassis', { hasText: 'fw-01' }).click();
+    await showDetails(page);
     await settle(page, 500);
     check("[read] the device page has no It's down button", (await T(page, 'its-down-button').count()) === 0);
     check('[read] nothing opened', (await T(page, 'trouble-panel').count()) === 0);

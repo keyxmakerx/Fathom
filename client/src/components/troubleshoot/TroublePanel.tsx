@@ -13,6 +13,7 @@ import { firstLine, progress } from '../plans/plansModel';
 import { ANSWER_WORD, GLYPH, answerForKey, answered, headerText, planFixState, pointOf, whenText, type Draft, type DraftStepState } from './troubleModel';
 import type { TroubleController } from './useTroubleController';
 import '../plans/plans.css';
+import { PanelHead } from '../shell/PanelHead';
 import { ThingName } from '../shell/ThingName';
 import './trouble.css';
 
@@ -438,20 +439,15 @@ export function TroublePanel({
   }
   return (
     <aside className={placed} aria-label="It's down" data-testid="trouble-panel" onKeyDown={onKeyDown}>
-      <header className="trouble-panel__head">
-        <h2 className="trouble-panel__title" data-testid="trouble-title">
-          <ThingName ids={draft ? [draft.deviceId] : []}>{title}</ThingName>
-        </h2>
-        <span className="trouble-panel__tools">
-          <button type="button" className="trouble-link" aria-label="Fold the panel" onClick={() => controller.setPanelOpen(false)}>
-            Fold
-          </button>
-          <button type="button" className="trouble-link" aria-label="Close" onClick={() => controller.close()} data-testid="trouble-close">
-            Close
-          </button>
-        </span>
-      </header>
+      <PanelHead
+        name="It's down"
+        onFold={() => controller.setPanelOpen(false)}
+        rows={[{ label: 'Stop this', onSelect: () => controller.close(), testId: 'trouble-close' }]}
+      />
       <div ref={body} tabIndex={-1} className="trouble-panel__body">
+        <h3 className="trouble-panel__title" data-testid="trouble-title">
+          <ThingName ids={draft ? [draft.deviceId] : []}>{title}</ThingName>
+        </h3>
         <Notice controller={controller} />
         {controller.confirmingClose && (
           <p className="trouble-notice" role="alert" data-testid="trouble-confirm">

@@ -1,18 +1,20 @@
-import { useRef, type ReactNode } from 'react';
+import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { DockSlot, DockTab } from './Dock';
 import { Editor, type EditorProps } from './Editor';
 import type { PanelId } from './panelSizing';
+import { HeadMenuHost, PanelHead } from './PanelHead';
+import { isTypingTarget } from './shortcuts';
 import type { SideTab } from './sideSlot';
 import type { RightTab } from './useRightTab';
 
 /** The width each tab remembers; the Equipment list keeps the width it had on the left. */
 export const PANEL_OF: Record<RightTab, PanelId> = { equipment: 'rail', details: 'details', history: 'history', trail: 'trail' };
-const NAME_OF: Record<RightTab, string> = { equipment: 'Equipment', details: 'Details', history: 'History', trail: 'Trail' };
+const NAME_OF: Record<RightTab, string> = { equipment: 'Equipment', details: 'Details', history: 'History', trail: 'History' };
 
 export interface RightDockProps {
   shown: RightTab | null;
-  /** What each tab holds; a tab with nothing behind it is not drawn. */
+  /** What each tab holds; a tab with nothing behind it is not drawn. The Trail is the History panel's second tab. */
   equipment?: ReactNode | null;
   details: ReactNode | null;
   history: ReactNode | null;
@@ -39,9 +41,10 @@ export interface RightDockProps {
 }
 
 /**
- * The right-hand edge: one slot whose tabs are Equipment, the selection's Details, History and the Trail, and
- * (r30-panels) whatever side tabs the place adds: Checks, a plan, "It's down", a trace.
- * Folded, it is a slim strip of labelled tabs; open, one panel slides out beside the strip.
+ * The right-hand edge: one slot whose tabs are Equipment, the selection's Details and History (the Trail is a
+ * second tab inside it), and (r30-panels) whatever side tabs the place adds: Checks, Docs, a plan, "It's down",
+ * a trace. Folded, it is a slim strip of labelled tabs; open, one panel slides out beside the strip, under the
+ * same head (`PanelHead`).
  */
 export function RightDock({
   shown,
@@ -70,6 +73,8 @@ export function RightDock({
   const hasEquipment = equipment != null;
   const hasDetails = details != null;
   const hasTrail = trail != null;
+  const [menuHost, setMenuHost] = useState<HTMLElement | null>(null);
+  const inHistory = shown === 'history' || shown === 'trail';
   const activeTab = side.find((t) => t.id === active) ?? null;
   // A side tab holding the panel gives it back to whichever of the four is pressed.
   const press = (t: RightTab) => {
@@ -91,22 +96,40 @@ export function RightDock({
       {t.content != null && t.open ? t.content : null}
     </div>
   ));
+  const headName = shown === 'equipment' ? 'Equipment' : shown === 'details' ? 'Details' : 'History';
   const core =
-    activeTab != null ? null : shown === 'equipment' ? (
-      <nav className="shell-rail" aria-label="Equipment">
-        {equipment}
-      </nav>
-    ) : shown === 'details' ? (
-      <Editor {...editorProps}>{details}</Editor>
-    ) : shown === 'history' ? (
-      <aside className="shell-editor" aria-label="History">
-        {history}
-      </aside>
-    ) : shown === 'trail' ? (
-      <aside className="shell-trail" aria-label="Trail">
-        {trail}
-      </aside>
-    ) : null;
+    activeTab != null || shown == null ? null : (
+      <>
+        <PanelHead name={headName} onFold={() => onFold(shown)} hostRef={setMenuHost} testId="dock-head" />
+        {inHistory && hasTrail && (
+          <div className="panel-tabs" role="tablist" aria-label="History">
+            <button type="button" role="tab" className="panel-tabs__tab" aria-selected={shown === 'history'} data-testid="history-tab-saves" onClick={() => shown !== 'history' && onChoose('history')}>
+              Saves
+            </button>
+            <button type="button" role="tab" className="panel-tabs__tab" aria-selected={shown === 'trail'} data-testid="history-tab-trail" onClick={() => shown !== 'trail' && onChoose('trail')}>
+              Trail
+            </button>
+          </div>
+        )}
+        {shown === 'equipment' ? (
+          <nav className="shell-rail" aria-label="Equipment">
+            {equipment}
+          </nav>
+        ) : shown === 'details' ? (
+          <HeadMenuHost.Provider value={menuHost}>
+            <Editor {...editorProps}>{details}</Editor>
+          </HeadMenuHost.Provider>
+        ) : shown === 'history' ? (
+          <aside className="shell-editor" aria-label="History">
+            {history}
+          </aside>
+        ) : (
+          <aside className="shell-trail" aria-label="Trail">
+            {trail}
+          </aside>
+        )}
+      </>
+    );
   const content = (
     <>
       {core}
@@ -114,9 +137,19 @@ export function RightDock({
     </>
   );
 
+  // Esc, with focus in the open panel, folds it: the same as its fold arrow and its edge tab.
+  const onEsc = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || isTypingTarget(e.target)) return;
+    if (!(e.target instanceof Element) || e.target.closest('.dock-panel') == null) return;
+    if (activeTab != null) activeTab.onClose();
+    else if (shown != null) onFold(shown);
+    else return;
+    e.preventDefault();
+  };
+
   if (!hasEquipment && !hasDetails && !canOpenHistory && !hasTrail && side.length === 0) return null;
   return (
-    <div className="dock-right">
+    <div className="dock-right" onKeyDown={onEsc}>
       <DockSlot
         side="right"
         open={shown != null || activeTab != null}
@@ -134,24 +167,23 @@ export function RightDock({
         {hasEquipment && (
           <DockTab
             label="Equipment"
-            name={shown === 'equipment' ? 'Close the equipment list' : 'Open the equipment list'}
+            name={activeTab == null && shown === 'equipment' ? 'Close the equipment list' : 'Open the equipment list'}
             open={activeTab == null && shown === 'equipment'}
             testId="dock-equipment"
             onClick={() => press('equipment')}
           />
         )}
-        {hasDetails && <DockTab label="Details" name={shown === 'details' ? 'Close the details' : 'Open the details'} open={activeTab == null && shown === 'details'} testId="dock-details" onClick={() => press('details')} />}
-        {canOpenHistory && (
+        {hasDetails && <DockTab label="Details" name={activeTab == null && shown === 'details' ? 'Close the details' : 'Open the details'} open={activeTab == null && shown === 'details'} testId="dock-details" onClick={() => press('details')} />}
+        {(canOpenHistory || hasTrail) && (
           <DockTab
             label="History"
-            name={shown === 'history' ? 'Close the history' : 'Open the history'}
-            open={activeTab == null && shown === 'history'}
-            marked={historyLive && shown !== 'history'}
+            name={activeTab == null && inHistory ? 'Close the history' : 'Open the history'}
+            open={activeTab == null && inHistory}
+            marked={historyLive && !inHistory}
             testId="dock-history"
-            onClick={() => press('history')}
+            onClick={() => press(shown != null && inHistory ? shown : canOpenHistory ? 'history' : 'trail')}
           />
         )}
-        {hasTrail && <DockTab label="Trail" name={shown === 'trail' ? 'Close the trail' : 'Open the trail'} open={activeTab == null && shown === 'trail'} testId="dock-trail" onClick={() => press('trail')} />}
         {side.map((t) => {
           const word = `${t.label}${t.count != null && t.count > 0 ? ` ${t.count}` : ''}`;
           return (

@@ -554,6 +554,17 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   always list Remove, greyed with what is still on them until they are empty (one undo step); Delete and
   Ctrl K's Delete do the same on a selected one. A wall clicked on its face opens a small panel (name,
   what is on it, cable runs). Empty canvas offers a 42U, 24U or 12U rack, or a wall. A reader gets Details.
+- **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
+  Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
+  pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right
+  panel has one head (`shell/PanelHead.tsx`); the Trail is a tab inside History; Layers and Look are two
+  pop-overs. A click gives the quick card when Details is folded and fills Details when it is open
+  (`shell/clickAnswer.ts`); a double-click goes in (`drawing/doubleClick.ts`). Menus are shorter (device
+  10 rows, rack 7, empty canvas 8) and ports, cables and portal trays have their own; Ctrl K still finds
+  every action. The entries above and below describe r58 and r66 as first built; where they differ, this
+  one is current. **Not built:** a Checks tab on Inventory and Sheet (the checks engine is owned by the
+  canvas place), and firmware as a choice inside Plan a change (it stays in the panel's Firmware section
+  and Ctrl K). The browser drive scripts were edited for the new layout but not run.
 - **Quick card and peek** (sign-off r59, r66; `drawing/quickCard.ts`, `scripts/drive-quick-card.mjs`). A
   click on a device (or one of its ports), rack, shelf, cable or free box also puts a small card beside
   it on a dotted line: what it is, its name, the management address with Copy, model, place and ports,

@@ -33,10 +33,10 @@ three live on the port. The retired client's six-tab strip does not come back.
 
 | | |
 |---|---|
-| **The bar** | One row, 44px, the 3px rule beneath, nothing else above the drawing: Fathom · Canvas · Inventory · the path (opens the tree) · the lens (five words, one lit) · search · who else is here · Undo · Redo · zoom · you. ADR-0060 decision 7 moves People and permissions and Site to the Home tabs; the menu keeps only personal things and sign out. |
+| **The bar** | One row, 44px, the 3px rule beneath, nothing else above the drawing: Fathom · Canvas · Inventory · the path (opens the tree) · the lens (five words, one lit) · search · who else is here · Undo · Redo · zoom · you. ADR-0060 decision 7 moves People and permissions and Site to the Home tabs; the menu keeps only personal things and sign out. **ADR-0091 (2026-11-12) settles what sits where:** the bar is identical on Canvas, Diagram, Inventory and Sheet and holds Undo and Redo; the lens sits in the tool row on every view; zoom is the bottom pill alone. |
 | **The drawing** | The whole width beneath the bar. ADR-0060 replaces the rail folded to a 28px strip of unlabelled marks with a labelled side panel. |
 | **The editor** | A surface that slides in on the right when something is selected and goes when you click away. The same component as the inventory page. |
-| **The quick card** | A click on a device, rack, shelf or cable also puts a small card beside it, joined by a dotted line: what it is, its name, its management address with Copy, its model, place and ports, and Details, which shows the editor even when it was folded. It follows the thing as the camera moves and goes on Esc, a click on empty canvas, a double-click or a drag. The editor still opens as before; the card is the short answer (owner's note 2026-10-31; sign-off r66). |
+| **The quick card** | A click on a device, rack, shelf or cable also puts a small card beside it, joined by a dotted line: what it is, its name, its management address with Copy, its model, place and ports, and Details, which shows the editor even when it was folded. It follows the thing as the camera moves and goes on Esc, a click on empty canvas, a double-click or a drag. The card is the short answer (owner's note 2026-10-31; sign-off r66). **Since ADR-0091 a click gives one answer:** the card when the editor is folded, the editor alone when it is open; Details on the card opens the editor, which stays until folded. |
 | **Pop-overs** | One kind: a square hairline box of frosted glass on one soft shadow, fading and dropping into place (see Look), opened by a click, closed by clicking away or Esc, never more than one level. The tree, the account menu, the pickers, right-click on anything. ADR-0060 adds hover names on controls (this spec had hover show a label only after a pause). |
 
 A lens is both the cable-kind toggle and the port-colour control; the old masthead's separate toggles
@@ -291,7 +291,7 @@ ADR-0046 is the decision; this is the list.
 page and the other sitting in the side panel. That is what makes *edited from either* true; inventory
 must never grow a second detail pane.
 
-**Settled by the screens set, open to the owner:** Undo and Redo are two chips in the masthead, words
+**Settled by the screens set, confirmed by ADR-0091 for every view:** Undo and Redo are two chips in the masthead, words
 only (Ctrl Z, Ctrl Shift Z). On Home and the admin surfaces neither place is marked and the zoom
 cluster is absent, because none is the camera. Home shows no presence: it is not a shared document.
 (The account menu's contents changed under ADR-0060 decision 7.)

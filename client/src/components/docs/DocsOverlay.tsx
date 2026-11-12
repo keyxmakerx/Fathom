@@ -14,6 +14,7 @@ import { Markdown } from './markdown';
 import './docs.css';
 import { EmptyState } from '../ui/EmptyState';
 import { useModal } from '../shell/useModal';
+import { PanelHead } from '../shell/PanelHead';
 
 const TYPED_SENTENCE = 'Stored as typed. Fathom does not redact what you type, only what you paste.';
 
@@ -56,18 +57,14 @@ export function DocsOverlay({
   return (
     <DirtyContext.Provider value={dirty}>
       <div className="docs-overlay" role="dialog" aria-modal="true" aria-label="Docs" tabIndex={-1} ref={ref}>
-        <div className="docs-overlay__head">
-          {view.kind !== 'list' && view.from === 'list' ? (
+        <PanelHead name="Docs" onFold={guard(onClose)} />
+        {view.kind !== 'list' && view.from === 'list' ? (
+          <div className="docs-overlay__head">
             <button type="button" className="docs-link" onClick={guard(() => onView({ kind: 'list' }))}>
               ← All docs
             </button>
-          ) : (
-            <span>Docs</span>
-          )}
-          <button type="button" className="docs-overlay__close" aria-label="Close docs" onClick={guard(onClose)}>
-            ×
-          </button>
-        </div>
+          </div>
+        ) : null}
         {view.kind === 'list' ? <DocsList api={api} onView={onView} /> : null}
         {view.kind === 'doc' ? (
           <DocPage key={view.id} api={api} id={view.id} onView={onView} onClose={onClose} from={view.from} />
