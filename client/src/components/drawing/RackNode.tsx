@@ -3,7 +3,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { C14 } from '../ports';
 import type { Facing, FaceplateItem } from './elevation';
 import type { RackView } from './contract';
-import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, sortFreeRuns } from './geometry';
+import { RACK_HEADER_PX, RACK_INNER_PX, RACK_NODE_WIDTH, RAIL_PX, U_PX, sortFreeRuns } from './geometry';
 import { useLive } from './liveStore';
 import { EditableName } from './NameEdit';
 import { CableRunMarks } from './CableRunMarks';
@@ -226,7 +226,7 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
   );
 }
 
-export const RACK_NODE_WIDTH = RAIL_PX * 2 + RACK_INNER_PX;
+export { RACK_NODE_WIDTH };
 export function rackNodeHeight(rack: Pick<RackView, 'heightU'>): number {
   return RACK_HEADER_PX + rack.heightU * U_PX;
 }

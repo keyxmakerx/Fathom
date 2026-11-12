@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
-use axum::http::{header, HeaderValue, Method, StatusCode, Uri};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::Router;
 
@@ -33,7 +33,19 @@ use axum::Router;
 #[derive(Clone, Debug)]
 pub struct ClientRoot {
     dir: Arc<PathBuf>,
-    files: Arc<HashMap<PathBuf, Bytes>>,
+    files: Arc<HashMap<PathBuf, File>>,
+}
+
+/// One served file: its bytes, and, when the client build wrote them beside it
+/// (`client/scripts/precompress.mjs`: `name.br` and `name.gz`), the same bytes
+/// already compressed. The server never compresses anything itself, so no
+/// compression library enters the closure and a request costs no CPU; a build
+/// without the `.br`/`.gz` files simply serves the plain bytes.
+#[derive(Clone, Debug)]
+struct File {
+    plain: Bytes,
+    br: Option<Bytes>,
+    gz: Option<Bytes>,
 }
 
 /// The most a built client may weigh, in bytes, before startup refuses it:
@@ -55,7 +67,7 @@ impl ClientRoot {
             Ok(_) => return Err(format!("{} is not a file", index.display())),
             Err(e) => return Err(format!("{}: {e}", index.display())),
         }
-        let mut files = HashMap::new();
+        let mut files: HashMap<PathBuf, Bytes> = HashMap::new();
         let mut total: u64 = 0;
         let mut pending = vec![PathBuf::new()];
         while let Some(rel_dir) = pending.pop() {
@@ -94,6 +106,7 @@ impl ClientRoot {
                 }
             }
         }
+        let files = pair_compressed(files);
         Ok(Self {
             dir: Arc::new(dir),
             files: Arc::new(files),
@@ -118,13 +131,15 @@ impl ClientRoot {
     /// is looked up here, so API routes always win over a file of the same
     /// name.
     pub fn attach(self, router: Router) -> Router {
-        router.fallback(move |method: Method, uri: Uri| self.clone().serve(method, uri))
+        router.fallback(move |method: Method, uri: Uri, headers: HeaderMap| {
+            self.clone().serve(method, uri, headers)
+        })
     }
 
     /// `GET` or `HEAD` of a safe path under the root, or 404. Any other
     /// method is 404 too: nothing here takes one, and a method list on a
     /// fallback would only advertise it.
-    pub async fn serve(self, method: Method, uri: Uri) -> Response {
+    pub async fn serve(self, method: Method, uri: Uri, request_headers: HeaderMap) -> Response {
         if method != Method::GET && method != Method::HEAD {
             return StatusCode::NOT_FOUND.into_response();
         }
@@ -134,9 +149,10 @@ impl ClientRoot {
         // A directory, a missing file and one that was unreadable at startup
         // all read as "not here"; the difference is the operator's to see
         // in the filesystem, not a client's to learn from the status.
-        let Some(bytes) = self.files.get(&rel) else {
+        let Some(file) = self.files.get(&rel) else {
             return StatusCode::NOT_FOUND.into_response();
         };
+        let (bytes, encoding) = file.pick(&request_headers);
         let length = bytes.len();
         let body = if method == Method::HEAD {
             Body::empty()
@@ -158,8 +174,81 @@ impl ClientRoot {
             header::CACHE_CONTROL,
             HeaderValue::from_static(cache_control(&rel)),
         );
+        if file.br.is_some() || file.gz.is_some() {
+            // Whether or not this answer is compressed, a cache must not hand it to a client that
+            // asked differently.
+            headers.insert(header::VARY, HeaderValue::from_static("Accept-Encoding"));
+        }
+        if let Some(encoding) = encoding {
+            headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static(encoding));
+        }
         response
     }
+}
+
+impl File {
+    /// The bytes to send and their `Content-Encoding`, from the request's `Accept-Encoding`:
+    /// Brotli if accepted, else gzip, else the plain file. A coding with `q=0` is refused, and
+    /// `*` is not read as asking for anything: a client that does not name a coding gets the
+    /// plain bytes, which every client can read.
+    fn pick(&self, request: &HeaderMap) -> (&Bytes, Option<&'static str>) {
+        let accepts = |name: &str| {
+            request
+                .get_all(header::ACCEPT_ENCODING)
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .flat_map(|v| v.split(','))
+                .any(|item| {
+                    let mut parts = item.split(';');
+                    if !parts
+                        .next()
+                        .is_some_and(|c| c.trim().eq_ignore_ascii_case(name))
+                    {
+                        return false;
+                    }
+                    parts
+                        .filter_map(|p| p.trim().strip_prefix("q="))
+                        .all(|q| q.trim().parse::<f32>().is_ok_and(|q| q > 0.0))
+                })
+        };
+        match (&self.br, &self.gz) {
+            (Some(br), _) if accepts("br") => (br, Some("br")),
+            (_, Some(gz)) if accepts("gzip") => (gz, Some("gzip")),
+            _ => (&self.plain, None),
+        }
+    }
+}
+
+/// Folds `name.br` and `name.gz` into the entry for `name` when `name` is there. A `.br` or `.gz`
+/// with no plain file beside it is kept as the file it is.
+fn pair_compressed(mut raw: HashMap<PathBuf, Bytes>) -> HashMap<PathBuf, File> {
+    let mut out: HashMap<PathBuf, File> = HashMap::new();
+    let compressed: Vec<PathBuf> = raw
+        .keys()
+        .filter(|k| {
+            let ext = k.extension().and_then(|e| e.to_str());
+            matches!(ext, Some("br") | Some("gz")) && raw.contains_key(&k.with_extension(""))
+        })
+        .cloned()
+        .collect();
+    let mut variants: HashMap<PathBuf, (Option<Bytes>, Option<Bytes>)> = HashMap::new();
+    for key in compressed {
+        // A file named `x.tar.gz` has `x.tar` beside it only if it was made that way; `with_extension("")`
+        // is the plain name in both cases.
+        let plain = key.with_extension("");
+        let bytes = raw.remove(&key).expect("listed above");
+        let entry = variants.entry(plain).or_default();
+        if key.extension().and_then(|e| e.to_str()) == Some("br") {
+            entry.0 = Some(bytes);
+        } else {
+            entry.1 = Some(bytes);
+        }
+    }
+    for (rel, plain) in raw {
+        let (br, gz) = variants.remove(&rel).unwrap_or_default();
+        out.insert(rel, File { plain, br, gz });
+    }
+    out
 }
 
 /// The path a request may name, or `None`. `/` is `index.html`, and so is

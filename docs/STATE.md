@@ -1029,6 +1029,12 @@ the operator's reverse proxy's job; the browser's WebCrypto needs it for sign-in
 console can be confined to host names and source ranges (`FATHOM_ADMIN_HOSTS`,
 `FATHOM_ADMIN_SOURCES`); elsewhere its paths are 404.
 
+**The client loads in pieces, compressed.** Sign-in, enrolment and the shell are the first file; Home, the
+design canvas, the Admin console, Account and the AI connect page each load when first opened
+(`React.lazy` in `client/src/App.tsx`). `npm run build` ends with `client/scripts/precompress.mjs`, which writes
+`.br` and `.gz` beside every compressible file; the server sends them to a browser that accepts them
+(`Accept-Encoding`) and never compresses anything itself. No package was added.
+
 **A client's address is one rule for every route** (`client_address.rs`). `X-Forwarded-For` is
 believed only from `FATHOM_TRUSTED_PROXIES`, across every line of the header: the client is the last
 entry the trusted proxy appended, or the `FATHOM_FORWARDED_HOPS`-th from the right behind a further

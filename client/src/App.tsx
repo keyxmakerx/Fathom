@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FormEvent } from 'react';
 
 import { beginSignIn, completeSignIn, isSecondFactorNeeded, signOut, type SignInChallenge } from './api/auth';
@@ -21,17 +21,13 @@ import { OPEN_ELSEWHERE_EVENT } from './api/estate';
 import { isPhoneNow } from './components/phone/usePhone';
 import { PhoneHomeScan } from './components/phone/PhoneHomeScan';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
-import { Account } from './components/Account';
-import { ConnectAiApp } from './components/ai/ConnectAiApp';
-import { ClaimOrganisation } from './components/claim';
 import { TermixOrganisation } from './components/termix/useTermix';
 import { TypeItYourself } from './components/typing/typeItYourself';
-import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
 import { FirstRun } from './components/FirstRun';
 import { InviteWhileSignedIn } from './components/InviteWhileSignedIn';
 import { Reset, tokenFromLocation } from './components/Reset';
-import { Home, type HomeTab } from './components/home';
+import type { HomeTab } from './components/home';
 import { initialPageLink } from './components/home/pageLink';
 
 /** The Home tab the address asks for (`#admin/…`, `#steward/…`; r71), else Designs. */
@@ -45,7 +41,6 @@ import type { Lens, Place, ShellProps } from './components/Shell';
 import { saveLook } from './components/drawing/look';
 import { loadResume } from './components/design/resume';
 import { saveSheet } from './components/inventory/sheetPref';
-import { DesignPlace } from './components/design/DesignPlace';
 import { canDrawFor } from './components/design/useDesignSession';
 import { LENSES_IN } from './components/shell/lens';
 import { PopoverRow, usePopoverClose } from './components/shell/Popover';
@@ -67,6 +62,23 @@ import {
   type ActiveSession,
 } from './state/sessionState';
 import { claimThisTab, loadAccountSession, sweepStaleTabSessions } from './state/tabSessions';
+
+// Split from the first screen: sign-in, enrolment and the Home list load at once; the design
+// canvas (React Flow and the engine's callers), the Admin console, Account settings, the AI
+// connect page and the claim flow each arrive as their own file when first opened.
+const Account = lazy(() => import('./components/Account').then((m) => ({ default: m.Account })));
+const ConnectAiApp = lazy(() => import('./components/ai/ConnectAiApp').then((m) => ({ default: m.ConnectAiApp })));
+const ClaimOrganisation = lazy(() => import('./components/claim').then((m) => ({ default: m.ClaimOrganisation })));
+const Home = lazy(() => import('./components/home').then((m) => ({ default: m.Home })));
+const Console = lazy(() => import('./components/console/Console').then((m) => ({ default: m.Console })));
+const DesignPlace = lazy(() => import('./components/design/DesignPlace').then((m) => ({ default: m.DesignPlace })));
+
+/** What shows while one of those files is on its way. */
+function Arriving({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<p role="status" className="arriving">Loading…</p>}>{children}</Suspense>
+  );
+}
 
 /**
  * Which door an unsigned-in visitor is at. Three since ADR-0056 decision 1
@@ -824,6 +836,7 @@ export default function App() {
 
   if (connectQuery !== null && session.kind === 'steward') {
     return (
+<Arriving>
       <ConnectAiApp
         query={connectQuery}
         onLeave={() => {
@@ -831,6 +844,7 @@ export default function App() {
           setConnectQuery(null);
         }}
       />
+</Arriving>
     );
   }
 
@@ -841,6 +855,7 @@ export default function App() {
   // way in is a text button above Home rather than a new region.
   if (accountOpen && session.kind === 'steward') {
     return (
+<Arriving>
       <Account
         address={session.address}
         focus={accountFocus}
@@ -856,6 +871,7 @@ export default function App() {
           )
         }
       />
+</Arriving>
     );
   }
 
@@ -863,6 +879,7 @@ export default function App() {
   // session to redeem against, so it never renders for the operator plane.
   if (claiming !== null && session.kind === 'steward') {
     return (
+<Arriving>
       <ClaimOrganisation
         accountAddress={session.address}
         accountId={session.accountId}
@@ -875,6 +892,7 @@ export default function App() {
         }}
         onCancel={() => setClaiming(null)}
       />
+</Arriving>
     );
   }
 
@@ -882,11 +900,13 @@ export default function App() {
   // reachable from this session until the authenticator app is enrolled.
   if (appCodeNeeded === true) {
     return (
+<Arriving>
       <Account
         address={session.address}
         purpose="app-code"
         onDone={() => setAppCodeNeeded(false)}
       />
+</Arriving>
     );
   }
 
@@ -961,7 +981,11 @@ export default function App() {
     session.kind === 'operator'
       ? {
           onOpen: () => {},
-          panel: <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />,
+          panel: (
+            <Arriving>
+              <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />
+            </Arriving>
+          ),
         }
       : consoleHost && !custodyRefused && !waitingInvitee
       ? {
@@ -1029,7 +1053,9 @@ export default function App() {
     // (`admin.rs`'s module header), so neither place is marked.
     return (
       <Shell {...common} place={null} path={[{ label: 'Admin' }]} tree={null} onPlaceChange={() => {}}>
-        <Console operatorId={session.address} />
+        <Arriving>
+          <Console operatorId={session.address} />
+        </Arriving>
       </Shell>
     );
   }
@@ -1054,6 +1080,7 @@ export default function App() {
         onHome={session.kind === 'operator' ? () => backToHome() : undefined}
       >
         <PhoneHomeScan onScan={setPendingScan} />
+        <Arriving>
         <Home
           address={account.address}
           // A design the person opened from Home (their first, or the sample) is a choice made here: coming back
@@ -1101,6 +1128,7 @@ export default function App() {
               : undefined
           }
         />
+        </Arriving>
       </Shell>
     );
   }
@@ -1172,6 +1200,7 @@ export default function App() {
   return (
     <TypeItYourself.Provider value={view.organisation.typeItYourself}>
       <TermixOrganisation.Provider value={view.organisation.organisationId}>
+<Arriving>
       <DesignPlace
         {...shellPlaceProps}
         organisationId={view.organisation.organisationId}
@@ -1184,6 +1213,7 @@ export default function App() {
         scanRequest={scanRequest}
         onOpenScan={setPendingScan}
       />
+</Arriving>
       </TermixOrganisation.Provider>
     </TypeItYourself.Provider>
   );

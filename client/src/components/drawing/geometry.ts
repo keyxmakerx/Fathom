@@ -125,6 +125,8 @@ export const RAIL_PX = 28;
 
 /** The device column's width, both boards: 300 (frame) − 28 × 2 (rails). */
 export const RACK_INNER_PX = 244;
+/** A rack's drawn width. Lives here, not in RackNode, so a module that only needs the number does not pull the canvas library in. */
+export const RACK_NODE_WIDTH = RAIL_PX * 2 + RACK_INNER_PX;
 
 /** Room above the frame for the rack's own label row (`design/shell/Main.dc.html`'s
  * `text y="-1"` sitting above the frame's `y="0"`). */
