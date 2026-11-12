@@ -106,6 +106,8 @@ export type NetworkRefusalCode =
   | 'port-already-occupied'
   | 'prefix-has-host-bits'
   | 'address-outside-prefix'
+  | 'address-mask-mismatch'
+  | 'prefix-too-wide'
   | 'wrong-family'
   | 'duplicate-address';
 
@@ -398,6 +400,11 @@ function ipInPrefix(addressOrPrefix: string, prefixText: string): boolean {
   return masked.value === net.value;
 }
 
+/** The `/len` of a prefix text such as `10.8.0.0/24`. */
+function prefixLength(prefixText: string): number {
+  return ipv4NetworkOf(prefixText).len;
+}
+
 function vlanExistsOnDevice(doc: Document, deviceId: string, vlanIdValue: number): string | undefined {
   for (const hv of edgesOut(doc, deviceId, 'HasVlan')) {
     if (hv.absentSince !== undefined) continue;
@@ -676,8 +683,11 @@ function subnetExistsAnywhere(doc: Document, prefix: string): boolean {
     // An IPv6 (or otherwise unparseable) existing Address must not crash
     // this scan -- it simply cannot match an IPv4 prefix, so it is
     // skipped rather than thrown on.
+    // A member of `prefix` carries `prefix`'s own mask. An address inside it
+    // with a different mask (a /16 host inside a /24, or the reverse) belongs
+    // to a different subnet, so it does not make `prefix` exist.
     try {
-      if (ipInPrefix(v, prefix)) return true;
+      if (v.includes('/') && Number(v.split('/')[1]) === prefixLength(prefix) && ipInPrefix(v, prefix)) return true;
     } catch {
       continue;
     }
@@ -690,6 +700,10 @@ function addSubnetImpl(doc: Document, opts: AddSubnetOptions, actorOpts: Actor |
     ipPrefix(opts.prefix);
   } catch {
     refuse('prefix-has-host-bits', `subnet "${opts.prefix}" is not a valid host-bits-free prefix`);
+  }
+  const len = prefixLength(opts.prefix);
+  if (len === 0) {
+    refuse('prefix-too-wide', `subnet "${opts.prefix}" is /0, every address there is; a subnet needs a length of 1 to 32`);
   }
   if (requireExisting && !subnetExistsAnywhere(doc, opts.prefix)) {
     refuse('unknown-reference', `no existing subnet ${opts.prefix} to attach to`);
@@ -707,6 +721,14 @@ function addSubnetImpl(doc: Document, opts: AddSubnetOptions, actorOpts: Actor |
     if (!ipInPrefix(a.address, opts.prefix)) {
       refuse('address-outside-prefix', `address "${a.address}" is outside subnet "${opts.prefix}"`);
     }
+    const addrLen = a.address.includes('/') ? Number(a.address.split('/')[1]) : 32;
+    if (addrLen !== len) {
+      refuse('address-mask-mismatch', `address "${a.address}" has a /${addrLen} mask but subnet "${opts.prefix}" is /${len}`);
+    }
+    // A network or broadcast address is still written: a drawing records
+    // what a device really has, and the engine's
+    // `ip.address.network-or-broadcast` check is what flags it (the practice
+    // lab teaches exactly that mistake).
   }
 
   const { actor, now } = resolve(actorOpts);

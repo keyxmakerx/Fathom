@@ -121,7 +121,7 @@ export function packDict(platform: string): Uint8Array {
 /** The platforms a paste can name, in the order `protocol.rs`'s `PASTE_PLATFORMS`
  * lists them (a test holds the two together). The flag byte carries confirm in bit
  * 0 and the 1-based index here in bits 1-3; no platform means the engine detects. */
-export const PASTE_PLATFORMS = ['junos-srx', 'junos-ex', 'edgeos', 'opnsense'] as const;
+export const PASTE_PLATFORMS = ['junos-srx', 'junos-ex', 'edgeos', 'opnsense', 'routeros', 'pfsense', 'linux-host', 'omada-sw', 'unifi-sw', 'eos'] as const;
 export type PastePlatform = (typeof PASTE_PLATFORMS)[number];
 
 /** `OP_PASTE`'s frame (`shell.rs`'s `Shell::paste`): an 8-byte little-endian

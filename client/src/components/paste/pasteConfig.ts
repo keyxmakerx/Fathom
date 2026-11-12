@@ -58,6 +58,12 @@ export const PLATFORM_WORDS: Readonly<Record<PastePlatform, string>> = {
   'junos-ex': 'Juniper EX',
   edgeos: 'Ubiquiti EdgeOS',
   opnsense: 'OPNsense',
+  routeros: 'MikroTik RouterOS',
+  pfsense: 'pfSense',
+  'linux-host': 'Linux (ip addr)',
+  'omada-sw': 'TP-Link Omada switch',
+  'unifi-sw': 'UniFi switch',
+  eos: 'Arista EOS',
 };
 
 /** A platform the engine can be told, or null for anything else (a hand-typed or unknown model). */
