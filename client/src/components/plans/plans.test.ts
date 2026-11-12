@@ -33,6 +33,9 @@ import { PlanBand } from './PlanBand';
 import { PlanListPage } from './PlanListPage';
 import { PlanClashes } from './PlanNext';
 import { PlanPanel } from './PlanPanel';
+import { FirmwareStep } from './AddStepForm';
+import { FirmwareContext, type FirmwareApi } from '../firmware/context';
+import { setDeviceTarget } from '../../document/firmware';
 import { clashNote, type WorkClash } from './clashes';
 import { notesOf } from '../../document/notes';
 import {
@@ -50,6 +53,7 @@ import {
   touchedDevices,
   planEscTarget,
   prefillFor,
+  asksKind,
   refusalFor,
   stepCheck,
   stepIsLive,
@@ -265,6 +269,14 @@ describe('the add-step form', () => {
     expect(prefillFor(doc, canon, devices[0])).toMatchObject({ kind: 'address', device: devices[0] });
     expect(prefillFor(doc, canon, ports[0])).toMatchObject({ kind: 'cable', portA: ports[0], device: devices[0] });
     expect(prefillFor(doc, canon, 'device:nothing-here')).toBeNull();
+  });
+
+  it('asks what kind of change for a device or its chassis, and goes straight on for a port (sign-off r120)', () => {
+    const { doc, devices, ports, cable } = lab();
+    expect(asksKind(devices[0])).toBe(true);
+    expect(asksKind(doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id)).toBe(true);
+    expect(asksKind(ports[0])).toBe(false);
+    expect(asksKind(cable)).toBe(false);
   });
 });
 
@@ -656,6 +668,58 @@ describe('the controller applies commands through the one write path', () => {
     expect(await h.controller.create({ title: 'Nope' })).toBe(false);
     spy.mockRestore();
     expect(h.applied).toEqual([]);
+  });
+});
+
+describe('what kind of change, the form\'s first step (sign-off r120)', () => {
+  function panel(doc: Document, planId: string, firmware: FirmwareApi | null): string {
+    let controller: PlansController | null = null;
+    const Probe = () => {
+      controller = usePlansController({
+        doc,
+        boot: () => Promise.reject(new Error('no engine')),
+        mirrorNow: () => null,
+        loadCostMs: () => null,
+        redact: () => null,
+        applyDocChange: () => {},
+        actor: undefined,
+        canEdit: true,
+        initialOpen: planId,
+      });
+      return null;
+    };
+    renderToStaticMarkup(createElement(Probe));
+    const c = controller!;
+    return renderToStaticMarkup(createElement(FirmwareContext.Provider, { value: firmware }, createElement(PlanPanel, { controller: c, plan: c.plan!, besideChecks: false })));
+  }
+  const fwApi = (doc: Document, over: Partial<FirmwareApi> = {}): FirmwareApi => ({ doc, canEdit: true, planUpgrade: vi.fn(), openModel: vi.fn() }) as unknown as FirmwareApi & typeof over;
+
+  it('opens an empty plan on the question, with every kind of step as a choice', () => {
+    const { doc } = lab();
+    const made = createPlan(doc, { title: 'Empty', gate, ...tick() });
+    const html = panel(made.doc, made.id, null);
+    expect(html).toContain('What kind of change?');
+    for (const word of ['Address', 'Route', 'Cable', 'Move', 'LAG', 'Swap a part', 'Other']) expect(html).toContain(`>${word}</span>`);
+    expect(html).not.toContain('Firmware upgrade');
+  });
+
+  it('offers Firmware upgrade when the firmware place is there and the person may choose versions', () => {
+    const { doc } = lab();
+    const made = createPlan(doc, { title: 'Empty', gate, ...tick() });
+    expect(panel(made.doc, made.id, fwApi(made.doc))).toContain('>Firmware upgrade</span>');
+    expect(panel(made.doc, made.id, { ...fwApi(made.doc), canEdit: false })).not.toContain('Firmware upgrade');
+  });
+
+  it('says the version a device goes to, or that none is chosen yet', () => {
+    const { doc, devices } = lab();
+    const step = (d: Document) =>
+      renderToStaticMarkup(createElement(FirmwareStep, { api: fwApi(d), device: devices[0], devices: [{ id: devices[0], name: 'sw1' }], onDevice: () => {}, onAdd: () => {}, refEl: { current: null } }));
+    const none = step(doc);
+    expect(none).toContain('data-testid="plans-firmware-none"');
+    expect(none).toMatch(/<button[^>]*disabled=""[^>]*>Add firmware upgrade/);
+    const chosen = step(setDeviceTarget(doc, devices[0], '9.1.2', tick()));
+    expect(chosen).toContain('To 9.1.2, the version chosen for this device');
+    expect(chosen).not.toMatch(/disabled=""[^>]*>Add firmware upgrade/);
   });
 });
 

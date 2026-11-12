@@ -571,6 +571,14 @@ export function prefillFor(doc: Document, canon: Canon, elementId: string): Part
   }
 }
 
+/** Whether "Plan a change" on this thing asks what kind of change first (sign-off r120): a device or
+ * its chassis could take several kinds, so the form opens on the question with the device filled in.
+ * A port, a cable or a part has one obvious kind and goes straight to its fields. */
+export function asksKind(elementId: string): boolean {
+  const kind = parseNodeId(elementId).kind;
+  return kind === 'Device' || kind === 'Chassis';
+}
+
 /** A plan's first title when it is made from a right-click. */
 export function titleFor(doc: Document, canon: Canon, elementId: string): string {
   return `Change to ${nameOf(doc, canon, elementId)}`;

@@ -75,7 +75,8 @@ tools, pill and edge tabs, now applied to Inventory and Sheet too.
   DesignPlace, so both places share one module. On Inventory and Sheet the Checks panel stays folded until
   the person opens it (it would cover the list), has no Show (there is no canvas to show on), and a name
   in it opens that item's page. Once opened or folded, the choice is the same on every view.
-- "Plan a firmware upgrade" left the device menu but is not yet a choice inside Plan a change. It is
-  in the panel's Firmware section and in Ctrl K.
+- "Plan a firmware upgrade" left the device menu. It is a choice inside Plan a change (sign-off r120,
+  option A): the add-step form now opens on "What kind of change?", and Firmware upgrade is one of the
+  choices. It is also still in the panel's Firmware section and in Ctrl K.
 - A portal tray's two rows are greyed unless the tray is a link to another site.
 - The free-box menu is unchanged.
