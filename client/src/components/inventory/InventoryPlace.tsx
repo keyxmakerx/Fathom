@@ -85,6 +85,8 @@ import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
 import { loadSheet, saveSheet } from './sheetPref';
 import { StockPanel, StoreBinPage } from './StockPanel';
+import { TagsPanel } from './TagsPanel';
+import { listTags } from '../../document/tags';
 import { saveLook } from '../drawing/look';
 import { PasswordsPage, useVaultCount } from '../vault/Screens';
 import { VaultPlaceContext, useVault } from '../vault/useVault';
@@ -382,6 +384,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     vlans: kind === 'vlans' ? baseRows.length : scopedCount(background?.vlans),
     addresses: kind === 'addresses' ? baseRows.length : (background?.addresses ?? null),
     issues: doc ? listIssues(doc).length : 0,
+    tags: doc ? listTags(doc, { includeEmpty: true }).length : 0,
     models: modelCount,
     firmware: firmwareCount,
     passwords: vaultCount,
@@ -488,7 +491,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   useEffect(() => {
     if (!onPrintableChange) return undefined;
-    if (doc == null || kind === 'networks' || kind === 'issues' || kind === 'firmware' || kind === 'passwords' || kind === 'everywhere') {
+    if (doc == null || kind === 'networks' || kind === 'issues' || kind === 'tags' || kind === 'firmware' || kind === 'passwords' || kind === 'everywhere') {
       onPrintableChange(null);
       return undefined;
     }
@@ -899,6 +902,10 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           {kind === 'networks' ? (
             <div className="inventory-place__main inventory-place__main--flush">
               <NetworksPanel doc={doc} derived={networksDerived} view={view} applyDocChange={applyDocChange} canDraw={canDraw} />
+            </div>
+          ) : kind === 'tags' ? (
+            <div className="inventory-place__main">
+              <TagsPanel doc={doc} canDraw={canDraw} applyDocChange={applyDocChange} />
             </div>
           ) : kind === 'issues' ? (
             <div className="inventory-place__main">

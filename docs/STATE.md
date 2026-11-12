@@ -600,6 +600,8 @@ focus styles stay inside the app, so a password manager's own controls keep thei
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
   Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.
+  Inventory › Tags (r111) lists every tag with its count, empty ones last as Not used, and renames or
+  deletes one (one undoable change); suggestions and cable groups skip tags nothing carries.
 
 **Saves, designs, scopes** (ADR-0054). A save names its base version; a stale base is refused naming both
 numbers and nothing is written (the wash offers Reload). Draw can create a design, a steward of the parent
