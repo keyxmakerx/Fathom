@@ -118,6 +118,7 @@ const VIEW: ClosetView = {
               cable: { cableId: 'cable-1', farPortId: 'occ-port-1', farChassisId: 'occ-1', outsideCloset: false },
               passThroughId: null,
               service: 'ethernet',
+              speedBps: 10e9,
             },
             {
               id: 'port-2',
@@ -205,6 +206,12 @@ describe('EditorFor — a selected port\'s panel', () => {
     expect(markup).toContain('RJ45'); // connector
     expect(markup).toContain('ethernet'); // service
     expect(markup).toContain('front'); // face
+  });
+
+  it('shows the port speed it is set to, short (sign-off r109)', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'port', id: 'port-1' }, VIEW, WRITER) as never);
+    expect(markup).toContain('>Speed<');
+    expect(markup).toContain('10G');
   });
 
   it('an unset service reads as the shared dash, never invented', () => {

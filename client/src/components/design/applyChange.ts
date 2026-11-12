@@ -2,6 +2,7 @@
 // `handleEdit` calls it once per edit, and the Inventory table calls it in a loop for a bulk edit
 // or a paste so the whole thing is one save.
 
+import { setPortSpeed } from '../../document/portSpeed';
 import type { CatalogueModel } from '../../api/catalogue';
 import type { EditorChange } from '../drawing';
 import {
@@ -185,7 +186,7 @@ export function applyEditorChange(
   } else if (change.kind === 'free-remove') {
     next = removeFree(doc, [change.id], opts);
   } else if (change.kind === 'port') {
-    next = change.field === 'console_baud' ? setPortConsoleBaud(doc, change.id, change.value, opts) : setPortMac(doc, change.id, change.value, opts);
+    next = change.field === 'console_baud' ? setPortConsoleBaud(doc, change.id, change.value, opts) : change.field === 'speed' ? setPortSpeed(doc, change.id, change.value, opts) : setPortMac(doc, change.id, change.value, opts);
   } else if (change.kind === 'add-sketch-ports') {
     next = addTemplatePorts(
       doc,

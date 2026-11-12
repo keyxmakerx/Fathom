@@ -1836,6 +1836,18 @@
   cursor: pointer;
 }
 
+/* A port's speed where its line meets the box (r109): small mono ink, haloed by the page so a line under it
+   stays readable. Never a box, never a colour. */
+.drawing-speed-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--muted);
+  paint-order: stroke;
+  stroke: var(--page);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+
 /* The Links lens's Networks key (r109): each VLAN's colour as a short line, never a filled box. */
 .drawing-links-key {
   border: var(--rule-hair) solid var(--hairline);

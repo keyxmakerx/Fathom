@@ -1,5 +1,6 @@
 import { cloneElement, createContext, isValidElement, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
+import { speedText } from './linksLens';
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
 // destroyed": `.config-drawer__block` (`config/config.css`) is imported
@@ -327,6 +328,23 @@ function PortConsoleField({ port, actions }: { port: PortView; actions: EditorAc
       </div>
       <SerialConsole {...(port.consoleBaud !== undefined ? { baud: port.consoleBaud } : {})} />
     </>
+  );
+}
+
+/** Sign-off r109: the speed the port is set to (10G, 2.5G, 1G). The Links lens weighs its line by it, and the
+ * Diagram tags it where the cable meets the device. Not for console or power ports. */
+function PortSpeedField({ port, actions }: { port: PortView; actions: EditorActions }) {
+  if (port.service === 'console' || port.service === 'power') return null;
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">Speed</div>
+      <EditableValue
+        value={port.speedBps !== undefined ? speedText(port.speedBps) : ''}
+        placeholder={ABSENT}
+        editorKind="text"
+        onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'port', id: port.id, field: 'speed', value: v }) : undefined}
+      />
+    </div>
   );
 }
 
@@ -2812,6 +2830,7 @@ function panelFor(
             wherever the port sits (a rack chassis, a shelf occupant or a
             surface fixture — `port.id` is the same `PhysicalPort` node id
             either way, `locatePort`'s own contract). */}
+        <PortSpeedField port={port} actions={actions} />
         <PortMacField port={port} actions={actions} />
         <PortConsoleField port={port} actions={actions} />
         <FieldsSection ownerId={port.id} actions={actions} />
@@ -2834,6 +2853,7 @@ function panelFor(
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <PortCableSection view={view} port={port} actions={actions} />
         <OpticSection port={port} siblings={occupant.ports} actions={actions} />
+        <PortSpeedField port={port} actions={actions} />
         <PortMacField port={port} actions={actions} />
         <PortConsoleField port={port} actions={actions} />
         <FieldsSection ownerId={port.id} actions={actions} />
@@ -2855,7 +2875,8 @@ function panelFor(
       <Field label="Surface" value={surface.label || surface.id} />
       <PortCableSection view={view} port={port} actions={actions} />
       <OpticSection port={port} siblings={fixture.ports} actions={actions} />
-      <PortMacField port={port} actions={actions} />
+      <PortSpeedField port={port} actions={actions} />
+        <PortMacField port={port} actions={actions} />
       <PortConsoleField port={port} actions={actions} />
       <FieldsSection ownerId={port.id} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />

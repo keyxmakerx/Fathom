@@ -272,7 +272,7 @@ export type EditorChange =
   | { kind: 'shelf-size'; id: string; heightU?: number; slots?: number }
   /** Round 15: a port's MAC address (`document/edit.ts`'s `setPortMac`), any common spelling. ADR-0080
    * decision 10: a console port's speed (`setPortConsoleBaud`), in bits per second. */
-  | { kind: 'port'; id: string; field: 'mac' | 'console_baud'; value: string | null }
+  | { kind: 'port'; id: string; field: 'mac' | 'console_baud' | 'speed'; value: string | null }
   /** Round 15, ports by pattern: hand-typed ports by their labels, one batch (`plate.ts`'s `addTemplatePorts`). */
   | { kind: 'add-sketch-ports'; chassisId: string; labels: string[]; connector: string; service: string | null; face: PortFace }
   /** Round 15: slide everything in a rack up to close the gaps (`document/rackTidy.ts`). */

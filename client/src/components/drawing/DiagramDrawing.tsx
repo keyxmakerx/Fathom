@@ -39,7 +39,7 @@ import type { OverlayView } from '../../document/overlays';
 import { overlayShapes } from './overlayDraw';
 import { OverlayCard, OverlayLayer } from './OverlayLayer';
 import type { RoutingMarks, RoutingWord } from './routingLens';
-import { speedWidth, TRUNK_MIN_W, type LinksLine, type LinksMarks } from './linksLens';
+import { speedText, speedWidth, TRUNK_MIN_W, type LinksLine, type LinksMarks } from './linksLens';
 
 /** The Routing lens's table picker: the tables to choose from, the lit one, and what it lights. */
 export interface TableChoice {
@@ -109,16 +109,24 @@ interface LineData extends Record<string, unknown> {
   dimmed: boolean;
   /** The Links lens, while it is lit: this line's VLAN colour, trunk and speed. */
   links?: LinksLine | null;
+  /** Each end's port speed, a end first (sign-off r109): a small tag where the line meets the box. */
+  speeds: [number | null, number | null];
+  /** Which side of the line each tag sits: -1 when another line's tag already took the usual side. */
+  speedSides: [1 | -1, 1 | -1];
   onSelect: (cableId: string) => void;
   onHover: (cableId: string | null) => void;
   onPanTo: (chassisId: string) => void;
 }
 
+/** A speed tag sits this far along the line from the box, and this far to its side. */
+const SPEED_ALONG = 10;
+const SPEED_ACROSS = 5;
+
 const WIDTH_VAR: Record<CableView['kind'], string> = { copper: 'var(--cable-copper)', fibre: 'var(--cable-fibre)', power: 'var(--cable-power)' };
 
 function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
   if (!data) return null;
-  const { cable, route, stub, lit, dashed, onPath, dimmed, links, onSelect, onHover, onPanTo } = data;
+  const { cable, route, stub, lit, dashed, onPath, dimmed, links, speeds, speedSides, onSelect, onHover, onPanTo } = data;
   // Round 10: cables are plain ink on the canvas; sheath colours live in the Rack look only.
   // The Links lens (r109): an access line in its VLAN's colour, a trunk hollow, weight by speed.
   const colour = links?.slot != null ? `var(--vlan-${links.slot})` : 'var(--ink)';
@@ -153,9 +161,29 @@ function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
       {hollow && <path d={route.d} fill="none" stroke="var(--page)" strokeWidth={`${linksW! * 0.4}px`} strokeLinejoin="miter" strokeLinecap="butt" strokeDasharray={dashed ? 'var(--cable-dash)' : undefined} data-testid="links-trunk-core" />}
       <path d={route.d} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke" />
       <CableCheckBadge id={cable.id} x={(route.a.x + route.b.x) / 2} y={(route.a.y + route.b.y) / 2} />
+      {speeds.map((bps, i) => {
+        if (bps == null) return null;
+        const end = i === 0 ? route.a : route.b;
+        // Just off the box, beside the line: along it by SPEED_ALONG, across it by SPEED_ACROSS.
+        const side = speedSides[i];
+        const x = end.x + end.dx * SPEED_ALONG + (end.dy !== 0 ? SPEED_ACROSS * side : 0);
+        const y = end.y + end.dy * SPEED_ALONG + (end.dx !== 0 ? -SPEED_ACROSS * side : 0);
+        const anchor = end.dy !== 0 ? (side > 0 ? 'start' : 'end') : end.dx > 0 ? 'start' : 'end';
+        return (
+          <text key={i} className="drawing-speed-tag" x={x} y={y} textAnchor={anchor} dominantBaseline={end.dy !== 0 ? 'middle' : 'auto'} data-testid="diagram-speed-tag">
+            {speedText(bps)}
+          </text>
+        );
+      })}
       {tags}
     </g>
   );
+}
+
+/** The speed of each of a cable's two port ends, in the order `diagramLines` names its boxes. */
+function endSpeeds(cable: CableView, speeds: ReadonlyMap<string, number>): [number | null, number | null] {
+  const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
+  return [speeds.get(real[0]?.portId ?? '') ?? null, speeds.get(real[1]?.portId ?? '') ?? null];
 }
 
 const nodeTypes = { diagramBox: DiagramBoxNode };
@@ -264,8 +292,23 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   );
 
   const litId = selectedCableId ?? hoverId;
+  const portSpeeds = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const ch of [...view.racks.flatMap((r) => r.chassis), ...(view.unplaced ?? [])]) for (const p of ch.ports) if (p.speedBps !== undefined) m.set(p.id, p.speedBps);
+    return m;
+  }, [view]);
   const edges: Edge[] = useMemo(() => {
     const byId = new Map(boxes.map((b) => [b.id, b]));
+    // Two lines meeting a box at one spot would print their speed tags over each other: the second goes on the other side.
+    const tagSpots = new Set<string>();
+    const sideAt = (p: { x: number; y: number }): 1 | -1 => {
+      const k = `${Math.round(p.x)}|${Math.round(p.y)}`;
+      if (!tagSpots.has(k)) {
+        tagSpots.add(k);
+        return 1;
+      }
+      return -1;
+    };
     return diagramLines(view, new Set(byId.keys()))
       .filter((line) => drawnCableIds == null || drawnCableIds.has(line.cable.id))
       .map((line) => {
@@ -288,10 +331,10 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         target: line.b,
         selectable: false,
         className: [line.cable.id === selectedCableId && 'drawing-diagram-line--selected', ((trace != null && !trace.cables.has(line.cable.id)) || (table != null && !table.lit.cables.has(line.cable.id))) && 'trace-faded'].filter(Boolean).join(' ') || undefined,
-        data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, onPath: trace?.cables.has(line.cable.id) ?? false, dimmed: litId != null && !lit, links: links == null ? undefined : (links.cables.get(line.cable.id) ?? null), onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
+        data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, onPath: trace?.cables.has(line.cable.id) ?? false, dimmed: litId != null && !lit, links: links == null ? undefined : (links.cables.get(line.cable.id) ?? null), speeds: endSpeeds(line.cable, portSpeeds), speedSides: [sideAt(route.a), sideAt(route.b)], onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
       } satisfies Edge<LineData, 'diagramLine'>;
     });
-  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace, table, links]);
+  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace, table, links, portSpeeds]);
 
   // The trace's numbers: on a box's top-left corner, or a line's middle; and the stop's caution box.
   const traceMarks = useMemo(() => {

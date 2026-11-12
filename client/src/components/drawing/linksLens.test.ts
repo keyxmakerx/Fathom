@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 
 import { connectPorts } from '../../document/cables';
 import { addSketchPort, createSketchDevice } from '../../document/commands';
-import { begin, finish, moveFree, setNodeField } from '../../document/freeform';
-import { edgesOut, emptyDocument, findNode, parseNodeId, type Document } from '../../document/model';
+import { moveFree } from '../../document/freeform';
+import { setPortSpeed } from '../../document/portSpeed';
+import { emptyDocument, parseNodeId, type Document } from '../../document/model';
 import { addVlan } from '../../document/networks';
 import { viewOf } from '../../document/view';
 import { linksMarks, speedText, speedWidth, TRUNK_MIN_W } from './linksLens';
@@ -44,11 +45,8 @@ function cableAt(doc: Document, portId: string): string {
   return view.cables.find((c) => c.ends.some((e) => 'portId' in e && e.portId === portId))!.id;
 }
 
-function setSpeed(doc: Document, deviceId: string, name: string, bps: number): Document {
-  const iface = edgesOut(doc, deviceId, 'HasInterface').map((e) => findNode(doc, e.to)!).find((n) => n.fields['Interface.name']?.value === name)!;
-  const b = begin(doc, undefined);
-  setNodeField(b, iface.id, 'Interface.speed', bps);
-  return finish(b, 'speed');
+function setSpeed(doc: Document, portId: string, speed: string): Document {
+  return setPortSpeed(doc, portId, speed);
 }
 
 describe('the Links lens', () => {
@@ -76,9 +74,9 @@ describe('the Links lens', () => {
 
   it('weighs a line by the slower end of its speed', () => {
     let { doc, s, t } = design();
-    doc = setSpeed(doc, s.deviceId, '2', 10e9);
+    doc = setSpeed(doc, s.portIds[1], '10G');
     expect(linksMarks(doc, viewOf(doc, [])).cables.get(cableAt(doc, s.portIds[1]))?.speedBps).toBe(10e9);
-    doc = setSpeed(doc, t.deviceId, '1', 1e9);
+    doc = setSpeed(doc, t.portIds[0], '1G');
     expect(linksMarks(doc, viewOf(doc, [])).cables.get(cableAt(doc, s.portIds[1]))?.speedBps).toBe(1e9);
   });
 

@@ -1,6 +1,7 @@
 // Scenes for the drawing drives, copied into client/src/ as drive-seed.ts only
 // while a drive runs. Built with the real document commands, so each is a real Document.
 
+import { setPortSpeed } from './document/portSpeed';
 import { parseCatalogueModel, type CatalogueModel } from './api/catalogue';
 import { createPremises } from './components/racks/emptyDesign';
 import { connectPorts, type Sheath } from './document/cables';
@@ -1029,21 +1030,18 @@ export function seedLinksScene(catalogue: CatalogueModel[], me: string): Documen
   working = addVlan(working, { vlanId: 10, name: 'Users', attach: [at(fw[1]!), at(core[0]!), at(core[1]!)] }, { actor: me });
   working = addVlan(working, { vlanId: 20, name: 'Servers', attach: [at(acc[0]!), at(acc[1]!), at(acc[2]!)] }, { actor: me });
   working = addVlan(working, { vlanId: 30, name: 'Wi-Fi', attach: [at(acc[3]!)] }, { actor: me });
-  const speeds: [string, { label: string }, number][] = [
-    ['edge-fw', fw[1]!, 1e9],
-    ['core-sw', core[0]!, 1e9],
-    ['core-sw', core[1]!, 10e9],
-    ['acc-sw1', acc[0]!, 10e9],
-    ['acc-sw1', acc[1]!, 10e9],
-    ['srv-01', srv[0]!, 10e9],
-    ['acc-sw1', acc[2]!, 1e9],
+  const speeds: [{ id: string }, string][] = [
+    [fw[1]!, '1G'],
+    [core[0]!, '1G'],
+    [core[1]!, '10G'],
+    [acc[0]!, '10G'],
+    [acc[1]!, '10G'],
+    [srv[0]!, '10G'],
+    [acc[2]!, '1G'],
+    [nas[0]!, '1G'],
   ];
-  const b = begin(working, { actor: me });
-  for (const [host, port, bps] of speeds) {
-    const iface = edgesOut(b.doc, ch(host).deviceId, 'HasInterface').map((e) => findNode(b.doc, e.to)!).find((n) => n.fields['Interface.name']?.value === port.label);
-    if (iface != null) setNodeField(b, iface.id, 'Interface.speed', bps);
-  }
-  return finish(b, 'Interface speeds');
+  for (const [port, speed] of speeds) working = setPortSpeed(working, port.id, speed, { actor: me });
+  return working;
 }
 
 /** Successive versions of one design, for the History drive: two devices, a colleague's second device,

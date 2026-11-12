@@ -772,7 +772,11 @@ schema change). With the Links lens lit, the Diagram look draws an access line i
 (ink with a page core), and every line's weight by the slower end's `Interface.speed` (none set draws the
 copper weight). A Networks key sits bottom left. Boxes are never coloured. In the Rack look the lens says it
 draws in the Diagram look and offers to switch. `components/drawing/linksLens.ts`;
-`scripts/drive-links-lens.mjs` drives it. Nothing yet sets `Interface.speed` by hand (r109 item 5).
+`scripts/drive-links-lens.mjs` drives it. A port's panel has a **Speed** field (r109 item 5; `document/portSpeed.ts`):
+typed as `10G`, `2.5G`, `100M` or bits per second, stored as `Interface.speed` on the port's interface, which
+it creates, named after the port, when a hand-drawn port has none. The Diagram look tags each set speed in
+small mono where the line meets the box, in every lens; a second line meeting the box at the same spot puts
+its tag on the other side.
 
 **Routing lens on the canvas** (sign-off r101, option A; no schema change). With the Routing lens lit, the
 Diagram look writes on the same boxes: a device that routes says `ROUTES · n TABLES`, a VLAN gateway says
