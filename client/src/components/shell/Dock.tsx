@@ -170,11 +170,13 @@ export interface DockTabProps {
   /** Something about this tab is going on that is not visible while it is folded. */
   marked?: boolean;
   testId?: string;
+  /** A side tab's id, so focus can come back to its button when its panel folds. */
+  sideId?: string;
   onClick: () => void;
 }
 
 /** One labelled button on a folded edge. */
-export function DockTab({ label, name, open, marked, testId, onClick }: DockTabProps) {
+export function DockTab({ label, name, open, marked, testId, sideId, onClick }: DockTabProps) {
   const text = name ?? (open ? `Close ${label.toLowerCase()}` : `Open ${label.toLowerCase()}`);
   return (
     <button
@@ -184,6 +186,7 @@ export function DockTab({ label, name, open, marked, testId, onClick }: DockTabP
       title={text}
       aria-expanded={open}
       data-testid={testId}
+      data-side-tab={sideId}
       onClick={onClick}
     >
       <span className="dock-tab__word" aria-hidden="true">
