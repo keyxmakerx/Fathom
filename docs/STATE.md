@@ -893,6 +893,16 @@ something else. MAC and ARP are read on request, with Find, what changed since t
 built: port descriptions (the drawing keeps none on a physical port), logins by folder, scheduled reads,
 SSH (next).
 
+**Device reading, a wait after a refused login and SSH key logins** (sign-off r117, findings 10 and 11;
+migration 0078; draft). When a device refuses a login, Fathom will not send that login to that device
+again for a minute, then 15 minutes after a second refusal in a row, then an hour each time after that
+(`device_reading::WAITS_SECS`); a read that works, or the login changed in the vault, ends the wait, and a
+run more than a day old starts again. While it waits nothing is opened, sent or filed, and the Readings tab
+says until when. A vault login can sign in with an SSH key instead of a password: an Ed25519 key made in the
+browser or an unencrypted Ed25519 or ECDSA key pasted (RSA and keys with a passphrase are refused), kept as
+the login's sealed secret, with its public key shown to put on the device. The reader signs with it, so
+the device is never handed a secret.
+
 **Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
 `components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is
 optional and has its plain way beside it (OPERATING.md, "Termix's add-ons"). A plan lists its devices with

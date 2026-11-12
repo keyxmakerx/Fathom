@@ -10,6 +10,7 @@ import type { Secret } from '../../vault/crypto';
 import { chooseRecipients, holderAccounts, renameLogin, reshareLogin, storeLogin } from '../../vault/session';
 import { describeError } from '../design/useDesignSession';
 import { generatePassword } from '../../vault/generate';
+import { canMakeKeys, isSshKey, makeEd25519Key, parseOpenSshKey } from '../../vault/sshKey';
 import { VaultModal } from './Modal';
 import type { VaultPlace } from './useVault';
 
@@ -34,6 +35,12 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
   const [password, setPassword] = useState(secret?.password ?? '');
   const [note, setNote] = useState(secret?.note ?? '');
   const [shown, setShown] = useState(false);
+  /** A login signs in with a password or an SSH key (r117, finding 11). A key login keeps the
+   * private key's text where a password would go. */
+  const [signsIn, setSignsIn] = useState<'password' | 'key'>(secret && isSshKey(secret.password) ? 'key' : 'password');
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyNote, setKeyNote] = useState<string | null>(null);
+  const [copiedPublic, setCopiedPublic] = useState(false);
   const [devices, setDevices] = useState<UsedOn[]>(entry?.usedOn ?? usedOn ?? []);
   const [readOnly, setReadOnly] = useState(entry?.readOnly ?? false);
   const [snmpAuth, setSnmpAuth] = useState<SnmpAuth>(entry?.snmpAuth ?? 'sha256');
@@ -61,6 +68,27 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
       auth !== entry.snmpAuth ||
       JSON.stringify(devices) !== JSON.stringify(entry.usedOn));
   const theSecret = { username, password, note, ...(kind === 'snmp' && privacy ? { privacy } : {}) };
+  const usesKey = kind === 'login' && signsIn === 'key';
+  const keyComment = username.trim() ? `${username.trim()}@fathom` : 'fathom';
+  const parsedKey = usesKey && password.trim() !== '' ? parseOpenSshKey(password, keyComment) : null;
+
+  async function makeKey() {
+    setKeyBusy(true);
+    setKeyNote(null);
+    try {
+      if (!(await canMakeKeys())) {
+        setKeyNote('This browser cannot make keys. Make one with ssh-keygen -t ed25519 -N "" and paste the private key here.');
+        return;
+      }
+      const k = await makeEd25519Key(keyComment);
+      setPassword(k.privateKey);
+      setShown(false);
+    } catch (e) {
+      setKeyNote(describeError(e));
+    } finally {
+      setKeyBusy(false);
+    }
+  }
 
   const deviceChoices = useMemo(() => {
     if (!place) return [];
@@ -75,7 +103,8 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
   };
 
   const policy = effectivePolicy(overview.breachPolicy, kind, entry?.critical ?? false);
-  const newPassword = !entry || (secret != null && password !== secret.password);
+  // A key is not a password anyone guesses, so it is never checked against the breach list.
+  const newPassword = !usesKey && (!entry || (secret != null && password !== secret.password));
 
   /** Checks a new password against the breach list where the policy says to. Answers whether to
    * go on, and how many breaches it was found in (null when not checked). */
@@ -127,7 +156,11 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
   }
 
   const dropped = useDroppedPreview(organisation, overview, others);
-  const valid = name.trim().length > 0 && (password.length > 0 || username.length > 0) && (!alone || aloneOk || entry != null);
+  const valid =
+    name.trim().length > 0 &&
+    (password.length > 0 || username.length > 0) &&
+    (!usesKey || (parsedKey?.ok === true && username.trim().length > 0)) &&
+    (!alone || aloneOk || entry != null);
 
   return (
     <VaultModal title={entry ? `Change ${entry.name}` : 'Add a login'} onClose={onClose} wide testId="vault-login-dialog">
@@ -155,6 +188,46 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
           </label>
         </div>
         <p className="vault-small">The name is visible to admins. Do not put the password in it.</p>
+        {kind === 'login' && (
+          <div className="vault-field" data-testid="vault-signs-in">
+            <span className="vault-field__label">Signs in with</span>
+            <span className="vault-inline">
+              <label className="vault-check">
+                <input
+                  type="radio"
+                  name="vault-signs-in"
+                  checked={signsIn === 'password'}
+                  onChange={() => {
+                    setSignsIn('password');
+                    if (isSshKey(password)) setPassword('');
+                  }}
+                  data-testid="vault-signs-in-password"
+                />{' '}
+                A password
+              </label>
+              <label className="vault-check">
+                <input
+                  type="radio"
+                  name="vault-signs-in"
+                  checked={signsIn === 'key'}
+                  onChange={() => {
+                    setSignsIn('key');
+                    if (!isSshKey(password)) setPassword('');
+                    setBreachNote(null);
+                  }}
+                  data-testid="vault-signs-in-key"
+                />{' '}
+                An SSH key
+              </label>
+            </span>
+            {usesKey && (
+              <p className="vault-small">
+                With a key the device is never handed a secret: Fathom signs in by proving it holds the key, so a device that is replaced or taken over learns
+                nothing it could use elsewhere. Fathom reads with an Ed25519 or ECDSA key that has no passphrase; the vault keeps it locked instead.
+              </p>
+            )}
+          </div>
+        )}
         <div className="vault-row2">
           <label className="vault-field">
             <span className="vault-field__label">{kind === 'snmp' ? 'User or community name' : kind === 'wifi' ? 'Network name (SSID)' : 'User name'}</span>
@@ -164,6 +237,9 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
                 that setting on, so this narrows the offer rather than promising it never comes. */}
             <input className="vault-input vault-input--mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" spellCheck={false} data-bwignore="" data-testid="vault-username" />
           </label>
+          {usesKey ? (
+            <SshKeyField value={password} shown={shown} busy={keyBusy} onShow={() => setShown(!shown)} onChange={setPassword} onMake={() => void makeKey()} />
+          ) : (
           <label className="vault-field">
             <span className="vault-field__label">{kind === 'api' ? 'Key' : kind === 'snmp' ? 'Authentication password' : 'Password'}</span>
             <span className="vault-inline">
@@ -197,7 +273,43 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
               </button>
             </span>
           </label>
+          )}
         </div>
+        {usesKey && parsedKey && !parsedKey.ok && (
+          <p className="vault-note vault-note--danger" role="alert" data-testid="vault-key-error">
+            {parsedKey.why}
+          </p>
+        )}
+        {usesKey && keyNote && (
+          <p className="vault-note vault-note--caution" role="alert">
+            {keyNote}
+          </p>
+        )}
+        {usesKey && parsedKey?.ok && (
+          <div className="vault-field" data-testid="vault-public-key">
+            <span className="vault-field__label">Public key: put this on the device</span>
+            <span className="vault-inline">
+              <code className="vault-input vault-input--mono vault-public-key">{parsedKey.publicLine}</code>
+              <button
+                type="button"
+                className="vault-btn"
+                onClick={() =>
+                  void navigator.clipboard?.writeText(parsedKey.publicLine).then(() => {
+                    setCopiedPublic(true);
+                    setTimeout(() => setCopiedPublic(false), 2000);
+                  })
+                }
+                data-testid="vault-copy-public"
+              >
+                {copiedPublic ? 'Copied' : 'Copy'}
+              </button>
+            </span>
+            <p className="vault-small">
+              Add it on the device as the SSH key of {username.trim() ? <code>{username.trim()}</code> : 'the user above'}, in a read-only role. The public key is safe to
+              share; the private key leaves the vault only to sign in.
+            </p>
+          </div>
+        )}
         {kind === 'snmp' && (
           <div className="vault-row2" data-testid="vault-snmp">
             <label className="vault-field">
@@ -354,4 +466,65 @@ function useDroppedPreview(organisation: string, overview: VaultOverview, others
     };
   }, [organisation, overview, key]);
   return dropped;
+}
+
+/** The private key of a key login: pasted, or made here. Hidden until asked for, as a password is. */
+function SshKeyField({
+  value,
+  shown,
+  busy,
+  onShow,
+  onChange,
+  onMake,
+}: {
+  value: string;
+  shown: boolean;
+  busy: boolean;
+  onShow: () => void;
+  onChange: (v: string) => void;
+  onMake: () => void;
+}) {
+  const has = value.trim() !== '';
+  return (
+    <div className="vault-field" data-testid="vault-ssh-key">
+      <span className="vault-field__label">Private key</span>
+      {has && !shown ? (
+        <span className="vault-inline">
+          <span className="vault-input vault-input--mono vault-mask vault-key-held" data-testid="vault-key-held">
+            ••••••••••••••
+          </span>
+          <button type="button" className="vault-btn btn-quiet" onClick={onShow}>
+            Show
+          </button>
+          <button type="button" className="vault-btn btn-quiet" onClick={() => onChange('')}>
+            Clear
+          </button>
+        </span>
+      ) : (
+        <>
+          <textarea
+            className="vault-input vault-input--mono vault-textarea vault-key-text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            rows={has ? 6 : 3}
+            spellCheck={false}
+            autoComplete="off"
+            data-bwignore=""
+            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+            data-testid="vault-key-text"
+          />
+          <span className="vault-inline">
+            {has ? (
+              <button type="button" className="vault-btn btn-quiet" onClick={onShow}>
+                Hide
+              </button>
+            ) : null}
+            <button type="button" className="vault-btn" onClick={onMake} disabled={busy} data-testid="vault-make-key">
+              {busy ? 'Making…' : has ? 'Make a new key instead' : 'Make a new key'}
+            </button>
+          </span>
+        </>
+      )}
+    </div>
+  );
 }

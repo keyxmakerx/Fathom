@@ -18,6 +18,7 @@ import { SetupDialog } from './SetupDialog';
 import { UnlockDialog } from './UnlockDialog';
 import { Fingerprint, KitSheet, ago, canRead, checkDue, clearCheck, copyForAWhile, holdersText, kindText, vaultReady } from './parts';
 import { useVault, VaultPlaceContext, type Vault, type VaultPlace } from './useVault';
+import { isSshKey, parseOpenSshKey } from '../../vault/sshKey';
 
 import './vault.css';
 
@@ -213,6 +214,16 @@ function VaultStrip({ vault, overview, onSetup, onUnlock }: { vault: Vault; over
   return null;
 }
 
+/** A key login shows its public key, never the private key's text; Copy still copies the private key. */
+function KeyLine({ secret }: { secret: string }) {
+  const p = parseOpenSshKey(secret);
+  return (
+    <code className="vault-public-key" title="The private key is kept sealed; Copy copies it" data-testid="vault-plain-key">
+      SSH key · {p.ok ? p.publicLine : 'not one Fathom can read with'}
+    </code>
+  );
+}
+
 function SecretLine({ vault, entry, onChange }: { vault: Vault; entry: VaultEntry; onChange?: (secret: Secret) => void }) {
   const [secret, setSecret] = useState<Secret | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -234,7 +245,7 @@ function SecretLine({ vault, entry, onChange }: { vault: Vault; entry: VaultEntr
       {secret ? (
         <span className="vault-secret__plain" data-testid="vault-plain">
           {secret.username && <code>{secret.username}</code>}
-          <code>{secret.password}</code>
+          {isSshKey(secret.password) ? <KeyLine secret={secret.password} /> : <code>{secret.password}</code>}
         </span>
       ) : (
         <span className="vault-mask">••••••••••••••</span>
