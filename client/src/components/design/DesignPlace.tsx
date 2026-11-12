@@ -33,6 +33,7 @@ import { buildPrintJob, type PrintJob, type PrintOptions, type PrintSection } fr
 import { captureViewPng, downloadDataUrl } from '../../print/viewImage';
 import { buildXlsx } from '../../print/xlsx';
 import { getSession } from '../../state/sessionState';
+import { rememberSelfMark } from '../../selfMark';
 import type { Selection } from '../drawing';
 import { DocsOverlay } from '../docs/DocsOverlay';
 import { DocsContext, useDocsApi } from '../docs/useDocsApi';
@@ -941,6 +942,12 @@ export function DesignPlace(props: DesignPlaceProps) {
     session.live.mode === 'live' && session.live.self != null
       ? { ...shellProps.account, initials: session.live.self.initials }
       : shellProps.account;
+  const liveMark = session.live.mode === 'live' ? (session.live.self?.initials ?? null) : null;
+  const selfAddress = shellProps.account.address;
+  useEffect(() => {
+    // Home has no live session: it shows what the canvas heard, so one person wears one mark.
+    if (liveMark != null) rememberSelfMark(selfAddress, liveMark);
+  }, [selfAddress, liveMark]);
 
   const sharedShellProps = {
     ...shellProps,

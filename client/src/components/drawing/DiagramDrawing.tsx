@@ -215,14 +215,13 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [band, setBand] = useState(() => zoomBandAt(Math.max(zoom, 1)));
 
-  const roles = useMemo(() => new Map(view.racks.flatMap((r) => r.chassis.map((c) => [c.id, c.role] as const))), [view]);
-  // Icons style: a device with an icon is just the icon (lines meet its edge, the name sits under it); the rest stay boxes.
+    // Icons style: a device with an icon is just the icon (lines meet its edge, the name sits under it); the rest stay boxes.
   const boxes = useMemo(
     () =>
       layoutDiagram(view).map((b) =>
-        style === 'icons' && iconForRole(roles.get(b.id)) != null ? { ...b, x: b.x + (b.w - ICON_W) / 2, y: b.y + (b.h - ICON_H) / 2 - 8, w: ICON_W, h: ICON_H } : b,
+        style === 'icons' && iconForRole(b.role) != null ? { ...b, x: b.x + (b.w - ICON_W) / 2, y: b.y + (b.h - ICON_H) / 2 - 8, w: ICON_W, h: ICON_H } : b,
       ),
-    [view, style, roles],
+    [view, style],
   );
   const selectedId = selected?.kind === 'chassis' ? selected.id : null;
 
@@ -259,9 +258,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         height: b.h,
         draggable: false,
         className: (trace != null && !trace.boxes.has(b.id)) || (table != null && !table.lit.chassis.has(b.id)) ? 'trace-faded' : undefined,
-        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(roles.get(b.id)) : null, lens: routing?.devices.get(b.id) ?? [], stopped: trace?.stop?.boxId === b.id } satisfies BoxData,
+        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(b.role) : null, lens: routing?.devices.get(b.id) ?? [], stopped: trace?.stop?.boxId === b.id } satisfies BoxData,
       })),
-    [boxes, selectedId, words, style, roles, routing, trace, table],
+    [boxes, selectedId, words, style, routing, trace, table],
   );
 
   const litId = selectedCableId ?? hoverId;

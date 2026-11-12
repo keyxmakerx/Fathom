@@ -230,6 +230,21 @@
   font-weight: 700;
 }
 
+/* Folded: its title row alone, small enough to sit over nothing that matters. */
+.trace-questions--folded {
+  width: auto;
+  padding: var(--s1) var(--s3);
+}
+
+.trace-questions--folded .trace-panel__head {
+  gap: var(--s3);
+}
+
+.trace-questions__actions {
+  display: inline-flex;
+  gap: var(--s3);
+}
+
 .trace-questions .trace-suggest li + li {
   margin-top: var(--s1);
 }

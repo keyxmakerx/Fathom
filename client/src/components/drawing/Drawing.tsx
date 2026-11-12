@@ -3,6 +3,7 @@ import type { DragEvent, ReactNode } from 'react';
 import {
   Background,
   ConnectionMode,
+  getViewportForBounds,
   ReactFlow,
   ReactFlowProvider,
   ViewportPortal,
@@ -57,6 +58,7 @@ import {
   U_PX,
   cableWidthScale,
   cameraStopAt,
+  openingFit,
   overlapsRack,
   rackAtPoint,
   snapDropToU,
@@ -898,7 +900,16 @@ function DrawingInner({
     }
     const whole = isFirstRun && fitWholeOnOpen;
     const raf = requestAnimationFrame(() => {
-      void rf.fitView(whole ? closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds) : rackFitViewOptions(view.racks, free.fitIds));
+      const wholeOptions = closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds);
+      const pane = containerRef.current;
+      // The whole closet only when its names can still be read; otherwise the racks, at their own stop.
+      let useWhole = whole;
+      if (whole && pane != null && pane.clientWidth > 0 && pane.clientHeight > 0) {
+        const bounds = rf.getNodesBounds(wholeOptions.nodes.map((n) => n.id));
+        const fit = getViewportForBounds(bounds, pane.clientWidth, pane.clientHeight, wholeOptions.minZoom, wholeOptions.maxZoom, wholeOptions.padding);
+        useWhole = openingFit(fit.zoom) === 'whole';
+      }
+      void rf.fitView(useWhole ? wholeOptions : rackFitViewOptions(view.racks, free.fitIds));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is

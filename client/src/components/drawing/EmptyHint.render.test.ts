@@ -27,3 +27,13 @@ describe('the hints name the side Equipment is really on', () => {
     expect(JOT_HINT).not.toMatch(/left/i);
   });
 });
+
+describe('the empty design hint does not sit on the zoom pill', () => {
+  it('is lifted above the pill by more than the pill is tall', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync(new URL('../../styles/drawing.css', import.meta.url).pathname, 'utf8');
+    const rule = /\.drawing-empty-hint \{[^}]*\}/.exec(css)?.[0] ?? '';
+    // The pill is at `bottom: var(--s3)` and one control high; the note must start above both, with a gap.
+    expect(rule).toMatch(/bottom:\s*calc\(var\(--s3\)\s*\+\s*var\(--control-h[^)]*\)\s*\+\s*var\(--s4\)\)/);
+  });
+});

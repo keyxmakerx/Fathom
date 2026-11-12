@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CABLE_SAG_MAX_PX,
   CAMERA_STOPS,
+  READABLE_ZOOM,
+  openingFit,
   MAX_GLYPH_TRUE_HEIGHT_PX,
   MAX_ZOOM,
   MIN_ZOOM,
@@ -428,5 +430,15 @@ describe('cableWidthScale', () => {
     expect(cableWidthScale(1)).toBe(1);
     expect(cableWidthScale(3)).toBe(1);
     expect(cableWidthScale(0)).toBe(1);
+  });
+});
+
+describe('openingFit (the sample opens readable)', () => {
+  it('keeps the whole closet when its names can still be read', () => {
+    expect(openingFit(0.9)).toBe('whole');
+    expect(openingFit(READABLE_ZOOM)).toBe('whole');
+  });
+  it('falls back to the racks when the whole closet would shrink to 32%', () => {
+    expect(openingFit(0.32)).toBe('racks');
   });
 });
