@@ -24,6 +24,8 @@ import {
   type LabelPresetId,
 } from './labels';
 import './labels.css';
+import { buildCsv } from './csv';
+import { downloadBytes } from './download';
 import { readPref, writePref } from '../prefs';
 import { useModal } from '../components/shell/useModal';
 
@@ -43,10 +45,12 @@ export interface LabelsPreviewProps {
   note?: string;
   /** Labels for cables: a wrap or a flag is offered, and wraps are the default. */
   cables?: boolean;
+  /** The same cables as a table for Brother's label apps (`brotherCableRows`), offered as a .csv. */
+  brotherRows?: readonly (readonly string[])[];
   onClose(): void;
 }
 
-export function LabelsPreview({ items, note, cables = false, onClose }: LabelsPreviewProps) {
+export function LabelsPreview({ items, note, cables = false, brotherRows, onClose }: LabelsPreviewProps) {
   const offered = presetsFor(cables);
   const presetKey = cables ? CABLE_PRESET_KEY : PRESET_KEY;
   const [presetId, setPresetId] = useState<LabelPresetId>(() =>
@@ -105,6 +109,15 @@ export function LabelsPreview({ items, note, cables = false, onClose }: LabelsPr
           </label>
         ) : null}
         <span className="labels-preview__grow" />
+        {brotherRows && brotherRows.length > 1 ? (
+          <button
+            type="button"
+            className="btn-quiet"
+            onClick={() => downloadBytes('cable-labels.csv', buildCsv(brotherRows, { bom: false }), 'text/csv;charset=utf-8')}
+          >
+            Download for Brother app (.csv)
+          </button>
+        ) : null}
         <button type="button" className="btn-main" onClick={() => window.print()} disabled={items.length === 0}>
           Print
         </button>
@@ -119,6 +132,14 @@ export function LabelsPreview({ items, note, cables = false, onClose }: LabelsPr
         Fathom after sign-in; it holds a link and the item's id, and nothing else about your network.
         {preset.note ? ` ${preset.note}` : ''}
       </p>
+      {brotherRows && brotherRows.length > 1 ? (
+        <p className="labels-preview__help">
+          Printing from a phone over Bluetooth, such as to a PT-E720BT? Download the .csv, open it in
+          Brother's Pro Label Tool app, connect it to a label and print: one label per cable, its ends
+          written as {brotherRows[1]?.[0] ? `“${brotherRows[1][0]}”` : '“P01-11 > SW01-11”'}. Set copies to 2 for a
+          label at each end. P-touch Editor on Windows reads the same file.
+        </p>
+      ) : null}
       <div className="labels-preview__pages">
         {pages.map((page, i) => (
           <LabelPage key={i} page={page} preset={preset} pageName={pageName} />

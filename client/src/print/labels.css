@@ -7,6 +7,12 @@
    is the tape that goes round the cable (`labels.ts`, `presetOf`), checked against these by a test. */
 
 @page label-tze-36 { size: 80mm 36mm; margin: 0; }
+@page label-wrap-18-slim { size: 21mm 18mm; margin: 0; }
+@page label-wrap-18-cat6 { size: 27mm 18mm; margin: 0; }
+@page label-wrap-18-cat6a { size: 34mm 18mm; margin: 0; }
+@page label-flag-18-slim { size: 113mm 18mm; margin: 0; }
+@page label-flag-18-cat6 { size: 119mm 18mm; margin: 0; }
+@page label-flag-18-cat6a { size: 126mm 18mm; margin: 0; }
 @page label-wrap-24-slim { size: 21mm 24mm; margin: 0; }
 @page label-wrap-24-cat6 { size: 27mm 24mm; margin: 0; }
 @page label-wrap-24-cat6a { size: 34mm 24mm; margin: 0; }
@@ -21,6 +27,12 @@
 @page label-a4 { size: 210mm 297mm; margin: 0; }
 
 .labels-page--tze-36 { page: label-tze-36; }
+.labels-page--wrap-18-slim { page: label-wrap-18-slim; }
+.labels-page--wrap-18-cat6 { page: label-wrap-18-cat6; }
+.labels-page--wrap-18-cat6a { page: label-wrap-18-cat6a; }
+.labels-page--flag-18-slim { page: label-flag-18-slim; }
+.labels-page--flag-18-cat6 { page: label-flag-18-cat6; }
+.labels-page--flag-18-cat6a { page: label-flag-18-cat6a; }
 .labels-page--wrap-24-slim { page: label-wrap-24-slim; }
 .labels-page--wrap-24-cat6 { page: label-wrap-24-cat6; }
 .labels-page--wrap-24-cat6a { page: label-wrap-24-cat6a; }
