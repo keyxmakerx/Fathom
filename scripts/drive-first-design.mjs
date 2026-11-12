@@ -539,7 +539,7 @@ async function main() {
   );
 
   console.log('==> starting the real Vite client on ' + CLIENT_URL);
-  clientProc = spawn('npx', ['vite', '--config', VITE_CONFIG_PATH, '--port', String(CLIENT_PORT), '--strictPort'], {
+  clientProc = spawn('npx', ['vite', '--config', VITE_CONFIG_PATH, '--host', '127.0.0.1', '--port', String(CLIENT_PORT), '--strictPort'], {
     cwd: CLIENT,
     env: { ...process.env, FATHOM_API_PROXY_TARGET: SERVER_URL },
     stdio: ['ignore', 'pipe', 'pipe'],
