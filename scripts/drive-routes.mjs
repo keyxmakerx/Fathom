@@ -48,7 +48,7 @@ copyFileSync(DRIVE_LIB + '/catalogue.json', PREVIEW_CATALOGUE);
 let viteProc = null;
 let browser = null;
 try {
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], { cwd: CLIENT, stdio: ['ignore', 'pipe', 'pipe'] });
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], { cwd: CLIENT, stdio: ['ignore', 'pipe', 'pipe'] });
   let viteLog = '';
   viteProc.stdout.on('data', (d) => { viteLog += d.toString(); });
   viteProc.stderr.on('data', (d) => { viteLog += d.toString(); });

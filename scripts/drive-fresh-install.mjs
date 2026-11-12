@@ -174,7 +174,8 @@ async function main() {
     throw error;
   }
 
-  const { chromium } = await import(PLAYWRIGHT);
+  const pwModule = await import(PLAYWRIGHT);
+  const { chromium } = pwModule.default ?? pwModule;
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const tab = await context.newPage();

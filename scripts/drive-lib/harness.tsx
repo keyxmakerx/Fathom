@@ -322,6 +322,14 @@ async function main() {
     if (method === 'GET' && p === '/placement/flag') {
       return new Response(lp(new TextEncoder().encode('no')) as BodyInit, { status: 200 });
     }
+    // The work fields (a plan's Fathom number, who can be assigned, its team) ask for these; empty answers keep their
+    // "Could not get ..." alerts off the page, so a drive that counts alerts counts only its own.
+    if (method === 'POST' && p.startsWith(`${org}/designs/`) && p.endsWith('/work')) {
+      return json({ numbers: {}, people: {} });
+    }
+    if (method === 'GET' && p === `${org}/teams`) {
+      return json({ steward: false, teams: [] });
+    }
     if (method === 'GET' && p === '/organisations') {
       return json([{ organisation_id: ORG_ID, display_name: 'Drive Org' }]);
     }

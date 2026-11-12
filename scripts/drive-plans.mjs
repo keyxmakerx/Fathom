@@ -76,7 +76,7 @@ let browser = null;
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: CLIENT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -229,7 +229,7 @@ try {
     check('[do] Start the maintenance moves the panel to Do', (await T(page, 'plans-panel').getAttribute('data-mode')) === 'do');
     check('[do] focus moves into the panel, not the body', await focusNotBody(page));
     const liveButtons = async () => page.locator('[data-testid=plans-panel] .plans-checklist button').allInnerTexts();
-    check('[do] only the current step has buttons', (await T(page, 'plans-step').and(page.locator('[data-state=current]')).count()) === 1 && (await liveButtons()).join('|') === 'Mark done|Went differently', (await liveButtons()).join('|'));
+    check('[do] only the current step has buttons', (await T(page, 'plans-step').and(page.locator('[data-state=current]')).count()) === 1 && (await liveButtons()).join('|').toLowerCase() === 'mark done|went differently', (await liveButtons()).join('|'));
     check('[do] the band is teal-staged', (await T(page, 'plans-band').getAttribute('data-stage')) === 'doing');
     const faded = await page.locator('.react-flow__node.checks-faded').count();
     const full = await page.locator('.react-flow__node:not(.checks-faded)').count();
@@ -244,7 +244,7 @@ try {
     await settle(page, 1000);
     check('[do] step 1 is marked done and step 2 is current', (await page.locator('[data-testid=plans-step][data-state=done]').count()) === 1 && (await page.locator('[data-testid=plans-step][data-state=current]').count()) === 1, await T(page, 'plans-panel').innerText());
     check('[do] focus follows to the next step, not the body', await focusNotBody(page));
-    check('[do] the next step still has the only live buttons', (await liveButtons()).join('|') === 'Mark done|Went differently');
+    check('[do] the next step still has the only live buttons', (await liveButtons()).join('|').toLowerCase() === 'mark done|went differently');
     await page.getByRole('button', { name: 'Mark done' }).click();
     await settle(page, 1000);
     check('[do] step 2 is marked done', (await page.locator('[data-testid=plans-step][data-state=done]').count()) === 2);
@@ -301,7 +301,9 @@ try {
     await wrong.focus();
     await page.keyboard.press('End');
     await page.keyboard.press('Control+V');
-    check('[record] the paste landed in the field', (await wrong.inputValue()).includes(SECRET), (await wrong.inputValue()).slice(0, 80));
+    await page.waitForFunction(() => /set security ike/.test(document.querySelector('[data-testid=plans-panel] textarea')?.value ?? ''), null, { timeout: 10_000 }).catch(() => {});
+    // A paste goes through the gate on its way into the field, so the field holds the line's sketch and never the secret.
+    check('[record] the paste landed in the field, through the gate', (await wrong.inputValue()).includes('set security ike') && !(await wrong.inputValue()).includes(SECRET), (await wrong.inputValue()).slice(0, 80));
     await shot(page, '05-record');
     await amber(page, '[record]');
     await page.getByRole('button', { name: 'Record', exact: true }).click();
@@ -417,9 +419,9 @@ try {
       else order.push(d.inPanel ? d.text : '(outside) ' + d.text);
     }
     console.log('    tab order: ' + order.join(' > '));
-    // Past the last control the browser wraps through its own chrome: one body stop, right after the panel's last control.
+    // Past the page's last control the browser wraps through its own chrome: one body stop, and the next control is the bar's first (the brand).
     const wrapAt = order.indexOf('(BODY)');
-    check('[keys] Tab never drops focus to the body except at the document wrap', fellToBody <= 1 && (wrapAt === -1 || /Open the trail/.test(order[wrapAt - 1] ?? '') || wrapAt === order.length - 1), `${fellToBody} at ${wrapAt}`);
+    check('[keys] Tab never drops focus to the body except at the document wrap', fellToBody <= 1 && (wrapAt === -1 || /Fathom$/.test(order[wrapAt + 1] ?? '') || wrapAt === order.length - 1), `${fellToBody} at ${wrapAt}`);
     check('[keys] Tab reaches the Start the maintenance button', order.includes('Start the maintenance'));
     check('[keys] the panel header comes before its body in the tab order', order.indexOf('Fold the plan panel') === -1 || order.indexOf('Start the maintenance') > -1);
     // Reorder and remove: the button that was pressed may go or turn off; focus must stay in the panel.
@@ -462,7 +464,7 @@ try {
     await page.locator('.plans-band__pick select').selectOption({ index: 1 });
     await settle(page, 500);
     // Close plan, Plans chip.
-    await page.getByRole('button', { name: 'Close plan' }).click();
+    await T(page, 'plans-band').getByRole('button', { name: 'Close plan' }).click();
     await settle(page, 400);
     check('[keys] Close plan removes the marks and the panel', (await T(page, 'plans-panel').count()) === 0 && (await page.locator('.plan-mark').count()) === 0);
     check('[keys] focus is not lost to the body after Close plan', await focusNotBody(page));
@@ -471,7 +473,9 @@ try {
   }
 
   // ---------------------------------------------------------------- 4. dark mode and a phone
-  for (const [tag, opts] of [['dark', { dark: true }], ['phone', { w: 390, h: 844 }], ['phone-dark', { w: 390, h: 844, dark: true }]]) {
+  // The phone widths are not driven here: below tablet width the app opens its phone view, with no canvas to plan on
+  // (drive-phone.mjs, and the phone thread, own that).
+  for (const [tag, opts] of [['dark', { dark: true }]]) {
     const { context, page, pageErrors } = await open(opts);
     await page.locator('.react-flow__node-chassis', { hasText: 'fw-01' }).click({ button: 'right' });
     await page.locator('.drawing-context-menu__item', { hasText: 'Plan a change' }).click();

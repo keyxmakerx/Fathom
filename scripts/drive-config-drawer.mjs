@@ -203,7 +203,7 @@ let browser = null;
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: CLIENT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -285,7 +285,7 @@ try {
   check('the ge-0/0/0 port typed onto the faceplate', (await page.locator('.drawing-editor__panel').innerText()).includes('ge-0/0/0'));
 
   // Zoom never opens the drawer (ADR-0061); a double-click on the device does.
-  await page.locator('.react-flow__node-chassis').first().dblclick({ position: { x: 6, y: 8 } });
+  await page.locator('.react-flow__node-chassis').first().dblclick();
   // A double-click opens the device large (jot mode), or its card's Open does; Config shows the drawer.
   await page.waitForTimeout(500);
   if ((await page.getByRole('button', { name: 'Config', exact: true }).count()) === 0) {
@@ -362,7 +362,7 @@ try {
   const ifaceLine = page.locator('.config-drawer__line', { hasText: 'set interfaces ge-0/0/0 unit 0' });
   await ifaceLine.hover();
   await page.waitForTimeout(300);
-  const litCount = await page.locator('.drawing-port--lit').count();
+  const litCount = await page.locator('.drawing-port--lit, .jot-port--lit').count();
   check(
     'hovering the ge-0/0/0 line lights its port',
     litCount > 0,
@@ -371,12 +371,20 @@ try {
   await page.screenshot({ path: SHOTS + 's6g-lit.png' });
   console.log('    wrote ' + SHOTS + 's6g-lit.png');
 
+  // The device is open large (jot mode), over the canvas; Esc returns to the canvas before its right-click menu is used.
+  // Esc folds the drawer first and leaves the device on the next press (r114), so press until it is gone.
+  for (let i = 0; i < 3 && (await page.locator('[data-testid=jot]').count()) > 0; i += 1) {
+    await page.locator('.react-flow__pane').first().focus().catch(() => {});
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+  }
+  await page.waitForSelector('[data-testid=jot]', { state: 'detached', timeout: 10_000 });
   // The inside view opens from the device's right-click menu, not from zoom.
   await page.locator('.react-flow__node-chassis').first().click({ button: 'right', position: { x: 6, y: 8 } });
   await page.getByRole('menuitem', { name: 'Open inside' }).click();
-  await page.waitForSelector('.drawing-inside-stop', { timeout: 10_000 });
-  check('the inside stop opened for the same device', (await page.locator('.drawing-inside-stop').count()) === 1);
-  const insideText = await page.locator('.drawing-inside-stop').innerText();
+  await page.waitForSelector('.drawing-inside-stop, .inside-stop', { timeout: 10_000 });
+  check('the inside stop opened for the same device', (await page.locator('.drawing-inside-stop, .inside-stop').count()) === 1);
+  const insideText = await page.locator('.drawing-inside-stop, .inside-stop').innerText();
   check('the inside stop names the pasted hostname', insideText.includes('srx-branch-01'));
   check('the inside stop shows the built interface', insideText.includes('ge-0/0/0'));
   await page.screenshot({ path: SHOTS + 's6g-inside.png' });
@@ -384,14 +392,15 @@ try {
 
   // Back to the config drawer for the second paste attempt.
   await page.keyboard.press('Escape');
-  await page.waitForSelector('.drawing-inside-stop', { state: 'detached', timeout: 10_000 });
-  await page.locator('.react-flow__node-chassis').first().dblclick({ position: { x: 6, y: 8 } });
+  await page.waitForSelector('.drawing-inside-stop, .inside-stop', { state: 'detached', timeout: 10_000 });
+  // Esc from Inside returns to the device open large, not to the canvas, so open it only if it is not open.
+  if ((await page.locator('[data-testid=jot]').count()) === 0) await page.locator('.react-flow__node-chassis').first().dblclick();
   // A double-click opens the device large (jot mode), or its card's Open does; Config shows the drawer.
   await page.waitForTimeout(500);
   if ((await page.getByRole('button', { name: 'Config', exact: true }).count()) === 0) {
     await page.getByRole('button', { name: 'Open', exact: true }).click();
   }
-  await page.getByRole('button', { name: 'Config', exact: true }).click();
+  if ((await page.locator('.config-drawer').count()) === 0) await page.getByRole('button', { name: 'Config', exact: true }).click();
   await page.waitForSelector('.config-drawer', { timeout: 10_000 });
 
   // -------------------------------------------------------------------------
@@ -430,40 +439,8 @@ try {
     check(`absent from page.content(): ${canary}`, !html.includes(canary));
   }
 
-  // Where the drawer leaves the camera: sixteen devices in one rack, the
-  // drawer opened on one and then switched to another.
-  const camPage = await context.newPage();
-  await applyDriveCpuThrottle(camPage);
-  camPage.on('pageerror', (e) => pageErrors.push(e.message));
-  await camPage.goto(`${BASE}/drive.html?scene=node-identity`);
-  await camPage.waitForFunction(() => document.querySelectorAll('.react-flow__node-chassis').length === 16, null, { timeout: 15_000 });
-  await camPage.waitForTimeout(800);
-  // The plate's centre as a fraction of the pane's height, the drawer's top the same way, and the camera's zoom.
-  const plateAboveDrawer = (host) => camPage.evaluate((host) => {
-    const pane = document.querySelector('.react-flow').getBoundingClientRect();
-    const drawer = document.querySelector('.drawing-config-drawer')?.getBoundingClientRect();
-    const plate = [...document.querySelectorAll('.react-flow__node-chassis')].find((e) => e.textContent.includes(host)).getBoundingClientRect();
-    const scale = /scale\(([^)]+)\)/.exec(document.querySelector('.react-flow__viewport').style.transform)?.[1];
-    return {
-      plate: +((plate.y + plate.height / 2 - pane.y) / pane.height).toFixed(3),
-      drawerTop: drawer ? +((drawer.y - pane.y) / pane.height).toFixed(3) : null,
-      zoom: Number(scale),
-    };
-  }, host);
-  const inStrip = (at) => at.drawerTop != null && at.plate > 0 && at.plate < at.drawerTop && at.zoom === 2;
-  await camPage.locator('.react-flow__node-chassis', { hasText: 'dev-05' }).dblclick({ position: { x: 6, y: 6 } });
-  await camPage.waitForSelector('.config-drawer', { timeout: 10_000 });
-  await camPage.waitForTimeout(1000);
-  const opened = await plateAboveDrawer('dev-05');
-  check('on opening, the plate sits above the drawer at exactly the faceplate stop', inStrip(opened), JSON.stringify(opened));
-  // dev-12 may be under the drawer, so the click goes to the node itself rather than to a point on screen.
-  await camPage.locator('.react-flow__node-chassis', { hasText: 'dev-12' }).dispatchEvent('dblclick');
-  await camPage.waitForTimeout(1000);
-  const switched = await plateAboveDrawer('dev-12');
-  check('after switching devices, the new plate sits above the drawer at exactly the faceplate stop', inStrip(switched), JSON.stringify(switched));
-  await camPage.screenshot({ path: SHOTS + 's6g-drawer-switch.png' });
-  console.log('    wrote ' + SHOTS + 's6g-drawer-switch.png');
-  await camPage.close();
+  // (Until 2026-11 this section checked the camera's zoom stop above the drawer. A device now opens large (jot mode, ADR-0060),
+  // so there is no camera move to check.)
 
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 

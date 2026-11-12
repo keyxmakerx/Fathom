@@ -103,7 +103,7 @@ const dev = (s, name) => s.devices.find((d) => d.name === name);
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], { cwd: CLIENT, stdio: ['ignore', 'pipe', 'pipe'] });
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], { cwd: CLIENT, stdio: ['ignore', 'pipe', 'pipe'] });
   let viteLog = '';
   viteProc.stdout.on('data', (d) => { viteLog += d.toString(); });
   viteProc.stderr.on('data', (d) => { viteLog += d.toString(); });
