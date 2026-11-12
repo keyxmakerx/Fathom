@@ -77,6 +77,12 @@ describe('routeDiagram', () => {
     for (const p of all) for (const q of all) if (p.id !== q.id) expect(overlaps(p.s, q.s), `${p.id} on ${q.id}`).toBe(false);
   });
 
+  it('draws the same whichever end each cable names first', () => {
+    const flipped = routeDiagram(boxes, lines.map((l) => ({ id: l.id, a: l.b, b: l.a })));
+    const pts = (r: Route) => corners(r).map((p) => `${p.x},${p.y}`).sort().join(' ');
+    for (const [id, r] of routes) expect(pts(flipped.get(id)!), id).toBe(pts(r));
+  });
+
   it('keeps two cables between one pair apart', () => {
     expect(routes.get('c1')!.a.x).not.toBe(routes.get('c2')!.a.x);
   });

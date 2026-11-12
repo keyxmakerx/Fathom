@@ -220,7 +220,9 @@ export function routeDiagram(boxes: ReadonlyArray<Rect & { id: string }>, lines:
   }
   for (const r of runs) {
     const box = r.end === 'a' ? r.p.a : r.p.b;
-    const boxOnLeft = box.rect.x < colGapMid(r.gap);
+    // A run that joins boxes either side of its gap belongs to the left one, whichever end the cable names first.
+    const across = r.p.rowGap == null && r.p.a.col !== r.p.b.col;
+    const boxOnLeft = across || box.rect.x < colGapMid(r.gap);
     const len = Math.abs(r.to - r.from);
     const span = { key: `${r.p.id}|${r.end}`, lo: Math.min(r.from, r.to), hi: Math.max(r.from, r.to), order: boxOnLeft ? len : BIG - len };
     colSpans.set(r.gap, [...(colSpans.get(r.gap) ?? []), span]);
