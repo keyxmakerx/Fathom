@@ -159,6 +159,9 @@ async function startServer() {
       FATHOM_BIND: `127.0.0.1:${PORT}`,
       // The stand-in's private CA, as an operator with a vault on a home network would set it.
       FATHOM_OUTSIDE_VAULT_CA: CA_PEM,
+      // The stand-in is on this machine, so its host is listed: unlisted, the server reaches a
+      // vault only at a public address.
+      FATHOM_OUTSIDE_VAULT_HOSTS: 'localhost',
       // The optional Passbolt helper, as compose's `passbolt` profile would run it.
       FATHOM_PASSBOLT_HELPER: HELPER_SOCKET,
     },
