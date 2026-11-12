@@ -167,6 +167,12 @@ pub enum DesignError {
     FieldDefinitionConflict {
         current: i64,
     },
+    /// A faceplate template (migration `0076`) that fails the name, role or port rules.
+    InvalidTemplate(&'static str),
+    /// No such faceplate template in this organisation.
+    NoSuchTemplate,
+    /// A Cables list (migration `0076`) of the wrong shape or size.
+    InvalidCableView(&'static str),
     /// A cable correction that fails the kind, cable or text rules.
     InvalidCorrection(&'static str),
     /// Correction text the redaction gate's bare check reads as a credential.
@@ -294,6 +300,8 @@ impl fmt::Display for DesignError {
             Self::FieldDefinitionConflict { current } => {
                 write!(f, "that field is now at version {current}")
             }
+            Self::InvalidTemplate(why) | Self::InvalidCableView(why) => f.write_str(why),
+            Self::NoSuchTemplate => f.write_str("no such faceplate template"),
             Self::InvalidCorrection(why) | Self::CorrectionCap(why) => f.write_str(why),
             Self::CorrectionLooksSecret => f.write_str("correction text looks like a credential"),
             Self::NoSuchCorrection => f.write_str("no such correction"),

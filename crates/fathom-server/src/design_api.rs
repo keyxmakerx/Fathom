@@ -78,7 +78,7 @@ use axum::body::Bytes;
 use axum::extract::{FromRequest, Path as PathExtractor, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use deadpool_postgres::Transaction;
 
@@ -89,12 +89,14 @@ use fathom_corpus::model::ExplainerEntry;
 use crate::api;
 use crate::audit;
 use crate::authority::Capability;
+use crate::cable_views;
 use crate::chain;
 use crate::corrections;
 use crate::crypto;
 use crate::crypto::hex;
 use crate::crypto::unhex;
 use crate::designs::{self, DesignError};
+use crate::faceplate_templates;
 use crate::field_defs;
 use crate::grants::{self, Authority, EpochWatch};
 use crate::invitations::{self, BatchReason, InviteError};
@@ -312,6 +314,18 @@ pub fn router(state: DesignApiState) -> Router {
         .route(
             "/organisations/{organisation}/field-definitions/{definition}/archive",
             post(archive_field_definition_handler),
+        )
+        .route(
+            "/organisations/{organisation}/faceplate-templates",
+            get(list_templates_handler).post(create_template_handler),
+        )
+        .route(
+            "/organisations/{organisation}/faceplate-templates/{template}",
+            delete(remove_template_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/cable-view",
+            get(get_cable_view_handler).put(put_cable_view_handler),
         )
         .route(
             "/organisations/{organisation}/designs/{design}/corrections",
@@ -741,6 +755,12 @@ pub(crate) fn design_error_response(e: DesignError) -> Response {
             format!("that field is now at version {current}; reload and try again\n"),
         )
             .into_response(),
+        DesignError::InvalidTemplate(why) | DesignError::InvalidCableView(why) => {
+            (StatusCode::BAD_REQUEST, format!("{why}\n")).into_response()
+        }
+        DesignError::NoSuchTemplate => {
+            (StatusCode::NOT_FOUND, "no such faceplate template\n").into_response()
+        }
         DesignError::InvalidCorrection(why) => {
             (StatusCode::BAD_REQUEST, format!("{why}\n")).into_response()
         }
@@ -4507,6 +4527,177 @@ async fn archive_field_definition_handler(
     let def = field_defs::archive(&tx, &auth, &id, if_version).await?;
     tx.commit().await.map_err(SessionError::Db)?;
     Ok(json_response(def.to_json()))
+}
+
+// ---- Faceplate templates and Cables lists (migration 0076, sign-off r114) ----
+
+/// `GET /organisations/{o}/faceplate-templates`: the organisation's shared list. Any member.
+async fn list_templates_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let found = faceplate_templates::list(&tx, &auth).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(Json::Arr(
+        found
+            .iter()
+            .map(faceplate_templates::FaceplateTemplate::to_json)
+            .collect(),
+    )))
+}
+
+/// `POST /organisations/{o}/faceplate-templates`: body `{name, ports, role?, replaces?}`.
+/// Needs `draw` somewhere in the organisation; `replaces` (a template id) is removed in the same
+/// transaction, so its maker or a Steward only.
+async fn create_template_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(&signed.body, &["name", "ports", "role", "replaces"])?;
+    let name = str_field(&mut m, "name")?.ok_or(SessionError::Malformed("request body"))?;
+    let role = match m.remove("role") {
+        None | Some(Json::Null) => None,
+        Some(Json::Str(s)) => Some(s),
+        Some(_) => return Err(SessionError::Malformed("request body").into()),
+    };
+    let ports = match m.remove("ports") {
+        Some(Json::Arr(items)) => faceplate_templates::ports_from_json(items)?,
+        _ => return Err(SessionError::Malformed("request body").into()),
+    };
+    let replaces = str_field(&mut m, "replaces")?
+        .map(|r| parse_template_id(&r))
+        .transpose()?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let saved = faceplate_templates::create(
+        &tx,
+        &auth,
+        &name,
+        role.as_deref(),
+        ports,
+        replaces.as_deref(),
+    )
+    .await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(saved.to_json()))
+}
+
+/// `DELETE /organisations/{o}/faceplate-templates/{id}`: its maker or a Steward.
+async fn remove_template_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, template)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let id = parse_template_id(&template)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    faceplate_templates::remove(&tx, &auth, &id).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+fn parse_template_id(text: &str) -> Result<String, SessionError> {
+    fathom_id::Ulid::decode(text)
+        .map(|u| u.to_string())
+        .map_err(|_| SessionError::Malformed("template id"))
+}
+
+/// `GET /organisations/{o}/designs/{d}/cable-view`: the caller's own Cables list for the design,
+/// as `{view}`, `view` null when none is saved. Needs `read` on the design's place.
+async fn get_cable_view_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let design_id = parse_design(&design)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let view = cable_views::get(&tx, &auth, design_id).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    let mut out = BTreeMap::new();
+    out.insert("view".to_string(), view.unwrap_or(Json::Null));
+    Ok(json_response(Json::Obj(out)))
+}
+
+/// `PUT /organisations/{o}/designs/{d}/cable-view`: body `{view}`, the whole Cables list. Last
+/// write wins. Needs `read` on the design's place.
+async fn put_cable_view_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let design_id = parse_design(&design)?;
+    let mut m = object_body(&signed.body, &["view"])?;
+    let view = m
+        .remove("view")
+        .ok_or(SessionError::Malformed("request body"))?;
+    cable_views::check(&view)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    cable_views::put(&tx, &auth, design_id, &view).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 // ---- Cable corrections from the floor ----

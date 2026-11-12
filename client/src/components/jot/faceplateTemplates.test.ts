@@ -1,11 +1,28 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../api/faceplateTemplates', () => ({
+  fetchTemplates: vi.fn(),
+  createTemplate: vi.fn(),
+  deleteTemplate: vi.fn(),
+}));
+
+import { createTemplate, fetchTemplates } from '../../api/faceplateTemplates';
 
 import { addSketchPortRange } from '../../document/commands';
 import { emptyDocument } from '../../document/model';
 import { placePorts } from '../../document/plate';
 import { viewOf, type PortView } from '../../document/view';
 import { addFreeBoxDoc, addFreeBoxFromTemplateDoc } from '../racks/freeActions';
-import { captureTemplate, parseTemplates, storeKey, withTemplate, withoutTemplate } from './faceplateTemplates';
+import {
+  captureTemplate,
+  loadOrganisationTemplates,
+  organisationTemplates,
+  parseTemplates,
+  resetTemplateStoreForTests,
+  storeKey,
+  withTemplate,
+  withoutTemplate,
+} from './faceplateTemplates';
 import { deviceChassis } from './jotLayout';
 
 const port = (over: Partial<PortView>): PortView => ({
@@ -78,5 +95,65 @@ describe('faceplate templates', () => {
     expect(shape(copy.ports)).toEqual(shape(source.ports.filter((p) => p.rowKind === undefined)));
     expect(copy.role).toBe('switch');
     expect(viewOf(made.doc, []).lines).toHaveLength(1);
+  });
+});
+
+describe('faceplate templates on the server', () => {
+  const store = new Map<string, string>();
+  const fakeStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  };
+  const ports = [{ label: '1', connector: 'rj45', face: 'front' as const }];
+
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', fakeStorage);
+    store.clear();
+    vi.mocked(fetchTemplates).mockReset();
+    vi.mocked(createTemplate).mockReset();
+    resetTemplateStoreForTests();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sends this browser's templates up once, then clears the browser copy", async () => {
+    store.set(storeKey('acc'), JSON.stringify([{ id: 'local1', name: 'Keystone 24', role: null, ports }]));
+    vi.mocked(fetchTemplates).mockResolvedValueOnce([{ id: 's1', name: 'Shared', role: 'switch', ports, createdBy: 'other' }]);
+    vi.mocked(createTemplate).mockResolvedValueOnce({ id: 's2', name: 'Keystone 24', role: null, ports, createdBy: 'acc' });
+    await loadOrganisationTemplates('o1', 'acc');
+    expect(createTemplate).toHaveBeenCalledWith('o1', { name: 'Keystone 24', role: null, ports });
+    const { templates, error } = organisationTemplates('o1');
+    expect(error).toBeNull();
+    expect(templates.map((t) => [t.id, t.createdBy])).toEqual([
+      ['s1', 'other'],
+      ['s2', 'acc'],
+    ]);
+    expect(store.has(storeKey('acc'))).toBe(false);
+  });
+
+  it('a template already on the server is not sent twice', async () => {
+    store.set(storeKey('acc'), JSON.stringify([{ id: 'local1', name: 'Keystone 24', role: null, ports }]));
+    vi.mocked(fetchTemplates).mockResolvedValueOnce([{ id: 's2', name: 'Keystone 24', role: null, ports, createdBy: 'acc' }]);
+    await loadOrganisationTemplates('o1', 'acc');
+    expect(createTemplate).not.toHaveBeenCalled();
+    expect(store.has(storeKey('acc'))).toBe(false);
+  });
+
+  it('one the server refuses stays in the browser and says so', async () => {
+    store.set(storeKey('acc'), JSON.stringify([{ id: 'local1', name: 'Keystone 24', role: null, ports }]));
+    vi.mocked(fetchTemplates).mockResolvedValueOnce([]);
+    vi.mocked(createTemplate).mockRejectedValueOnce(new Error('refused'));
+    await loadOrganisationTemplates('o1', 'acc');
+    expect(store.has(storeKey('acc'))).toBe(true);
+    expect(organisationTemplates('o1').error).toMatch(/could not be moved/);
+  });
+
+  it('a server answer with a damaged port drops that template, never trusts it', async () => {
+    vi.mocked(fetchTemplates).mockResolvedValueOnce([
+      { id: 's1', name: 'Good', role: null, ports, createdBy: 'acc' },
+      { id: 's2', name: 'Bad', role: null, ports: [{ label: 1 }] as never, createdBy: 'acc' },
+    ]);
+    await loadOrganisationTemplates('o1', 'acc');
+    expect(organisationTemplates('o1').templates.map((t) => t.id)).toEqual(['s1']);
   });
 });

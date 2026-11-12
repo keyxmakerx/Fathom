@@ -456,6 +456,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0075_orders.sql",
         sql: include_str!("../migrations/0075_orders.sql"),
     },
+    // Faceplate templates and each person's Cables list, sealed (sign-off r114).
+    Migration {
+        version: 76,
+        name: "0076_templates_and_cable_views.sql",
+        sql: include_str!("../migrations/0076_templates_and_cable_views.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
