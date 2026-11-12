@@ -155,6 +155,42 @@ try {
       await shot(page, 'SN-03-trace');
     }
 
+    // Cable physics (r126): a rack dropped in a new place sets its cables swinging, and they settle.
+    // Broke silently twice: once when long runs drew straight, once when a dropped rack's cables were
+    // remade and forgot where they had been. Light pass only; the drag uses the Select tool.
+    await page.getByRole('button', { name: 'Fit to view' }).click();
+    await page.waitForTimeout(700);
+    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    const rackNode = page.locator('.react-flow__node-rack').first();
+    const rb = await rackNode.boundingBox();
+    const cablePaths = () => page.evaluate(() => [...document.querySelectorAll('.react-flow__edge path')].map((p) => p.getAttribute('d')).join('|'));
+    if (rb != null) {
+      const before = await cablePaths();
+      const sx = rb.x + 6;
+      const sy = rb.y + rb.height - 8;
+      await page.mouse.move(sx, sy);
+      await page.mouse.down();
+      for (let i = 1; i <= 10; i++) {
+        await page.mouse.move(sx - i * 12, sy + i * 6);
+        await page.waitForTimeout(16);
+      }
+      await page.mouse.up();
+      const frames = new Set();
+      const t0 = Date.now();
+      while (Date.now() - t0 < 2200) {
+        frames.add(await cablePaths());
+        await page.waitForTimeout(40);
+      }
+      const settledA = await cablePaths();
+      await page.waitForTimeout(400);
+      check('a dropped rack moves its cables', settledA !== before);
+      check('the cables swing after the rack lands', frames.size >= 6, `${frames.size} distinct frames`);
+      check('the cables settle', settledA === (await cablePaths()));
+      await shot(page, 'SN-03b-rack-moved');
+    } else {
+      check('the rack is on the canvas to drag', false);
+    }
+
     await page.locator('.shell-bar__brand').first().click();
     await page.waitForSelector('.first-steps, .home__help', { timeout: 10_000 });
     await page.waitForTimeout(500);
