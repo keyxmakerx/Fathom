@@ -684,6 +684,32 @@ button.shell-admin-pill {
   padding: 0;
 }
 
+/* The round "?" beside the account square: a hairline circle, the same size, so it reads as its
+   quieter neighbour. It opens the keyboard shortcuts sheet. */
+.shell-shortcuts-btn {
+  width: var(--control-h);
+  height: var(--control-h);
+  border-radius: 50%;
+  border: var(--rule-hair) solid var(--control-line);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-right: var(--s2);
+  cursor: pointer;
+  align-self: center;
+  flex: none;
+}
+
+.shell-shortcuts-btn:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
 /* ---- the popover ------------------------------------------------------
    One kind, everywhere (UI-SPEC "Pop-overs"): a hairline box on a soft
    shadow, dropping into place, closed by clicking away or Escape. */

@@ -2,9 +2,9 @@
 // this table, and the handlers added with it ask `matches` rather than hard-coding keys, so the list
 // cannot drift from what the keys do.
 
-export type ShortcutGroup = 'Canvas' | 'Selection' | 'Editing' | 'Find';
+export type ShortcutGroup = 'Canvas' | 'Selection' | 'Editing' | 'Find' | 'Lists and panels';
 
-export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['Canvas', 'Selection', 'Editing', 'Find'];
+export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['Canvas', 'Selection', 'Editing', 'Find', 'Lists and panels'];
 
 /** What a key press has to be for a shortcut to fire. `mod` is Ctrl, or Cmd on a Mac. */
 export interface KeySpec {
@@ -54,6 +54,12 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'rename', group: 'Editing', keys: ['Double-click'], what: 'Double-click a name on the canvas to rename it' },
 
   { id: 'find', group: 'Find', keys: ['Ctrl', 'K'], what: 'Find a device, rack, port or cable, or run a command', spec: { key: 'k', mod: true } },
+
+  // Keys that belong to one panel and are handled there (TroublePanel, DataTable, FilterLine); listed
+  // here so the sheet shows them, with no spec because nothing global listens for them.
+  { id: 'inventory-filter-help', group: 'Lists and panels', keys: ['?'], what: 'In the inventory filter box: show what you can filter by' },
+  { id: 'inventory-row-menu', group: 'Lists and panels', keys: ['Shift', 'F10'], what: 'In the inventory table: open the menu for the focused row (or the Menu key)' },
+  { id: 'trouble-answer', group: 'Lists and panels', keys: ['1 / 2 / 3'], what: 'While troubleshooting: answer a step OK, not OK, or cannot tell' },
 ];
 
 export function shortcutById(id: string): Shortcut {
