@@ -575,9 +575,11 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   (`shell/clickAnswer.ts`); a double-click goes in (`drawing/doubleClick.ts`). Menus are shorter (device
   10 rows, rack 7, empty canvas 8) and ports, cables and portal trays have their own; Ctrl K still finds
   every action. The entries above and below describe r58 and r66 as first built; where they differ, this
-  one is current. **Not built:** a Checks tab on Inventory and Sheet (the checks engine is owned by the
-  canvas place), and firmware as a choice inside Plan a change (it stays in the panel's Firmware section
-  and Ctrl K). The browser drive scripts were edited for the new layout but not run.
+  one is current. Inventory and Sheet have a Checks tab on the edge too (sign-off r120): the design's one
+  engine and mirror live in `design/useDesignEngine.ts`, held by DesignPlace and shared by both places, so
+  switching view never boots it again. There the panel stays folded until opened, has no Show, and a name in
+  it opens that item's page (`inventory/elementRow.ts`). **Not built:** firmware as a choice inside Plan a
+  change (it stays in the panel's Firmware section and Ctrl K). The browser drive scripts were edited for the new layout but not run.
 - **Quick card and peek** (sign-off r59, r66; `drawing/quickCard.ts`, `scripts/drive-quick-card.mjs`). A
   click on a device (or one of its ports), rack, shelf, cable or free box also puts a small card beside
   it on a dotted line: what it is, its name, the management address with Copy, model, place and ports,

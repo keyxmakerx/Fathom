@@ -110,6 +110,14 @@ import { askPanel } from '../drawing/Editor';
 import { DEVICE_WORDS, deviceMenuItems, type MenuActions, type MenuItem } from '../drawing/contextMenuItems';
 import { deviceMenuActions } from '../drawing/deviceMenuActions';
 import { duplicateDeviceChange, removeDeviceChange, takeOutChange } from '../drawing/editorChanges';
+import { ChecksSurface } from '../checks/ChecksPanel';
+import { totalCount } from '../checks/checksModel';
+import { useSiteLinkFindings } from '../checks/siteLinkChecks';
+import { useChecksController } from '../checks/useChecksController';
+import { useDesignEngine, useMirrorFor, type DesignEngine } from '../design/useDesignEngine';
+import { elementRow } from './elementRow';
+import { SelectThing, SelectThingHint } from '../shell/ThingName';
+import type { SideTab } from '../shell/sideSlot';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -121,6 +129,9 @@ const SHEET_KINDS: ReadonlySet<Kind> = new Set<Kind>(['devices', 'ports', 'parts
 
 export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
   session: DesignSession;
+  /** The design's one engine and mirror (`useDesignEngine`, held in DesignPlace), for Checks. Absent in tests: the
+   * place makes its own. */
+  engine?: DesignEngine;
   /** "Show on canvas": switches the place to the canvas with `selection` chosen; `then` names a device menu
    * item (`DEVICE_WORDS`) the canvas runs once it is there (sign-off r58: Inventory's menu hands off). */
   onShowOnRack: (selection: Selection, then?: string) => void;
@@ -199,7 +210,7 @@ function writeSession(key: string, value: string | null): void {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, onShowIssue, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, aiTargets, loadFirstSave, ...shellProps } = props;
+  const { session, onShowOnRack, onShowIssue, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, aiTargets, loadFirstSave, engine, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
@@ -304,6 +315,21 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       parts: partRows(doc, view, placeIdx),
     } as Record<string, InvRow[]>;
   }, [doc, view, placeIdx, fieldDefs]);
+
+  // ADR-0091 as built: Checks on Inventory and Sheet, from the design's one engine. The panel stays folded until the
+  // person opens it (it would cover the list); a name in it opens that item's page.
+  const ownEngine = useDesignEngine();
+  const designEngine = engine ?? ownEngine;
+  const { mirrorNow } = useMirrorFor(designEngine, doc);
+  const siteLinkFindings = useSiteLinkFindings(doc, organisationId, session.designId);
+  const checks = useChecksController({
+    doc,
+    boot: designEngine.ensureMirror,
+    mirrorNow,
+    loadCostMs: designEngine.loadCostMs,
+    extra: siteLinkFindings,
+    foldedUntilChosen: true,
+  });
 
   // Where: counts, lists and search all follow it (listState.where).
   const where = ls.where;
@@ -527,6 +553,17 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   const openPage = (row: InvRow) => {
     push({ open: row.key, tab: '' }, { lastOpened: row.key });
+  };
+
+  /** A name in Checks: open the page of the row that element is, in whichever list holds it. False when no list does. */
+  const openElement = (id: string): boolean => {
+    const hit = doc == null ? null : elementRow(doc, rowsByKind, id);
+    if (hit == null) return false;
+    setPrefs(null);
+    setNotice(null);
+    setAdding(null);
+    push({ kind: hit.kind as Kind, q: '', sorts: [], view: '', open: hit.row.key, tab: '', find: '' }, { lastOpened: hit.row.key });
+    return true;
   };
 
   /** One step back, as the browser's Back button does; the label says where it goes. */
@@ -900,10 +937,23 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   // Back is the tool row's, first in it, only while there is a page to go back from.
   const framed = Boolean(adding || (openKey && (ipamPage || page || (kind === 'addresses' && openRow))));
   const backWord = adding || backLabel === undefined || backLabel === '' ? kindLabel : backLabel;
+  // ADR-0091 as built: Checks is a tab on the edge here too, first, as on the canvas.
+  const checksTab: SideTab = {
+    id: 'checks',
+    label: 'Checks',
+    count: checks.result != null ? totalCount(checks.result) : 0,
+    open: checks.open,
+    onOpen: () => checks.setOpen(true),
+    onClose: () => checks.setOpen(false),
+  };
+  const sideTabs: readonly SideTab[] | undefined = doc == null ? shellProps.sideTabs : [checksTab, ...(shellProps.sideTabs ?? [])];
 
   return (
+    <SelectThing.Provider value={openElement}>
+    <SelectThingHint.Provider value="Open its page">
     <Shell
       {...shellProps}
+      sideTabs={sideTabs}
       lens={lens}
       editor={null}
       viewOnly={!canDraw}
@@ -1244,10 +1294,14 @@ export function InventoryPlace(props: InventoryPlaceProps) {
               }}
             />
           ) : null}
+          {/* Show needs the canvas: here a name opens the item's page instead. */}
+          <ChecksSurface controller={checks} canShow={false} />
         </div>
         </PasteGateBoundary>
       )}
     </Shell>
+    </SelectThingHint.Provider>
+    </SelectThing.Provider>
   );
 }
 

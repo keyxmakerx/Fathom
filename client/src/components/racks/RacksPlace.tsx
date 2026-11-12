@@ -42,8 +42,8 @@ import type { CameraHub } from '../drawing/camera';
 import { edgesIn, edgesOut, parseNodeId, type Document } from '../../document/model';
 import { tiePlan } from '../../document/portTies';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
-import { Engine, EngineTrap } from '../../engine/engine';
-import { Mirror, refusalSentence } from '../../engine/mirror';
+import { refusalSentence } from '../../engine/mirror';
+import { useDesignEngine, useMirrorFor, type DesignEngine } from '../design/useDesignEngine';
 import { JotView } from '../jot/JotView';
 import { ShelfRoom } from './ShelfRoom';
 import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
@@ -275,6 +275,8 @@ function AddSurfaceControl({ onAdd }: { onAdd: (label: string, form: string) => 
 }
 
 export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
+  /** The design's one engine and mirror (`useDesignEngine`, held in DesignPlace). Absent in tests: the place makes its own. */
+  engine?: DesignEngine;
   /** The document, the catalogue, the
    * `SaveQueue` and the one `handleEdit` dispatcher — held by
    * `useDesignSession` and mounted exactly once, in `DesignPlace.tsx`,
@@ -409,6 +411,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     onSelectedChange,
     onDeviceOpened,
     loadFirstSave,
+    engine,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
@@ -529,102 +532,21 @@ export function RacksPlace(props: RacksPlaceProps) {
     if (selectRequest != null) setSelection(selectRequest.selection);
   }, [selectRequest]);
 
-  // ADR-0052 §1/§4 — the config drawer's
-  // engine. `Engine.init()` fetches and boots the wasm module
-  // (`engine.ts`'s own doc), which is not free, so it happens on first
-  // need — the first time a chassis is selected in this session — and
-  // never at sign-in or on opening the design. `mirrorPromiseRef` makes a
-  // second "first need" (a second chassis selected before the first
-  // `Engine.init()` resolves) join the same boot rather than start another.
-  const mirrorRef = useRef<Mirror | null>(null);
-  // The engine itself, for the redaction gate Plans runs its notes through.
-  const engineRef = useRef<Engine | null>(null);
-  const mirrorPromiseRef = useRef<Promise<Mirror> | null>(null);
-  // The `Document` the module currently holds, by reference — `writePlain`
-  // and `loadPlain` (`mirror.ts`'s `load`) are not free (measured: seconds,
-  // not milliseconds, on a realistic multi-thousand-line capture), so this
-  // is what lets every call site below load the module only when the
-  // document it holds is stale, rather than on every render or every
-  // document change regardless of whether the module is even in use.
-  const mirrorLoadedDocRef = useRef<Document | null>(null);
-  // Bumped once `mirrorRef.current` goes from `null` to real — a ref change
-  // alone does not schedule a render, and `renderConfigDrawer`/
-  // `renderInsideStop` (below) read `mirrorRef.current` directly, so
-  // something has to ask React to call them again once the engine is
-  // actually ready.
-  const [, forceMirrorRerender] = useState(0);
-
-  // A trapped module is never reused: drop it, so the next need boots another and loads the design whole.
-  const discardTrapped = useCallback(() => {
-    mirrorRef.current = null;
-    mirrorPromiseRef.current = null;
-    mirrorLoadedDocRef.current = null;
-    forceMirrorRerender((n) => n + 1);
-  }, []);
-
-  const ensureMirror = useCallback((): Promise<Mirror> => {
-    if (mirrorRef.current?.trapped) discardTrapped();
-    if (mirrorPromiseRef.current == null) {
-      mirrorPromiseRef.current = Engine.init().then((engine) => {
-        const mirror = new Mirror(engine);
-        engineRef.current = engine;
-        mirrorRef.current = mirror;
-        forceMirrorRerender((n) => n + 1);
-        return mirror;
-      });
-    }
-    return mirrorPromiseRef.current;
-  }, [discardTrapped]);
-
-  // How long the last sync of the module took, ms: Checks sizes its wait and its guard by it. After the first
-  // full load the next sync is a delta, so one full load says little about it and is not counted; a second
-  // full load in a row (the module keeps answering "resync needed") is the real cost and is.
-  const loadCostRef = useRef<number | null>(null);
-  const fullStreakRef = useRef(0);
-  const loadInto = useCallback((mirror: Mirror, target: Document, discard: () => void = discardTrapped) => {
-    const t0 = performance.now();
-    let kind: ReturnType<Mirror['sync']>;
-    try {
-      kind = mirror.sync(target);
-    } catch (e) {
-      if (e instanceof EngineTrap) discard();
-      throw e;
-    }
-    const ms = performance.now() - t0;
-    fullStreakRef.current = kind === 'full' ? fullStreakRef.current + 1 : 0;
-    if (kind === 'delta' || (kind === 'full' && fullStreakRef.current > 1)) loadCostRef.current = ms;
-    mirrorLoadedDocRef.current = target;
-  }, [discardTrapped]);
-
-  // The drawer and the inside stop load the module only when the document it holds is stale, at the moment they
-  // are about to use it (`mirrorLoadedDocRef` above). Checks (below) also boots it and keeps it current, but after
-  // the document has been quiet for a while, not on every change. Reference equality is enough: every
-  // `document/commands.ts`/`document/edit.ts` call and `mirror.pasteInto`'s readback return a fresh `Document`.
-  const withMirror = useCallback(async (): Promise<Mirror> => {
-    const mirror = await ensureMirror();
-    if (doc != null && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc);
-    return mirror;
-  }, [ensureMirror, doc, loadInto]);
-
-  // Checks (ADR-0061 §5): the same engine and mirror. The standing run is debounced by the last load's cost; the
-  // gesture guard asks for `load = false` when that cost is high and uses what the module holds.
-  const mirrorNow = useCallback(
-    (load = true): Mirror | null => {
-      const mirror = mirrorRef.current;
-      if (mirror == null || doc == null) return null;
-      if (load && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc);
-      return mirror;
-    },
-    [doc, loadInto],
-  );
-  const loadCostMs = useCallback(() => loadCostRef.current, []);
+  // ADR-0052 §1/§4: the config drawer's engine, which Checks, Plans, It's down, Trace and the inside stop share.
+  // DesignPlace holds it (`useDesignEngine`) so every view uses the one module; a test that renders this place on
+  // its own gets one of its own. The drawer and the inside stop load the module only when the document it holds is
+  // stale, at the moment they are about to use it; Checks boots it and keeps it current once the document is quiet.
+  const ownEngine = useDesignEngine();
+  const designEngine = engine ?? ownEngine;
+  const { mirrorRef, engineRef, mirrorLoadedDocRef, discardTrapped, ensureMirror, loadInto, loadCostMs } = designEngine;
+  const { withMirror, mirrorNow } = useMirrorFor(designEngine, doc);
   const siteLinkFindings = useSiteLinkFindings(doc, session.organisationId, session.designId);
   const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs, extra: siteLinkFindings });
   // Maintenance plans (ADR-0061 round 7): the same engine and mirror; every command goes through applyDocChange.
   const redact = useCallback(() => {
     const engine = engineRef.current;
     return engine == null ? null : (t: string) => engine.redactText(t).text;
-  }, []);
+  }, [engineRef]);
   const plans = usePlansController({
     doc,
     boot: ensureMirror,
@@ -781,7 +703,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           else setPasteRefusal(refusalSentence(error));
         });
     },
-    [withMirror, applyDocChange, doc],
+    [withMirror, applyDocChange, doc, mirrorLoadedDocRef],
   );
 
   // ADR-0052 §5 — "when a chassis is selected
@@ -825,7 +747,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   // contract), but the module itself may still be booting the first time a
   // chassis reaches this stop — `mirrorRef.current == null` then, and
   // nothing renders rather than call a method on a mirror that is not
-  // there yet; `forceMirrorRerender` (above) is what asks this to run
+  // there yet; the engine's `version` bump (`useDesignEngine`) is what asks this to run
   // again the moment it is.
   const renderInsideStop = useCallback(
     (chassis: ChassisView) => {
@@ -850,7 +772,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         return null;
       }
     },
-    [litPortLabel, doc, loadInto, discardTrapped, canDraw],
+    [litPortLabel, doc, loadInto, discardTrapped, canDraw, mirrorRef, mirrorLoadedDocRef],
   );
 
   const realView = useMemo<ClosetView>(
@@ -1421,7 +1343,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           setPasteState({ kind: 'refused', message: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
         });
     },
-    [doc, canDraw, withMirror, openSpot, accountId, selectedChassis],
+    [doc, canDraw, withMirror, openSpot, accountId, selectedChassis, mirrorLoadedDocRef],
   );
   // A folder of configs dropped on the canvas (r29-pull A): each file read as a paste, matched by hostname. One file
   // dropped is a paste. The texts are held only while the card is open.
@@ -1443,7 +1365,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           setPasteState({ kind: 'refused', message: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
         });
     },
-    [doc, canDraw, withMirror, startPaste],
+    [doc, canDraw, withMirror, startPaste, mirrorLoadedDocRef],
   );
   const handleFolderAdd = useCallback(
     (rows: FolderRow[]) => {
@@ -1461,7 +1383,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           setFolder({ ...folder, refusal: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
         });
     },
-    [folder, doc, withMirror, openSpots, accountId, applyDocChange],
+    [folder, doc, withMirror, openSpots, accountId, applyDocChange, mirrorLoadedDocRef],
   );
   useEffect(() => {
     if (!canDraw || doc == null) return;
