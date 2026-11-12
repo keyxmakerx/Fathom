@@ -132,7 +132,7 @@ export interface Identity {
 export type ReadAnswer =
   | { outcome: 'read'; id: string }
   | { outcome: 'confirm'; identity: Identity; state: 'seen' | 'changed'; previous: string | null }
-  | { outcome: 'failed'; code: string; message: string; identity: Identity | null; previous: string | null };
+  | { outcome: 'failed'; code: string; message: string; identity: Identity | null; previous: string | null; retryAt?: number | null };
 
 /** The engine id or host key an answer names, or null. */
 function identityIn(r: Record<string, unknown>): Identity | null {
@@ -157,6 +157,8 @@ export function parseReadAnswer(bytes: Uint8Array): ReadAnswer {
     outcome: 'failed',
     code: typeof f.code === 'string' ? f.code : 'failed',
     message: typeof f.message === 'string' ? f.message : 'The device was not read.',
+    // When the device refused this login and Fathom will send it again (r117, finding 10).
+    retryAt: typeof f.retryAt === 'number' && Number.isFinite(f.retryAt) ? f.retryAt : null,
     identity: identityIn(r),
     previous: optStr(r, 'previous', READ),
   };

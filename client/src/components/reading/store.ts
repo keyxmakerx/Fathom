@@ -30,7 +30,7 @@ export type Load<T> = { status: 'loading' } | { status: 'error'; message: string
 
 /** A refusal, said once in words, or a confirmation still owed. */
 export type Halt =
-  | { kind: 'failed'; code: string; message: string; identity: Identity | null; previous: string | null; read: ReadKind }
+  | { kind: 'failed'; code: string; message: string; identity: Identity | null; previous: string | null; read: ReadKind; retryAt?: number | null }
   | { kind: 'confirm'; identity: Identity; state: 'seen' | 'changed'; previous: string | null };
 
 export interface DeviceState {
@@ -145,7 +145,7 @@ export async function runRead(place: ReadingPlace, element: string, kind: ReadKi
     } else if (answer.outcome === 'confirm') {
       patch(k, { busy: null, halt: { kind: 'confirm', identity: answer.identity, state: answer.state, previous: answer.previous } });
     } else {
-      patch(k, { busy: null, halt: { kind: 'failed', code: answer.code, message: answer.message, identity: answer.identity, previous: answer.previous, read: kind } });
+      patch(k, { busy: null, halt: { kind: 'failed', code: answer.code, message: answer.message, identity: answer.identity, previous: answer.previous, read: kind, retryAt: answer.retryAt ?? null } });
     }
   } catch (e) {
     patch(k, { busy: null, halt: { kind: 'failed', code: 'refused', message: words(e), identity: null, previous: null, read: kind } });

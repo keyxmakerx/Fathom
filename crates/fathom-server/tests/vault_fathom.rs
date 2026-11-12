@@ -1738,3 +1738,203 @@ async fn a_host_key_is_confirmed_on_its_own_and_apart_from_the_snmp_agent() {
     assert_eq!(after.0, 1);
     assert!(after.1.expect("kept").by_steward);
 }
+
+/// Sign-off r117, finding 10: a login the device refused waits before Fathom sends it there
+/// again, longer each time in a row; a read that works, or the login changed in the vault, ends
+/// the wait. The wait is per device and per login, and SSH and SNMP are kept apart.
+#[tokio::test]
+async fn a_refused_login_waits_longer_each_time_and_a_changed_login_does_not() {
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let org = estate.organisation;
+    let alice = a_member(&pool, &ring, &estate, "alice", Some(Capability::Draw)).await;
+    let a = enrol_vault(&pool, &ring, org, &alice).await;
+    let design = a_design(&pool, &estate).await;
+    let login = a_login(
+        &pool,
+        &ring,
+        &estate,
+        &alice,
+        &design,
+        &[(&a, alice.account.to_string())],
+    )
+    .await;
+    let t = target(&design, "10.20.0.31");
+    let id = login.id.clone();
+
+    let now = || now_unix() * 1000;
+
+    assert_eq!(
+        waits(&pool, &ring, org, &alice, &t, &id, Protocol::Ssh).await,
+        None
+    );
+
+    // First refusal: a minute.
+    let w1 = refuse(&pool, &ring, org, &alice, &t, &id).await;
+    assert_eq!(w1.refusals, 1);
+    assert!((w1.until_ms - now() - 60_000).abs() < 5_000, "{w1:?}");
+    assert_eq!(
+        waits(&pool, &ring, org, &alice, &t, &id, Protocol::Ssh).await,
+        Some(w1.clone())
+    );
+    let words = String::from_utf8(w1.failure(now()).to_canonical_bytes()).unwrap();
+    assert!(words.contains(r#""code":"cooling_down""#), "{words}");
+    assert!(
+        words.contains("Fathom waits a minute before it sends it again"),
+        "{words}"
+    );
+    assert!(
+        words.contains("cannot lock the device's account"),
+        "{words}"
+    );
+
+    // Kept apart: the SNMP agent at the address, another device, another login.
+    assert_eq!(
+        waits(&pool, &ring, org, &alice, &t, &id, Protocol::Snmp).await,
+        None
+    );
+    assert_eq!(
+        waits(
+            &pool,
+            &ring,
+            org,
+            &alice,
+            &target(&design, "10.20.0.32"),
+            &id,
+            Protocol::Ssh
+        )
+        .await,
+        None
+    );
+    assert_eq!(
+        waits(&pool, &ring, org, &alice, &t, "cred_other", Protocol::Ssh).await,
+        None
+    );
+
+    // Second and third in a row: 15 minutes, then an hour, and an hour after that.
+    let w2 = refuse(&pool, &ring, org, &alice, &t, &id).await;
+    assert_eq!(w2.refusals, 2);
+    assert!((w2.until_ms - now() - 15 * 60_000).abs() < 5_000, "{w2:?}");
+    let w3 = refuse(&pool, &ring, org, &alice, &t, &id).await;
+    assert!((w3.until_ms - now() - 60 * 60_000).abs() < 5_000, "{w3:?}");
+    let w4 = refuse(&pool, &ring, org, &alice, &t, &id).await;
+    assert_eq!(w4.refusals, 4);
+    assert!((w4.until_ms - now() - 60 * 60_000).abs() < 5_000, "{w4:?}");
+    let words = String::from_utf8(w4.failure(now()).to_canonical_bytes()).unwrap();
+    assert!(
+        words.contains("refused this login 4 times in a row"),
+        "{words}"
+    );
+    assert!(words.contains("Fathom waits an hour"), "{words}");
+
+    // Changing the login in the vault lifts the wait, and the next refusal counts from one.
+    let changed = rotate(
+        &pool,
+        &ring,
+        org,
+        &alice,
+        &login,
+        &[(&a, alice.account.to_string())],
+        "changed",
+    )
+    .await;
+    assert!(changed.version > login.version);
+    assert_eq!(
+        waits(&pool, &ring, org, &alice, &t, &id, Protocol::Ssh).await,
+        None
+    );
+    assert_eq!(refuse(&pool, &ring, org, &alice, &t, &id).await.refusals, 1);
+
+    // A read that works ends the run.
+    let (t1, id1) = (t.clone(), id.clone());
+    as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            let tenant = auth.ctx.tenant().to_string();
+            device_reading::login_accepted(tx, &keys, &tenant, Protocol::Ssh, &t1, &id1).await
+        })
+    })
+    .await
+    .expect("accepted");
+    assert_eq!(
+        waits(&pool, &ring, org, &alice, &t, &id, Protocol::Ssh).await,
+        None
+    );
+    assert_eq!(refuse(&pool, &ring, org, &alice, &t, &id).await.refusals, 1);
+}
+
+/// Sign-off r117, finding 11: a key login reaches the reader as `{user, key}`, so the device is
+/// never handed a secret; a password login is unchanged.
+#[test]
+fn a_key_login_goes_to_the_reader_as_a_key_and_a_password_as_a_password() {
+    let t = target("01J0000000000000000000000D", "10.20.0.31");
+    let key = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjE=\n-----END OPENSSH PRIVATE KEY-----\n";
+    let as_key = fathom_server::vault_fathom::UsedLogin {
+        user: "fathomro".to_string(),
+        password: key.to_string(),
+        privacy: None,
+    };
+    let req = device_reading::ssh_request(
+        device_reading::ssh_job(&t, "junos-srx", Some("SHA256:x")),
+        Some(&as_key),
+    );
+    let text = String::from_utf8(req.to_canonical_bytes()).unwrap();
+    assert!(
+        text.contains(r#""login":{"key":"-----BEGIN OPENSSH"#),
+        "{text}"
+    );
+    assert!(!text.contains(r#""password""#), "{text}");
+    let as_pw = fathom_server::vault_fathom::UsedLogin {
+        user: "fathomro".to_string(),
+        password: "read-only-pw-7Qx".to_string(),
+        privacy: None,
+    };
+    let req = device_reading::ssh_request(
+        device_reading::ssh_job(&t, "junos-srx", Some("SHA256:x")),
+        Some(&as_pw),
+    );
+    let text = String::from_utf8(req.to_canonical_bytes()).unwrap();
+    assert!(
+        text.contains(r#""login":{"password":"read-only-pw-7Qx","user":"fathomro"}"#),
+        "{text}"
+    );
+}
+
+async fn waits(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    org: OrganisationId,
+    who: &Person,
+    t: &device_reading::Target,
+    id: &str,
+    protocol: Protocol,
+) -> Option<device_reading::Waiting> {
+    let (t, id) = (t.clone(), id.to_string());
+    as_who(pool, ring, org, who, move |tx, auth, keys| {
+        Box::pin(async move {
+            let tenant = auth.ctx.tenant().to_string();
+            device_reading::login_waiting(tx, &keys, &tenant, protocol, &t, &id).await
+        })
+    })
+    .await
+    .expect("asked")
+}
+
+async fn refuse(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    org: OrganisationId,
+    who: &Person,
+    t: &device_reading::Target,
+    id: &str,
+) -> device_reading::Waiting {
+    let (t, id) = (t.clone(), id.to_string());
+    as_who(pool, ring, org, who, move |tx, auth, keys| {
+        Box::pin(async move {
+            let tenant = auth.ctx.tenant().to_string();
+            device_reading::login_refused(tx, &keys, &tenant, Protocol::Ssh, &t, &id).await
+        })
+    })
+    .await
+    .expect("counted")
+}
