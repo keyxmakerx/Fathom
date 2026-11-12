@@ -120,6 +120,13 @@ try {
   const form = (page) => T(page, 'plans-add-step');
   const labelled = (page, text) => form(page).getByLabel(text, { exact: true });
 
+  // The form asks the kind first (sign-off r120); after a step is added it stays on that kind, with Change.
+  async function chooseKind(f, kind) {
+    const ask = f.locator('[data-testid=plans-kinds]');
+    if (!(await ask.count())) await f.getByRole('button', { name: 'Change', exact: true }).click();
+    await ask.locator(`[data-kind=${kind}]`).click();
+  }
+
   // Amber: a warm hue (about 25 to 55 degrees) with real saturation, in any colour a plan element draws with.
   const AMBER_SCAN = (root) => {
     const parse = (s) => {
@@ -171,12 +178,13 @@ try {
     check('[flow] right-click Plan a change opens the band', (await T(page, 'plans-band').count()) === 1);
     check('[flow] and the panel in Plan mode', (await T(page, 'plans-panel').getAttribute('data-mode')) === 'plan');
     check('[flow] the band names the plan for the device', /fw-01/.test(await T(page, 'plans-band').innerText()), (await T(page, 'plans-band').innerText()).replace(/\s+/g, ' '));
-    check('[flow] the add-step form is open with Move chosen', (await form(page).count()) === 1 && /Move/i.test(await labelled(page, 'Kind').evaluate((e) => e.options[e.selectedIndex].text)));
+    check('[flow] the add-step form is open on What kind of change?', (await form(page).count()) === 1 && (await form(page).locator('[data-testid=plans-kinds]').count()) === 1);
     check('[flow] focus is inside the form, not on the body', await page.evaluate(() => document.activeElement?.closest('[data-testid=plans-add-step]') != null));
     check('[flow] Start the maintenance is off with no steps', await page.getByRole('button', { name: 'Start the maintenance' }).isDisabled());
     await shot(page, '01-plan-empty');
 
     // A move step: the device is filled in from the right-click.
+    await chooseKind(form(page), 'move');
     await pick(labelled(page, 'To rack'), /A-04/);
     await labelled(page, 'Rack unit').fill('11');
     await form(page).getByRole('button', { name: 'Add step' }).click();
@@ -184,7 +192,7 @@ try {
     check('[flow] a move step is added', (await T(page, 'plans-step').count()) === 1, await T(page, 'plans-panel').innerText());
 
     // An address step.
-    await labelled(page, 'Kind').selectOption('address');
+    await chooseKind(form(page), 'address');
     await pick(labelled(page, 'Device'), /sw-02/);
     await labelled(page, 'New management address').fill('10.0.1.1');
     // Typed words about a secret are not a secret: stored as typed, and the form says so (ADR-0053 section 6).
@@ -197,7 +205,7 @@ try {
     check('[typed] typed "Rotate the pre-shared key" is stored intact', (await T(page, 'plans-panel').innerText()).includes(TYPED_WORDS), (await T(page, 'plans-panel').innerText()).replace(/\s+/g, ' ').slice(0, 300));
 
     // A cable step onto a port that already has a cable: the checks will refuse it on the day.
-    await labelled(page, 'Kind').selectOption('cable');
+    await chooseKind(form(page), 'cable');
     await pick(labelled(page, 'From device'), /fw-01/);
     const fromPorts = await optionTexts(labelled(page, 'From port'));
     console.log('    from ports: ' + fromPorts.slice(0, 6).join(' | '));
@@ -397,6 +405,7 @@ try {
     await page.locator('.drawing-context-menu__item', { hasText: 'Plan a change' }).click();
     await page.waitForSelector('[data-testid=plans-panel]');
     await settle(page);
+    await chooseKind(form(page), 'move');
     await pick(labelled(page, 'To rack'), /A-04/);
     await labelled(page, 'Rack unit').fill('11');
     await page.keyboard.press('Enter');
@@ -423,6 +432,7 @@ try {
     check('[keys] Tab reaches the Start the maintenance button', order.includes('Start the maintenance'));
     check('[keys] the panel header comes before its body in the tab order', order.indexOf('Fold the plan panel') === -1 || order.indexOf('Start the maintenance') > -1);
     // Reorder and remove: the button that was pressed may go or turn off; focus must stay in the panel.
+    await chooseKind(form(page), 'move');
     await pick(labelled(page, 'Device'), /sw-02/);
     await pick(labelled(page, 'To rack'), /A-04/);
     await labelled(page, 'Rack unit').fill('9');
@@ -477,11 +487,12 @@ try {
     await page.locator('.drawing-context-menu__item', { hasText: 'Plan a change' }).click();
     await page.waitForSelector('[data-testid=plans-panel]');
     await settle(page);
+    await chooseKind(form(page), 'move');
     await pick(labelled(page, 'To rack'), /A-04/);
     await labelled(page, 'Rack unit').fill('11');
     await form(page).getByRole('button', { name: 'Add step' }).click();
     await settle(page, 800);
-    await labelled(page, 'Kind').selectOption('address');
+    await chooseKind(form(page), 'address');
     await pick(labelled(page, 'Device'), /sw-02/);
     await labelled(page, 'New management address').fill('10.0.1.1');
     await form(page).getByRole('button', { name: 'Add step' }).click();
