@@ -207,11 +207,30 @@ async fn read_handler(
         };
         let tenant = auth.ctx.tenant().to_string();
         let mut known = reading::identity_at(&tx, &keys, &tenant, protocol, target.address).await?;
+        // A range's login goes over SSH only to a host key a Steward confirmed.
+        let by_range = login.is_some() && target.range.login == login;
+        let steward =
+            protocol == Protocol::Ssh && by_range && reading::is_steward(&tx, &auth).await?;
         if let Some(typed) = &confirm {
+            if reading::range_login_waits_for_a_steward(protocol, by_range, None) && !steward {
+                return Err(VaultError::NotAllowed(reading::RANGE_LOGIN_NEEDS_A_STEWARD).into());
+            }
             known =
                 Some(reading::approve_typed(&tx, &auth, &keys, &target, protocol, typed).await?);
         }
         match known {
+            Some(e)
+                if e.state == "approved"
+                    && reading::range_login_waits_for_a_steward(protocol, by_range, Some(&e)) =>
+            {
+                if !steward {
+                    return Err(VaultError::NotAllowed(reading::RANGE_LOGIN_NEEDS_A_STEWARD).into());
+                }
+                // A member confirmed it; the Steward is shown it to confirm in turn.
+                let mut again = e;
+                again.state = "seen".to_string();
+                return Ok(json_response(confirm_answer(&again)));
+            }
             Some(e) if e.state == "approved" => {
                 let Some(login) = login.clone() else {
                     return Err(VaultError::NotAllowed(
