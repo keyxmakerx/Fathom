@@ -16,16 +16,16 @@ import { countSentence } from './NoticesBanner';
 describe('countSentence (operators.rs one_operator)', () => {
   it('does not claim there is no operator when the count is zero', () => {
     const zero = countSentence(0);
-    expect(zero).toMatch(/counts as independent yet/);
+    expect(zero).toMatch(/counts as a separate person yet/);
     expect(zero).not.toMatch(/0 /);
-    expect(zero).toMatch(/first operator does not count on their first day/);
+    expect(zero).toMatch(/first one does not count on their first day/);
   });
 
   it('says one, and that there should be two', () => {
-    expect(countSentence(1)).toBe('There is one independent operator on this install, and there should be two.');
+    expect(countSentence(1)).toBe('Only one server admin counts so far; there should be two.');
   });
 
   it('pluralises anything else rather than saying "1 operators"', () => {
-    expect(countSentence(3)).toBe('There are 3 independent operators on this install, and there should be two.');
+    expect(countSentence(3)).toBe('3 server admins count; there should be two.');
   });
 });

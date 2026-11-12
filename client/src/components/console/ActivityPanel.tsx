@@ -81,10 +81,10 @@ export function ActivityView({ loaded, filter }: ActivityViewProps) {
       <thead>
         <tr>
           <th>When</th>
-          <th>What</th>
+          <th>What happened</th>
           <th>Who</th>
           <th>From</th>
-          <th>Through</th>
+          <th>Via</th>
         </tr>
       </thead>
       <tbody>

@@ -35,11 +35,11 @@ export function Operators({ actingOperatorId, rows, onChanged }: OperatorsProps)
       <table className="console__table">
         <thead>
           <tr>
-            <th>id</th>
-            <th>name</th>
-            <th>address</th>
-            <th>created by</th>
-            <th>state</th>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Added by</th>
+            <th>Status</th>
             <th />
           </tr>
         </thead>
@@ -50,7 +50,7 @@ export function Operators({ actingOperatorId, rows, onChanged }: OperatorsProps)
                 <code>{row.id}</code>
               </td>
               <td>{row.displayName}</td>
-              <td>{row.address ?? <span className="console__muted">no address of record</span>}</td>
+              <td>{row.address ?? <span className="console__muted">no email on file</span>}</td>
               <td>{row.createdBy ? <code>{row.createdBy}</code> : 'first start'}</td>
               <td>
                 {row.disabled
@@ -153,18 +153,16 @@ function AddColleague({
 
   return (
     <form className="console__form" onSubmit={submit}>
-      <div className="console__form-title">Add an operator</div>
+      <div className="console__form-title">Add a server admin</div>
       <p className="console__note">
-        Two operators is the standing shape: one person who is unreachable should not take the install with them.
-        The request is signed with the operator key in this browser, waits out its delay, and is recorded on the
-        site trail; refreshing this register after the delay is what applies it.
+        Fathom wants two server admins, so that one person being away does not lock everyone out. Your request is
+        signed in this browser, waits out a delay, and is written to the history. When the delay is over, press
+        Refresh and it takes effect.
       </p>
       <p className="console__warn">
-        Their way in is not complete in this build. When the request applies, the server mints the colleague's
-        single-use enrolment token — and there is no route that hands it to you: the register discards it
-        (<code>admin.rs</code>'s <code>list_operators</code>), and nothing is emailed until mail is set above and
-        the mail client ships. So request a colleague here to record the intent, and expect to finish it from the
-        host.
+        Not finished. When the delay ends, the server makes a one-time invitation for your colleague, but this
+        screen cannot show it to you yet and Fathom does not email it. Request here to record the intent, then
+        finish from the server machine.
       </p>
       <label className="console__label" htmlFor="console-operator-name">
         Display name
@@ -197,13 +195,13 @@ function AddColleague({
         className="console__btn btn-main"
         disabled={busy || displayName.trim().length === 0 || address.trim().length < 3}
       >
-        {busy ? 'Requesting…' : 'Request this colleague'}
+        {busy ? 'Requesting…' : 'Ask for this server admin'}
       </button>
       {pending && (
         <p className="console__muted">
           Requested. Change <code>{pending.id}</code> applies at{' '}
-          {new Date(pending.effectiveAtUnix * 1000).toLocaleString()}. Until then it is a pending request on the
-          site trail; this build has no route that cancels one.
+          {new Date(pending.effectiveAtUnix * 1000).toLocaleString()}. Until then it is a pending request in the
+          history; this build has no route that cancels one.
         </p>
       )}
       {error && (
