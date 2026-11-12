@@ -414,6 +414,15 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0067_device_read.sql",
         sql: include_str!("../migrations/0067_device_read.sql"),
     },
+    // The estate index's terms by element, so a design's rebuild does not read every term in
+    // the organisation once per row it deletes (ADR-0089 §8.4). Version 68 was left free for
+    // it while it waited; every unrecorded version is applied, so a database that already has
+    // 69 and later still gets it.
+    Migration {
+        version: 68,
+        name: "0068_estate_terms_by_element.sql",
+        sql: include_str!("../migrations/0068_estate_terms_by_element.sql"),
+    },
     // The Firmware capability, between Draw and Steward (sign-off r95).
     Migration {
         version: 69,

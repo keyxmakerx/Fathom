@@ -8711,4 +8711,143 @@ async fn a_cables_list_is_each_persons_own_and_needs_read_on_the_design() {
     assert_eq!(rows.len(), 1);
     let raw: String = rows[0].get(0);
     assert!(!raw.contains("fibre"), "{raw}");
+
+/// The elements a search or page answered, in the order it answered them.
+fn hit_elements(hits: &[fathom_server::estate::Hit]) -> Vec<String> {
+    hits.iter()
+        .filter_map(|h| match &h.row {
+            fathom_canon::Json::Obj(m) => match m.get("element") {
+                Some(fathom_canon::Json::Str(s)) => Some(s.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// **Estate search keeps its answers after the rewrite for a million devices (ADR-0089 §8.4),
+/// and a rebuild of an older version never replaces a newer one.** The rarest word drives,
+/// every other word must match too, the kind comes from the row, and a kind alone is the
+/// first page of that kind. A rebuild that read version 1 after version 2 was indexed adds
+/// nothing, so two servers rebuilding one design cannot put the older rows back.
+#[tokio::test]
+async fn estate_search_keeps_its_answers_and_an_older_rebuild_never_wins() {
+    use fathom_server::estate::{self, IndexKeys, Row};
+
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate_org = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate_org).await;
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, estate_org.organisation, estate_org.steward.account)
+        .await
+        .expect("tenant context");
+    let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+        .await
+        .expect("tenant key");
+    let org = estate_org.organisation.to_string();
+    let index = IndexKeys::derive(&tenant_key, &org);
+    let d = design.to_string();
+    let row = |element: &str, kind: &'static str, name: &str, serial: &str| Row {
+        element: element.into(),
+        kind,
+        open: element.into(),
+        name: name.into(),
+        model: "EX4300-48T".into(),
+        serial: serial.into(),
+        device: String::new(),
+        place: String::new(),
+        addresses: Vec::new(),
+        ports: Vec::new(),
+    };
+    let version_two = vec![
+        row("e1", "device", "core-sw-01", "PE3714AF0001"),
+        row("e2", "device", "core-sw-02", "PE3714AF0002"),
+        row("e3", "card", "core-sw-01 slot 1", "CARD00000003"),
+        row("e4", "device", "edge-rtr-01", "JN11F2A30004"),
+    ];
+    estate::replace_design(&tx, &index, &org, &d, 2, &version_two)
+        .await
+        .expect("indexed at version 2");
+    let ids = vec![d.clone()];
+    let search = |q: &'static str, kind: Option<&'static str>| {
+        let (tx, index, org, ids) = (&tx, &index, org.clone(), ids.clone());
+        async move {
+            hit_elements(
+                &estate::search(tx, index, &org, &ids, q, kind, 100)
+                    .await
+                    .expect("search"),
+            )
+        }
+    };
+
+    assert_eq!(search("core", None).await, ["e1", "e2", "e3"], "one word");
+    assert_eq!(
+        search("core", Some("device")).await,
+        ["e1", "e2"],
+        "word and kind"
+    );
+    assert_eq!(
+        search("core-sw-01", None).await,
+        ["e1", "e3"],
+        "a longer prefix"
+    );
+    assert_eq!(
+        search("core slot", None).await,
+        ["e3"],
+        "every word must match"
+    );
+    assert_eq!(
+        search("ex4300 core-sw-0", Some("device")).await,
+        ["e1", "e2"],
+        "two common words and a kind"
+    );
+    assert_eq!(
+        search("pe3714af0002", Some("device")).await,
+        ["e2"],
+        "a serial with the device filter, the query that took 15 s at a million"
+    );
+    assert_eq!(
+        search("core edge", None).await,
+        Vec::<String>::new(),
+        "no row has both"
+    );
+    assert_eq!(search("nothing-here", None).await, Vec::<String>::new());
+    assert_eq!(search("", Some("card")).await, ["e3"], "a kind alone");
+    assert_eq!(
+        search("", None).await,
+        Vec::<String>::new(),
+        "nothing asked"
+    );
+
+    // A rebuild that read version 1 arrives after version 2 was indexed: nothing changes.
+    let version_one = vec![row("e9", "device", "old-name-01", "OLD000000009")];
+    estate::replace_design(&tx, &index, &org, &d, 1, &version_one)
+        .await
+        .expect("an older rebuild is not an error");
+    assert_eq!(
+        search("old", None).await,
+        Vec::<String>::new(),
+        "older rows not put back"
+    );
+    assert_eq!(search("edge", None).await, ["e4"], "newer rows kept");
+    let built = estate::built_versions(&tx, &org, &ids)
+        .await
+        .expect("built");
+    assert_eq!(built.get(&d).copied(), Some(2));
+
+    // The same version again, or a newer one, still replaces.
+    let version_three = vec![row("e5", "device", "spine-01", "SP0000000005")];
+    estate::replace_design(&tx, &index, &org, &d, 3, &version_three)
+        .await
+        .expect("indexed at version 3");
+    assert_eq!(search("spine", None).await, ["e5"]);
+    assert_eq!(
+        search("core", None).await,
+        Vec::<String>::new(),
+        "version 2's rows replaced"
+    );
+    tx.rollback().await.expect("rollback");
 }
