@@ -15,6 +15,7 @@ import {
   saveDeviceReading,
   type DeviceReading,
   type ReadEngine,
+  type ReadProtocol,
   type ReadRange,
 } from '../../api/deviceRead';
 import { SNMP_AUTH_LABELS, type VaultEntry } from '../../api/vault';
@@ -262,31 +263,35 @@ export function EnginesView({
   ranges: readonly ReadRange[];
   busy: boolean;
   error: string | null;
-  onApprove: (addresses: string[]) => void;
+  onApprove: (protocol: ReadProtocol, addresses: string[]) => void;
 }) {
   const waiting = engines.filter((e) => e.state !== 'approved');
-  const groups = new Map<string, ReadEngine[]>();
+  // By range, and within a range SNMP agents apart from SSH host keys: a batch is one or the other.
+  const groups = new Map<string, { cidr: string; protocol: ReadProtocol; list: ReadEngine[] }>();
   for (const e of waiting) {
     const cidr = ranges.find((r) => inRange(e.address, r.cidr))?.cidr ?? 'Outside the listed ranges';
-    groups.set(cidr, [...(groups.get(cidr) ?? []), e]);
+    const k = `${cidr}|${e.identity.protocol}`;
+    const g = groups.get(k) ?? { cidr, protocol: e.identity.protocol, list: [] };
+    g.list.push(e);
+    groups.set(k, g);
   }
   return (
     <section className="org-page" data-testid="device-reading-engines">
       <div className="org-field__label">Waiting for approval</div>
       <p className="org-field__hint">
-        The first time an address answers, Fathom keeps the agent it answered with (its SNMP engine ID) and sends no login until someone
-        confirms it. Someone with Draw confirms one device by typing; you can approve a whole range here. One entry goes in the
+        The first time an address answers, Fathom keeps what it answered with (its SNMP engine ID, or its SSH host key) and sends no
+        login until someone confirms it. Someone with Draw confirms one device by typing; you can approve a whole range here. One entry goes in the
         organisation’s log for each batch.
       </p>
       {waiting.length === 0 ? <p className="org-field__hint">Nothing is waiting.</p> : null}
-      {[...groups.entries()].map(([cidr, list]) => {
+      {[...groups.entries()].map(([k, { cidr, protocol, list }]) => {
         const fresh = list.filter((e) => e.state === 'seen');
         const changed = list.filter((e) => e.state === 'changed');
         return (
-          <div className="engines" key={cidr} data-testid="engine-range">
+          <div className="engines" key={k} data-testid="engine-range">
             <div className="engines__head">
               <span>
-                <b>{cidr}</b>
+                <b>{cidr}</b> · {protocol === 'ssh' ? 'SSH host keys' : 'SNMP agents'}
               </span>
               <span className="muted">
                 {fresh.length} answered for the first time{changed.length ? `, ${changed.length} changed` : ''}
@@ -296,7 +301,7 @@ export function EnginesView({
               <thead>
                 <tr>
                   <th>Address</th>
-                  <th>Engine ID</th>
+                  <th>{protocol === 'ssh' ? 'Host key' : 'Engine ID'}</th>
                   <th />
                 </tr>
               </thead>
@@ -304,12 +309,15 @@ export function EnginesView({
                 {list.map((e) => (
                   <tr key={e.address}>
                     <td className="m">{e.address}</td>
-                    <td className="m">…{lastEight(e.engineId)}</td>
+                    <td className="m">
+                      …{lastEight(protocol, e.identity.value)}
+                      {e.identity.keyType ? <span className="muted"> {e.identity.keyType}</span> : null}
+                    </td>
                     <td>
                       {e.state === 'changed' ? (
                         <span>
-                          <span className="chg">changed since last read{e.previous ? ` (was …${lastEight(e.previous)})` : ''}</span>{' '}
-                          <button type="button" className="home__btn btn-small" disabled={busy} onClick={() => onApprove([e.address])}>
+                          <span className="chg">changed since last read{e.previous ? ` (was …${lastEight(protocol, e.previous)})` : ''}</span>{' '}
+                          <button type="button" className="home__btn btn-small" disabled={busy} onClick={() => onApprove(protocol, [e.address])}>
                             Approve this one
                           </button>
                         </span>
@@ -324,7 +332,7 @@ export function EnginesView({
             <div className="engines__foot">
               <span className="muted">{changed.length ? 'A changed one is never approved with the rest. It is listed on its own.' : ''}</span>
               {fresh.length ? (
-                <button type="button" className="home__btn" disabled={busy} onClick={() => onApprove(fresh.map((e) => e.address))} data-testid="approve-new">
+                <button type="button" className="home__btn" disabled={busy} onClick={() => onApprove(protocol, fresh.map((e) => e.address))} data-testid="approve-new">
                   Approve {fresh.length} new
                 </button>
               ) : null}
@@ -356,10 +364,10 @@ function Engines({ organisationId, ranges }: { organisationId: string; ranges: r
       ranges={ranges}
       busy={busy}
       error={error}
-      onApprove={(addresses) => {
+      onApprove={(protocol, addresses) => {
         setBusy(true);
         setError(null);
-        approveEngines(organisationId, addresses).then(
+        approveEngines(organisationId, protocol, addresses).then(
           () => {
             setBusy(false);
             reload();

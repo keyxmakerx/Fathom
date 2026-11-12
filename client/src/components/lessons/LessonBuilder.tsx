@@ -45,6 +45,13 @@ export function ruleChoices(): RuleChoice[] {
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
+/** What publishing made: the copy's name, and why naming it failed if it did (the copy is made
+ * either way, untitled). */
+export interface PublishedLesson {
+  name: string;
+  nameError: string | null;
+}
+
 export interface LessonBuilderProps {
   doc: Document | null;
   selectedId: string | null;
@@ -52,7 +59,7 @@ export interface LessonBuilderProps {
   /** Applies a change to the design, as any other edit does. Returns a refusal to show, if any. */
   apply: (next: Document) => string | void;
   /** Publishes a frozen copy for learners; resolves with the copy's name. */
-  onPublish: (lessonId: string) => Promise<string>;
+  onPublish: (lessonId: string) => Promise<PublishedLesson>;
   onClose: () => void;
   boot?: BootMirror;
   side?: 'left' | 'right';
@@ -229,7 +236,7 @@ export function LessonBuilder({ doc, selectedId, canDraw, apply, onPublish, onCl
   const [summary, setSummary] = useState('');
   const [editing, setEditing] = useState<{ stepId: string | null; draft: LessonStepInput } | null>(null);
   const [error, setError] = useState('');
-  const [published, setPublished] = useState('');
+  const [published, setPublished] = useState<PublishedLesson | null>(null);
   const [busy, setBusy] = useState(false);
   const [folded, setFolded] = useState(false);
   const rules = useMemo(ruleChoices, []);
@@ -284,8 +291,11 @@ export function LessonBuilder({ doc, selectedId, canDraw, apply, onPublish, onCl
     if (lesson == null) return;
     setBusy(true);
     setError('');
+    setPublished(null);
     try {
-      setPublished(await onPublish(lesson.id));
+      const made = await onPublish(lesson.id);
+      setPublished(made);
+      if (made.nameError != null) setError(`The copy could not be named “${made.name}”, so it is untitled in Home. Rename it there. ${made.nameError}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Publishing was refused.');
     } finally {
@@ -430,9 +440,9 @@ export function LessonBuilder({ doc, selectedId, canDraw, apply, onPublish, onCl
                   >
                     {busy ? 'Publishing…' : 'Publish a copy for learners'}
                   </button>
-                  {published !== '' && (
+                  {published != null && (
                     <p className="lesson-step__after" role="status">
-                      Published as “{published}”. Anyone who can open this folder starts it from Home. Publishing again makes a new copy.
+                      {published.nameError == null ? `Published as “${published.name}”.` : 'Published, untitled.'} Anyone who can open this folder starts it from Home. Publishing again makes a new copy.
                     </p>
                   )}
                 </div>

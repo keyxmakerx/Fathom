@@ -855,10 +855,12 @@ pub async fn use_login(
 }
 
 /// [`use_login`] for device reading (ADR-0082 §4.1): the login must carry the read-only tick
-/// and be an SNMP login that names its authentication, both checked before anything is filed
-/// or opened. `by_range` is true when a Steward set this login for the device's management range
-/// (r90, logins by range), so it need not also be marked as used on the device. Answers the
-/// login and its authentication.
+/// and suit the protocol, both checked before anything is filed or opened. Over SNMPv3, an SNMP
+/// login that names its authentication; over SSH, a login (user and password). `by_range` is
+/// true when a Steward set this login for the device's management range (r90, logins by range),
+/// so it need not also be marked as used on the device. Answers the login and, over SNMP, its
+/// authentication.
+#[allow(clippy::too_many_arguments)]
 pub async fn use_login_to_read(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -867,7 +869,9 @@ pub async fn use_login_to_read(
     design: &str,
     element: &str,
     by_range: bool,
-) -> Result<(UsedLogin, String), VaultError> {
+    protocol: crate::device_reading::Protocol,
+) -> Result<(UsedLogin, Option<String>), VaultError> {
+    use crate::device_reading::Protocol;
     let (login, meta) = open_for(
         tx,
         auth,
@@ -883,19 +887,29 @@ pub async fn use_login_to_read(
                     "Fathom reads a device only with a login ticked as a read-only account",
                 ));
             }
-            if meta.kind != "snmp" || meta.snmp_auth.is_none() {
-                return Err(VaultError::NotAllowed(
-                    "reading over SNMPv3 needs an SNMP login that names its authentication (SHA-512, SHA-256 or SHA-1)",
-                ));
+            match protocol {
+                Protocol::Snmp if meta.kind != "snmp" || meta.snmp_auth.is_none() => {
+                    Err(VaultError::NotAllowed(
+                        "reading over SNMPv3 needs an SNMP login that names its authentication (SHA-512, SHA-256 or SHA-1)",
+                    ))
+                }
+                Protocol::Ssh if meta.kind != "login" => Err(VaultError::NotAllowed(
+                    "reading over SSH needs a login (a user and password), ticked read-only",
+                )),
+                _ => Ok(()),
             }
-            Ok(())
         },
     )
     .await?;
-    let auth_name = meta
-        .snmp_auth
-        .ok_or(VaultError::Corrupt("an SNMP login's authentication"))?;
-    Ok((login, auth_name))
+    match protocol {
+        Protocol::Snmp => {
+            let auth_name = meta
+                .snmp_auth
+                .ok_or(VaultError::Corrupt("an SNMP login's authentication"))?;
+            Ok((login, Some(auth_name)))
+        }
+        Protocol::Ssh => Ok((login, None)),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -9,6 +9,7 @@
 # would also be for the wrong libc.
 target/
 helpers/passbolt/target/
+helpers/reader/target/
 out/
 
 # Version control and CI.

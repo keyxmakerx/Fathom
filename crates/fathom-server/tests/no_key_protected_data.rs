@@ -280,6 +280,25 @@ const TABLES: &[TableClaim] = &[
               creator and an archived flag, none of which names a field.",
     },
     TableClaim {
+        name: "faceplate_templates",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the organisation content key, which is wrapped under the tenant key",
+        },
+        why: "faceplate templates (migration 0076, sign-off r114): the name, role and ports, one \
+              sealed blob. In the clear: the template id, who made it and when, the key epoch.",
+    },
+    TableClaim {
+        name: "member_cable_views",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the organisation content key, which is wrapped under the tenant key",
+        },
+        why: "one person's Cables list for one design (migration 0076, sign-off r114): the \
+              groups, ticks and hidden cable ids, one sealed blob. In the clear: the \
+              organisation, account and design ids, when, the key epoch.",
+    },
+    TableClaim {
         name: "member_teaching",
         protection: Protection::NoKeyProtectedMaterial,
         why: "\"type it yourself\" (0041): ids, one boolean, who set it and when. A teaching \

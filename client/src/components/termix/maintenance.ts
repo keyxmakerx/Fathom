@@ -17,7 +17,7 @@
 //   `GET /host/status?hostIds=1,2` answers `{ "<id>": { status: online | reachable | offline,
 //   lastChecked } }` for the hosts the caller may see.
 
-import { TermixError, type TermixHost, call } from './termix';
+import { TermixError, call } from './termix';
 
 export const AUTOMATIONS = 'automations';
 
@@ -109,16 +109,6 @@ export async function hostStatus(origin: string, key: string, hostIds: readonly 
     const s = (entry as { status?: unknown } | null)?.status;
     const n = Number(id);
     if (Number.isSafeInteger(n) && (s === 'online' || s === 'reachable' || s === 'offline')) out.set(n, s);
-  }
-  return out;
-}
-
-/** The Termix host for each address, by address. */
-export function hostsByAddress(hosts: readonly TermixHost[], addresses: readonly string[], match: (h: TermixHost[], a: string) => TermixHost | null): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const a of addresses) {
-    const h = a.trim() === '' ? null : match([...hosts], a);
-    if (h) out.set(a, h.id);
   }
   return out;
 }

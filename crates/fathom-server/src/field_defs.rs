@@ -261,7 +261,10 @@ pub async fn list(
 /// The caller must hold `draw` (or steward) on the organisation or at least one
 /// scope in it. A read-only member sees fields and values but changes no
 /// definition.
-async fn require_draw(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(), DesignError> {
+pub(crate) async fn require_draw(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+) -> Result<(), DesignError> {
     let verified = grants::verify_authority_state(tx, auth)
         .await
         .map_err(DesignError::Authority)?;

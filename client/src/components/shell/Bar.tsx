@@ -61,6 +61,8 @@ export interface BarProps {
   /** The History button: the design's saves beside the canvas. */
   onHistory?: () => void;
   historyOpen?: boolean;
+  /** The round "?" just before the account square: opens the keyboard shortcuts sheet. */
+  onShortcuts?: () => void;
   account: AccountInfo;
   /** ADR-0052 §5 — the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s `canDraw`, negated). Renders the "view only" chip
@@ -130,6 +132,7 @@ export function Bar({
   onDocs,
   onHistory,
   historyOpen,
+  onShortcuts,
   account,
   viewOnly,
   barExtra,
@@ -578,6 +581,19 @@ export function Bar({
               Admin
             </span>
           ))}
+        {onShortcuts && (
+          <button
+            type="button"
+            className="shell-shortcuts-btn"
+            aria-label="Keyboard shortcuts"
+            aria-keyshortcuts="Shift+?"
+            title={`Keyboard shortcuts (${shortcutText('shortcuts')})`}
+            data-testid="shell-shortcuts"
+            onClick={onShortcuts}
+          >
+            ?
+          </button>
+        )}
         <Popover
           align="right"
           className="shell-popover--frosted"

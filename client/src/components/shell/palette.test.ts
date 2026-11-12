@@ -109,7 +109,7 @@ describe('the shortcuts sheet', () => {
     const markup = renderToStaticMarkup(createElement(ShortcutsSheet, { onClose: () => {} }));
     expect(markup).toContain('role="dialog"');
     expect(markup).toContain('aria-label="Keyboard shortcuts"');
-    for (const group of ['Canvas', 'Selection', 'Editing', 'Find']) expect(markup).toContain(`<h3 class="shortcuts-sheet__heading">${group}</h3>`);
+    for (const group of ['Canvas', 'Selection', 'Editing', 'Find', 'Lists and panels']) expect(markup).toContain(`<h3 class="shortcuts-sheet__heading">${group}</h3>`);
     for (const s of SHORTCUTS) expect(markup).toContain(s.what.replace(/&/g, '&amp;'));
   });
 });

@@ -198,8 +198,28 @@ fn text_no_platform_understands_is_refused_before_storage() {
 #[test]
 fn an_unknown_platform_code_is_a_bad_frame() {
     let mut shell = common::all_booted_shell();
-    let (code, _) = refusal(&shell.handle(OP_PASTE, &frame(0x0a, "set system host-name x\n")));
-    assert_eq!(code, ERR_PASTE_FRAME);
+    // Code 11 is one past the last platform; bit 5 is outside the platform field.
+    for flags in [0x16u8, 0x20, 0x22] {
+        let (code, _) = refusal(&shell.handle(OP_PASTE, &frame(flags, "set system host-name x\n")));
+        assert_eq!(code, ERR_PASTE_FRAME, "flags {flags:#04x}");
+    }
+}
+
+#[test]
+fn every_platform_can_be_named_in_the_frame() {
+    // A named platform must reach its own front end, never ERR_PASTE_FRAME. What a
+    // one-line paste binds varies; only the frame refusal is ruled out here.
+    let mut shell = common::all_booted_shell();
+    for platform in PASTE_PLATFORMS {
+        let reply = shell.handle(OP_PASTE, &frame(named(platform), "hostname x\n"));
+        if let ReplyView::Error(e) = decode_reply(&reply).unwrap() {
+            let code = e.code;
+            assert_ne!(
+                code, ERR_PASTE_FRAME,
+                "{platform} was refused as a bad frame"
+            );
+        }
+    }
 }
 
 #[test]

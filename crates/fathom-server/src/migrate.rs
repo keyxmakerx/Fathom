@@ -414,6 +414,15 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0067_device_read.sql",
         sql: include_str!("../migrations/0067_device_read.sql"),
     },
+    // The estate index's terms by element, so a design's rebuild does not read every term in
+    // the organisation once per row it deletes (ADR-0089 §8.4). Version 68 was left free for
+    // it while it waited; every unrecorded version is applied, so a database that already has
+    // 69 and later still gets it.
+    Migration {
+        version: 68,
+        name: "0068_estate_terms_by_element.sql",
+        sql: include_str!("../migrations/0068_estate_terms_by_element.sql"),
+    },
     // The Firmware capability, between Draw and Steward (sign-off r95).
     Migration {
         version: 69,
@@ -455,6 +464,19 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 75,
         name: "0075_orders.sql",
         sql: include_str!("../migrations/0075_orders.sql"),
+    },
+    // Faceplate templates and each person's Cables list, sealed (sign-off r114).
+    Migration {
+        version: 76,
+        name: "0076_templates_and_cable_views.sql",
+        sql: include_str!("../migrations/0076_templates_and_cable_views.sql"),
+    },
+    // Reading a device over SSH: host keys beside engine ids, and a `config` reading (ADR-0082).
+    // Written as 0076; renumbered 0077 when combined, as 0076 went to templates and Cables lists.
+    Migration {
+        version: 77,
+        name: "0077_device_read_ssh.sql",
+        sql: include_str!("../migrations/0077_device_read_ssh.sql"),
     },
 ];
 

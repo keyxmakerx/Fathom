@@ -8417,3 +8417,439 @@ mod retired_links {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Faceplate templates and Cables lists (migration 0076, sign-off r114)
+// ---------------------------------------------------------------------------
+
+fn a_port(label: &str) -> fathom_canon::Json {
+    fathom_canon::Json::Obj(
+        [
+            ("connector", jstr("rj45")),
+            ("face", jstr("front")),
+            ("label", jstr(label)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect(),
+    )
+}
+
+fn template_body(name: &str, labels: &[&str], replaces: Option<&str>) -> Vec<u8> {
+    let mut fields = vec![
+        ("name", jstr(name)),
+        (
+            "ports",
+            fathom_canon::Json::Arr(labels.iter().map(|l| a_port(l)).collect()),
+        ),
+        ("role", jstr("patch-panel")),
+    ];
+    if let Some(r) = replaces {
+        fields.push(("replaces", jstr(r)));
+    }
+    canon(fields)
+}
+
+#[tokio::test]
+async fn a_template_is_shared_in_the_organisation_and_only_its_maker_or_a_steward_removes_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let maker = a_member_with(&pool, &ring, &estate, "maker", Some(Capability::Draw)).await;
+    let other = a_member_with(&pool, &ring, &estate, "other", Some(Capability::Draw)).await;
+    let viewer = a_member_with(&pool, &ring, &estate, "viewer", Some(Capability::Read)).await;
+    let outsider = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/faceplate-templates", estate.organisation);
+
+    let (status, body) = call(
+        addr,
+        &maker,
+        "POST",
+        &base,
+        &template_body("Keystone 24", &["PP-SECRETLABEL-1", "2"], None),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let made = parsed(&body);
+    let id = text_of(&made, "id");
+    assert_eq!(text_of(&made, "createdBy"), maker.account.to_string());
+    assert_eq!(text_of(&made, "role"), "patch-panel");
+
+    // Everyone in the organisation sees it, a viewer included; another organisation does not.
+    let (status, body) = call(addr, &viewer, "GET", &base, b"").await;
+    assert_eq!(status, "200");
+    let all = list_of(&body);
+    assert_eq!(all.len(), 1);
+    assert_eq!(text_of(&all[0], "name"), "Keystone 24");
+    match &all[0]["ports"] {
+        fathom_canon::Json::Arr(p) => assert_eq!(p.len(), 2),
+        other => panic!("ports: {other:?}"),
+    }
+    let theirs = format!(
+        "/organisations/{}/faceplate-templates",
+        outsider.organisation
+    );
+    let (_, body) = call(addr, &outsider.steward, "GET", &theirs, b"").await;
+    assert!(list_of(&body).is_empty());
+
+    // A viewer cannot save one.
+    let (status, _) = call(
+        addr,
+        &viewer,
+        "POST",
+        &base,
+        &template_body("V", &["1"], None),
+    )
+    .await;
+    assert_eq!(status, "403");
+
+    // Nothing of the name or the ports is in the clear.
+    let client = support::superuser_client_on_test_database().await;
+    let row = client
+        .query_one(
+            "SELECT t::text FROM faceplate_templates t WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap();
+    let raw: String = row.get(0);
+    assert!(
+        !raw.contains("Keystone") && !raw.contains("SECRETLABEL"),
+        "{raw}"
+    );
+    drop(client);
+
+    // Another drawer may not remove it, and the refusal reads the same as for an invented id.
+    let real = format!("{base}/{id}");
+    let ghost = format!("{base}/{}", fathom_server::ids::new_ulid());
+    let refused_real = call(addr, &other, "DELETE", &real, b"").await;
+    let refused_ghost = call(addr, &other, "DELETE", &ghost, b"").await;
+    assert_eq!(refused_real.0, "403");
+    assert_eq!(refused_real, refused_ghost);
+    // Nor replace it by saving under its name.
+    let (status, _) = call(
+        addr,
+        &other,
+        "POST",
+        &base,
+        &template_body("Keystone 24", &["1"], Some(&id)),
+    )
+    .await;
+    assert_eq!(status, "403");
+
+    // The maker replaces it in one go: one template, the new one.
+    let (status, body) = call(
+        addr,
+        &maker,
+        "POST",
+        &base,
+        &template_body("Keystone 24", &["1", "2", "3"], Some(&id)),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let newer = text_of(&parsed(&body), "id");
+    let (_, body) = call(addr, &maker, "GET", &base, b"").await;
+    let all = list_of(&body);
+    assert_eq!(all.len(), 1);
+    assert_eq!(text_of(&all[0], "id"), newer);
+
+    // A Steward who did not make it may remove it; a missing one is 404 to a Steward.
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "DELETE",
+        &format!("{base}/{newer}"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "204");
+    let (status, _) = call(addr, &estate.steward, "DELETE", &ghost, b"").await;
+    assert_eq!(status, "404");
+    let (_, body) = call(addr, &viewer, "GET", &base, b"").await;
+    assert!(list_of(&body).is_empty());
+}
+
+#[tokio::test]
+async fn a_template_with_a_bad_port_is_refused_and_nothing_is_stored() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/faceplate-templates", estate.organisation);
+    for labels in [vec![""], vec!["a\u{202E}b"]] {
+        let (status, _) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &base,
+            &template_body("Bad", &labels, None),
+        )
+        .await;
+        assert_eq!(status, "400");
+    }
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &base,
+        &template_body("", &["1"], None),
+    )
+    .await;
+    assert_eq!(status, "400");
+    let (_, body) = call(addr, &estate.steward, "GET", &base, b"").await;
+    assert!(list_of(&body).is_empty());
+}
+
+fn cable_view_body(hidden: &[&str]) -> Vec<u8> {
+    let view = fathom_canon::Json::parse_canonical(
+        format!(
+            "{{\"groups\":[{{\"on\":true,\"ref\":{{\"kind\":\"type\",\"type\":\"fibre\"}}}}],\"hiddenCableIds\":[{}],\"none\":false}}\n",
+            hidden.iter().map(|h| format!("\"{h}\"")).collect::<Vec<_>>().join(",")
+        )
+        .as_bytes(),
+    )
+    .unwrap();
+    canon(vec![("view", view)])
+}
+
+fn cable_view_path(estate: &Estate, design: impl std::fmt::Display) -> String {
+    format!(
+        "/organisations/{}/designs/{}/cable-view",
+        estate.organisation, design
+    )
+}
+
+#[tokio::test]
+async fn a_cables_list_is_each_persons_own_and_needs_read_on_the_design() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let (other_scope, _other) = a_scope_and_design(&pool, &estate).await;
+    let me = a_member_with(&pool, &ring, &estate, "me", Some(Capability::Read)).await;
+    let colleague = a_member_with(&pool, &ring, &estate, "colleague", Some(Capability::Draw)).await;
+    let elsewhere = a_member_with_scope(
+        &pool,
+        &ring,
+        &estate,
+        "elsewhere",
+        other_scope,
+        Capability::Read,
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = cable_view_path(&estate, design);
+
+    // Nothing saved yet reads as null.
+    let (status, body) = call(addr, &me, "GET", &path, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(parsed(&body)["view"], fathom_canon::Json::Null);
+
+    let (status, body) = call(
+        addr,
+        &me,
+        "PUT",
+        &path,
+        &cable_view_body(&["cable:SECRETID1"]),
+    )
+    .await;
+    assert_eq!(status, "204", "{}", String::from_utf8_lossy(&body));
+    let (_, body) = call(addr, &me, "GET", &path, b"").await;
+    let view = match parsed(&body).remove("view") {
+        Some(fathom_canon::Json::Obj(m)) => m,
+        other => panic!("view: {other:?}"),
+    };
+    assert_eq!(view["hiddenCableIds"], jarr(&["cable:SECRETID1"]));
+
+    // A second save replaces the first.
+    let (status, _) = call(addr, &me, "PUT", &path, &cable_view_body(&[])).await;
+    assert_eq!(status, "204");
+    let (_, body) = call(addr, &me, "GET", &path, b"").await;
+    let view = match parsed(&body).remove("view") {
+        Some(fathom_canon::Json::Obj(m)) => m,
+        other => panic!("view: {other:?}"),
+    };
+    assert_eq!(view["hiddenCableIds"], fathom_canon::Json::Arr(vec![]));
+
+    // A colleague on the same design sees their own (none), never mine.
+    let (_, body) = call(addr, &colleague, "GET", &path, b"").await;
+    assert_eq!(parsed(&body)["view"], fathom_canon::Json::Null);
+
+    // Read on another place is not read on this design; an invented design reads the same.
+    let fake = cable_view_path(&estate, a_design_id_nothing_was_ever_created_under());
+    let real_refused = call(addr, &elsewhere, "GET", &path, b"").await;
+    let fake_refused = call(addr, &elsewhere, "GET", &fake, b"").await;
+    assert_eq!(real_refused.0, "403");
+    assert_eq!(real_refused, fake_refused);
+    let (status, _) = call(addr, &elsewhere, "PUT", &path, &cable_view_body(&[])).await;
+    assert_eq!(status, "403");
+
+    // A wrong shape is refused.
+    let (status, _) = call(
+        addr,
+        &me,
+        "PUT",
+        &path,
+        &canon(vec![("view", fathom_canon::Json::Arr(vec![]))]),
+    )
+    .await;
+    assert_eq!(status, "400");
+
+    // Sealed: one row, no id in the clear.
+    let client = support::superuser_client_on_test_database().await;
+    let rows = client
+        .query(
+            "SELECT t::text FROM member_cable_views t WHERE design_id = $1",
+            &[&design.to_string()],
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    let raw: String = rows[0].get(0);
+    assert!(!raw.contains("fibre"), "{raw}");
+}
+
+/// The elements a search or page answered, in the order it answered them.
+fn hit_elements(hits: &[fathom_server::estate::Hit]) -> Vec<String> {
+    hits.iter()
+        .filter_map(|h| match &h.row {
+            fathom_canon::Json::Obj(m) => match m.get("element") {
+                Some(fathom_canon::Json::Str(s)) => Some(s.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// **Estate search keeps its answers after the rewrite for a million devices (ADR-0089 §8.4),
+/// and a rebuild of an older version never replaces a newer one.** The rarest word drives,
+/// every other word must match too, the kind comes from the row, and a kind alone is the
+/// first page of that kind. A rebuild that read version 1 after version 2 was indexed adds
+/// nothing, so two servers rebuilding one design cannot put the older rows back.
+#[tokio::test]
+async fn estate_search_keeps_its_answers_and_an_older_rebuild_never_wins() {
+    use fathom_server::estate::{self, IndexKeys, Row};
+
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate_org = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate_org).await;
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, estate_org.organisation, estate_org.steward.account)
+        .await
+        .expect("tenant context");
+    let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+        .await
+        .expect("tenant key");
+    let org = estate_org.organisation.to_string();
+    let index = IndexKeys::derive(&tenant_key, &org);
+    let d = design.to_string();
+    let row = |element: &str, kind: &'static str, name: &str, serial: &str| Row {
+        element: element.into(),
+        kind,
+        open: element.into(),
+        name: name.into(),
+        model: "EX4300-48T".into(),
+        serial: serial.into(),
+        device: String::new(),
+        place: String::new(),
+        addresses: Vec::new(),
+        ports: Vec::new(),
+        work: None,
+    };
+    let version_two = vec![
+        row("e1", "device", "core-sw-01", "PE3714AF0001"),
+        row("e2", "device", "core-sw-02", "PE3714AF0002"),
+        row("e3", "card", "core-sw-01 slot 1", "CARD00000003"),
+        row("e4", "device", "edge-rtr-01", "JN11F2A30004"),
+    ];
+    estate::replace_design(&tx, &index, &org, &d, 2, &version_two)
+        .await
+        .expect("indexed at version 2");
+    let ids = vec![d.clone()];
+    let search = |q: &'static str, kind: Option<&'static str>| {
+        let (tx, index, org, ids) = (&tx, &index, org.clone(), ids.clone());
+        async move {
+            hit_elements(
+                &estate::search(tx, index, &org, &ids, q, kind, 100)
+                    .await
+                    .expect("search"),
+            )
+        }
+    };
+
+    assert_eq!(search("core", None).await, ["e1", "e2", "e3"], "one word");
+    assert_eq!(
+        search("core", Some("device")).await,
+        ["e1", "e2"],
+        "word and kind"
+    );
+    assert_eq!(
+        search("core-sw-01", None).await,
+        ["e1", "e3"],
+        "a longer prefix"
+    );
+    assert_eq!(
+        search("core slot", None).await,
+        ["e3"],
+        "every word must match"
+    );
+    assert_eq!(
+        search("ex4300 core-sw-0", Some("device")).await,
+        ["e1", "e2"],
+        "two common words and a kind"
+    );
+    assert_eq!(
+        search("pe3714af0002", Some("device")).await,
+        ["e2"],
+        "a serial with the device filter, the query that took 15 s at a million"
+    );
+    assert_eq!(
+        search("core edge", None).await,
+        Vec::<String>::new(),
+        "no row has both"
+    );
+    assert_eq!(search("nothing-here", None).await, Vec::<String>::new());
+    assert_eq!(search("", Some("card")).await, ["e3"], "a kind alone");
+    assert_eq!(
+        search("", None).await,
+        Vec::<String>::new(),
+        "nothing asked"
+    );
+
+    // A rebuild that read version 1 arrives after version 2 was indexed: nothing changes.
+    let version_one = vec![row("e9", "device", "old-name-01", "OLD000000009")];
+    estate::replace_design(&tx, &index, &org, &d, 1, &version_one)
+        .await
+        .expect("an older rebuild is not an error");
+    assert_eq!(
+        search("old", None).await,
+        Vec::<String>::new(),
+        "older rows not put back"
+    );
+    assert_eq!(search("edge", None).await, ["e4"], "newer rows kept");
+    let built = estate::built_versions(&tx, &org, &ids)
+        .await
+        .expect("built");
+    assert_eq!(built.get(&d).copied(), Some(2));
+
+    // The same version again, or a newer one, still replaces.
+    let version_three = vec![row("e5", "device", "spine-01", "SP0000000005")];
+    estate::replace_design(&tx, &index, &org, &d, 3, &version_three)
+        .await
+        .expect("indexed at version 3");
+    assert_eq!(search("spine", None).await, ["e5"]);
+    assert_eq!(
+        search("core", None).await,
+        Vec::<String>::new(),
+        "version 2's rows replaced"
+    );
+    tx.rollback().await.expect("rollback");
+}

@@ -20,6 +20,10 @@ RUN if ls /usr/local/share/ca-certificates/fathom-extra/*.crt > /dev/null 2>&1; 
     fi
 WORKDIR /src
 COPY rust-toolchain.toml ./
+# The redaction gate is Fathom's own `fathom-ingest`, a path dependency (ADR-0082 §4.2). Its crates
+# inherit edition and licence from the root manifest, so that comes too; only the reader is built.
+COPY Cargo.toml ./
+COPY crates/ crates/
 COPY helpers/reader/ helpers/reader/
 RUN pinned=$(grep -E '^channel' rust-toolchain.toml | sed 's/.*"\(.*\)".*/\1/') && \
     if [ "$pinned" != "$RUSTUP_TOOLCHAIN" ]; then \
@@ -28,12 +32,19 @@ RUN pinned=$(grep -E '^channel' rust-toolchain.toml | sed 's/.*"\(.*\)".*/\1/') 
     fi
 # --locked against the helper's own lockfile, always (ADR-0032 §4).
 RUN cargo build --locked --release --manifest-path helpers/reader/Cargo.toml
+# What the gate reads at run time: the statement dictionaries and the schema they are checked
+# against, laid out as the repository has them (`FATHOM_READER_ROOT`).
+RUN mkdir -p /fathom-data
+COPY corpus/dict/ /fathom-data/corpus/dict/
+COPY schema/ /fathom-data/schema/
 RUN mkdir -p /socket-seed && \
     printf '%s\n' "The device reader's socket. Nothing else is kept here." > /socket-seed/README
 
 FROM gcr.io/distroless/cc-debian13@sha256:4594d59540d1948417f6ca2829ddd9294493a7c68b7528f4dd459de7f203a750 AS reader
 COPY --from=build /src/helpers/reader/target/release/fathom-reader /fathom-reader
+COPY --from=build /fathom-data /fathom
 COPY --from=build --chown=65532:65532 /socket-seed /run/fathom-reader
 ENV FATHOM_READER_SOCKET=/run/fathom-reader/reader.sock
+ENV FATHOM_READER_ROOT=/fathom
 USER 65532:65532
 ENTRYPOINT ["/fathom-reader"]

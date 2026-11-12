@@ -62,7 +62,7 @@ jobs:
       rust: ${{ steps.scope.outputs.rust }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0, the commit v4 named on 2026-11-02
         with:
           # Two commits: a pull request's checkout is the merge commit, and its
           # first parent is the base, so `HEAD^1..HEAD` is exactly the change.
@@ -366,7 +366,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0, the commit v4 named on 2026-11-02
 
       - name: Fetch cargo-deny and cargo-audit (pinned, checksummed)
         run: |
@@ -467,6 +467,22 @@ jobs:
           FATHOM_READER_TEST_AGENT="$ADDR:16161" \
             cargo test --manifest-path helpers/reader/Cargo.toml --locked --test agent -- --nocapture
 
+      # CLAUDE.md rule 2 again, for SSH: OpenSSH's sshd answering like a device
+      # (`scripts/ci/reader-sshd.sh`), read with a password and with an Ed25519 key; the host key
+      # learned before any login, a wrong password tried once, a changed key refused, and the
+      # device's password hashes stopped by the gate inside the reader.
+      - name: Read a real SSH server (OpenSSH)
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -q --no-install-recommends openssh-server
+          ADDR=$(hostname -I | awk '{print $1}')
+          sudo sh scripts/ci/reader-sshd.sh /tmp/fathom-sshd
+          trap 'sudo cat /tmp/fathom-sshd/sshd.log || true' EXIT
+          for i in $(seq 1 20); do ss -ltn | grep -q ":2222 " && break; sleep 1; done
+          ss -ltn | grep ":2222 "
+          FATHOM_READER_TEST_SSH="$ADDR:2222" FATHOM_READER_TEST_SSH_DIR=/tmp/fathom-sshd \
+            cargo test --manifest-path helpers/reader/Cargo.toml --locked --test ssh -- --nocapture
+
       - name: Build the image and ping it, locked down as compose runs it
         run: |
           set -euo pipefail
@@ -492,6 +508,34 @@ jobs:
           '
           docker logs rdr
           docker rm -f rdr
+          # The image carries the dictionaries the gate needs: read the SSH server from it, locked
+          # down the same way but on the host's network so it can reach the server.
+          docker run -d --name rdr-ssh --network host --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --user 65532:65532 \
+            -v reader-ci:/run/fathom-reader fathom-reader:ci
+          sleep 2
+          ADDR=$(hostname -I | awk '{print $1}')
+          sudo ADDR="$ADDR" python3 -I -c '
+          import socket, struct, json, sys, glob, os
+          path = glob.glob("/var/lib/docker/volumes/reader-ci/_data/reader.sock")[0]
+          def ask(req):
+              s = socket.socket(socket.AF_UNIX); s.connect(path)
+              b = json.dumps(req).encode()
+              s.sendall(struct.pack(">I", len(b)) + b)
+              n = struct.unpack(">I", s.recv(4, socket.MSG_WAITALL))[0]
+              return json.loads(s.recv(n, socket.MSG_WAITALL))
+          a = os.environ["ADDR"]
+          job = {"version": 1, "device": "d", "address": a, "port": 2222, "ranges": [a + "/32"], "platform": "junos-srx", "hostKey": None}
+          first = ask({"op": "ssh_read", "protocol": 1, "job": job})
+          print(first); assert first["outcome"] == "host_key", first
+          job["hostKey"] = first["hostKey"]
+          r = ask({"op": "ssh_read", "protocol": 1, "job": job, "login": {"user": "fathomro", "password": "read-only-pw-7Qx"}})
+          o = r["reading"]["outputs"][0]
+          print(r["outcome"], o["drops"], o["exit"])
+          assert r["outcome"] == "read" and o["drops"] >= 2 and "$6$" not in o["text"] and "srx-lab" in o["text"], r
+          '
+          docker logs rdr-ssh
+          docker rm -f rdr-ssh
 
   # The client's own tests and typecheck. Until this job nothing ran vitest in CI: the image build
   # typechecks the client, but a red client test reached main unseen. The tests load the real
@@ -501,7 +545,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0, the commit v4 named on 2026-11-02
 
       - name: Install the pinned toolchain (reads rust-toolchain.toml)
         run: rustup toolchain install
@@ -538,7 +582,7 @@ jobs:
       # one in their place (a `latest` tag would be re-pulled on every `up`).
       FATHOM_TAG: ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0, the commit v4 named on 2026-11-02
       - name: Build and start
         run: docker compose up --build --detach --wait --wait-timeout 300
       - name: The health endpoint answers on the published port

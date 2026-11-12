@@ -1,0 +1,94 @@
+/* Inventory › Tags (sign-offs r111). Plain ink, as tags are everywhere (ADR-0059 decision 3). */
+.tags-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  max-width: 720px;
+}
+
+.tags-panel__title {
+  margin: 0;
+  font-size: var(--t-body);
+  font-weight: 700;
+}
+
+.tags-panel__lede {
+  margin: var(--s1) 0 0;
+  max-width: var(--measure);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.tags-panel__refusal {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--t-small);
+}
+
+.tags-panel__notice {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.tags-panel__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+
+.tags-panel__table th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: var(--s1) var(--s2) var(--s1) 0;
+  border-bottom: 2px solid var(--ink);
+}
+
+.tags-panel__table td {
+  padding: var(--s1) var(--s2) var(--s1) 0;
+  border-top: 1px solid var(--hairline);
+  vertical-align: middle;
+}
+
+.tags-panel__num {
+  white-space: nowrap;
+}
+
+.tags-panel__chip {
+  display: inline-block;
+  border: 1px solid var(--hairline);
+  padding: 0 6px;
+}
+
+.tags-panel__table tr[data-empty='yes'] .tags-panel__chip {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.tags-panel__unused {
+  color: var(--muted);
+}
+
+.tags-panel__input {
+  font: inherit;
+  border: 1px solid var(--ink);
+  padding: 0 6px;
+  min-width: 12ch;
+}
+
+.tags-panel__acts {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.tags-panel__acts > button + button,
+.tags-panel__confirm > button {
+  margin-left: var(--s1);
+}
+
+.tags-panel__confirm > span {
+  font-weight: 700;
+}

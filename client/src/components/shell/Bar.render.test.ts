@@ -40,10 +40,20 @@ describe('Bar — what is present where', () => {
     expect(markup).toContain('aria-label="Zoom in"');
   });
 
-  it('shows only the lenses that change the place: Canvas Cables and Routing; Inventory also Power and Owner', () => {
+  it('the round "?" beside the account square opens the shortcuts sheet, only when it is offered', () => {
+    expect(renderToStaticMarkup(createElement(Bar, BASE))).not.toContain('data-testid="shell-shortcuts"');
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, onShortcuts: () => {} }));
+    expect(markup).toContain('data-testid="shell-shortcuts"');
+    expect(markup).toContain('aria-label="Keyboard shortcuts"');
+    expect(markup).toContain('title="Keyboard shortcuts (?)"');
+    // It sits just before the account square.
+    expect(markup.indexOf('shell-shortcuts-btn')).toBeLessThan(markup.indexOf('class="shell-account"'));
+  });
+
+  it('shows only the lenses that change the place: Canvas Cables, Links (r109) and Routing; Inventory also Power and Owner', () => {
     const racks = renderToStaticMarkup(createElement(Bar, BASE));
     expect(racks).toContain('>Routing<');
-    expect(racks).not.toContain('>Links<');
+    expect(racks).toContain('>Links<');
     expect(racks).not.toContain('>Power<');
     const inventory = renderToStaticMarkup(createElement(Bar, { ...BASE, place: 'inventory' }));
     expect(inventory).toContain('>Power<');

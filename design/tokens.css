@@ -63,6 +63,11 @@
   --sheath-aqua:   #24B4C8;    /* OM3 / OM4 */
   --sheath-erika:  #C99AC7;    /* OM4, some makers */
 
+  /* The Links lens only (sign-off r109): a VLAN's colour on its access lines, port ticks and the
+     Networks key. Never a box border or fill: a coloured box means a warning. Six, then they repeat. */
+  --vlan-1: #2F6FD0;  --vlan-2: #C26A12;  --vlan-3: #8A55C9;
+  --vlan-4: #2E8B46;  --vlan-5: #B0407E;  --vlan-6: #1E8E9A;
+
   /* --- cable construction. Type is the line, never the hue. ------------- */
   --cable-copper:  1.2px;      /* one stroke */
   --cable-fibre:   3.2px;      /* a pair: this width, with --fibre-core over it */
@@ -194,6 +199,8 @@
     --pop-bg:       rgb(25 28 32 / 0.82);
     --pop-solid:    #191C20;
     --shadow-pop:   0 16px 40px rgb(0 0 0 / 0.45);
+    --vlan-1: #6AA2F2;  --vlan-2: #E99A4C;  --vlan-3: #B994EC;
+    --vlan-4: #62C07A;  --vlan-5: #E07BB4;  --vlan-6: #4CC3CF;
   }
 }
 :root[data-theme="dark"] {
@@ -212,6 +219,8 @@
   --pop-bg:       rgb(25 28 32 / 0.82);
   --pop-solid:    #191C20;
   --shadow-pop:   0 16px 40px rgb(0 0 0 / 0.45);
+  --vlan-1: #6AA2F2;  --vlan-2: #E99A4C;  --vlan-3: #B994EC;
+  --vlan-4: #62C07A;  --vlan-5: #E07BB4;  --vlan-6: #4CC3CF;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -223,6 +232,8 @@
   --danger:    #8C2F2F;  --danger-wash:  #F8EFEF;
   --pop-bg:       rgb(255 255 255 / 0.86);
   --pop-solid:    #FFFFFF;
+  --vlan-1: #2F6FD0;  --vlan-2: #C26A12;  --vlan-3: #8A55C9;
+  --vlan-4: #2E8B46;  --vlan-5: #B0407E;  --vlan-6: #1E8E9A;
 }
 
 /* --- forced colours. §6 ------------------------------------------------- */

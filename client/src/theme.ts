@@ -27,8 +27,6 @@ export function applyTheme(theme: Theme | null): void {
 /** What the person chose: follow the system, or pin light or dark. */
 export type ThemeChoice = 'system' | Theme;
 
-export const THEME_CHOICES: readonly ThemeChoice[] = ['system', 'light', 'dark'];
-
 /** The words for each choice, wherever it is offered (the account menu, the Account screen), and the order. */
 export const THEME_NAME: Readonly<Record<ThemeChoice, string>> = { dark: 'Dark', light: 'Light', system: 'Follow my system' };
 export const THEME_ORDER: readonly ThemeChoice[] = ['dark', 'light', 'system'];

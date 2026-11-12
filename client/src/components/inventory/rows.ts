@@ -241,19 +241,6 @@ export type ColumnKey = 'name' | 'model' | 'where' | 'ports' | 'firmware' | 'pow
 
 export const BASE_COLUMNS: readonly ColumnKey[] = ['name', 'model', 'where', 'ports', 'firmware', 'power', 'lastChange'];
 
-export const COLUMN_LABEL: Record<ColumnKey, string> = {
-  name: 'name',
-  model: 'model',
-  where: 'where',
-  ports: 'ports',
-  firmware: 'firmware',
-  power: 'power',
-  lastChange: 'last change',
-  cablesByKind: 'cables',
-  inletStates: 'inlets',
-  owner: 'owner',
-};
-
 /** Pure: the device grid's own column set for the active lens. Links and
  * Routing show the base seven; Cables replaces `ports` with `cablesByKind`;
  * Power replaces `power` with `inletStates`; Owner replaces `power` with

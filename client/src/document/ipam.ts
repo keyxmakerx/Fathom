@@ -4,22 +4,14 @@
 // flags with an L3Interface edge (else the one address on a router or firewall). Pure; nothing
 // here throws on an IPv6 or unreadable address: it is listed, not read.
 
-import { edgesIn, edgesOut, findNode, parseNodeId, readDeviceFields, readPremisesFields, type Document, type GraphNode } from './model';
+import { edgesIn, edgesOut, findNode, ipv4Number, parseNodeId, readDeviceFields, readPremisesFields, type Document, type GraphNode } from './model';
 import type { NetworksDerived, VlanRow } from './networks-derive';
 
 // ---------------------------------------------------------------------------
 // IPv4 arithmetic. Plain numbers (no 32-bit bit ops) so /0 and /32 need no special case.
 
 export function parseIpv4(text: string): number | undefined {
-  const m = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(text.trim());
-  if (!m) return undefined;
-  let n = 0;
-  for (let i = 1; i <= 4; i += 1) {
-    const octet = Number(m[i]);
-    if (octet > 255) return undefined;
-    n = n * 256 + octet;
-  }
-  return n;
+  return ipv4Number(text.trim());
 }
 
 export function formatIpv4(n: number): string {

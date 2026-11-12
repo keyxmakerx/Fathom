@@ -51,6 +51,10 @@ the cable groups (#54) and search.
    tag directly.
 7. **A tag outlives its last use.** It stays in the list and is still offered when its last object
    loses it. Removing a tag is its own action, and it takes the tag off every object.
+   *Amended 2026-11-09 (sign-offs r111, from the r110 audit):* the node still outlives its last use,
+   so the same name reuses it and a cable group naming it keeps resolving, but a tag nothing carries
+   is no longer offered as a suggestion or a cable group. Inventory › Tags lists every tag, empty
+   ones last and marked Not used, and is where a tag is renamed or deleted.
 8. **Each tag action is one undoable change** (ADR-0053): tag an object (creating the tag if it is
    new), untag it, rename a tag, remove a tag. A rename to a name another tag already uses is refused
    by name. A rename to the same tag under another spelling, such as a change of case, is allowed,

@@ -57,6 +57,7 @@ export function Shell({
   onShare,
   onDocs,
   onHistory,
+  onShortcuts,
   historyOpen,
   account,
   editor,
@@ -292,6 +293,7 @@ export function Shell({
         onShare={onShare}
         onDocs={onDocs}
         onHistory={onHistory}
+        onShortcuts={onShortcuts}
         historyOpen={historyOpen}
         account={account}
         viewOnly={viewOnly}

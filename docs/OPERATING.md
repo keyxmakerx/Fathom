@@ -316,10 +316,13 @@ one collection (one folder) in it. The server makes the requests, over HTTPS, to
 member types; your firewall must let the server reach it.
 
 - **`FATHOM_OUTSIDE_VAULT_HOSTS`**: comma-separated host names. When set, members may connect
-  vaults at these hosts only. Unset means any host the server can reach, which lets a member make
-  the server send two fixed HTTPS requests to an address of their choosing; set it if the server
-  sits beside services that should not be probed. Secret Server is four requests: a sign-in
-  (`/oauth2/token`), its folders, its secrets, and one secret when Fathom uses it.
+  vaults at these hosts only. **A vault on your own network must be listed here**: unset, the
+  server reaches a vault only at a public address, and refuses a host that resolves to this
+  machine, a private network (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7), a link-local
+  address or any other the internet does not route. That stops a member making the server call
+  the services beside it. A listed host is reached wherever it resolves. Secret Server is four
+  requests: a sign-in (`/oauth2/token`), its folders, its secrets, and one secret when Fathom
+  uses it.
 - **`FATHOM_OUTSIDE_VAULT_CA`**: a PEM file of certificates to trust beside Mozilla's roots, for a
   vault behind a private CA. The server refuses to start (exit code 10) if the file holds none.
   There is no setting that skips certificate checks.
@@ -895,7 +898,16 @@ docker compose config | grep 'fathom-server:'
 
 The backup service's image, `ghcr.io/keyxmakerx/fathom-backup`, carries the same tag and is
 promoted by the same release run, which prints its digest as `FATHOM_BACKUP_DIGEST`; set that too
-to pin it to bytes as well.
+to pin it to bytes as well. The optional Passbolt helper is promoted the same way (since
+2026-11-02), as `FATHOM_PASSBOLT_DIGEST`.
+
+**Or skip `.env` and use the release's compose file.** Since 2026-11-02 each release on GitHub
+carries `compose.pinned.yaml`: that commit's `compose.yaml` with Fathom's three images already
+written as `name:<release>@sha256:<digest>`, read back from the registry and checked against the
+image `main` published for that commit. Every image in it is a hash, so a compose front end
+(Cosmos, Portainer, Unraid) shows them all that way. Paste it in place of `compose.yaml`, or save
+it as `compose.yaml` beside your `.env`; `FATHOM_TAG` and the `FATHOM_*_DIGEST` lines no longer
+apply to it. Step 2 still comes first.
 
 **4. Start it and check.** `docker compose up -d`, then:
 
@@ -906,7 +918,8 @@ docker image ls --digests ghcr.io/keyxmakerx/fathom-server   # a row with sha256
 
 …and the list under "What to check after an upgrade" below.
 
-**To leave the pin**, delete both lines and `docker compose up -d`: the host follows `latest` again.
+**To leave the pin**, delete the lines and `docker compose up -d` (or go back to the plain
+`compose.yaml`): the host follows `latest` again.
 **To move it**, repeat from step 1; step 2 is not optional for a move, for the same reason.
 
 ## What to check after an upgrade

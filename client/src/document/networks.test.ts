@@ -379,6 +379,75 @@ describe('attachToSubnet', () => {
       attachToSubnet(doc, { prefix: '10.8.0.0/24', target: { kind: 'port', portId: portIds[0], interfaceName: 'wg0' }, address: '10.8.0.2/24' }, { now: NOW }),
     ).toThrow(NetworkRefusalError);
   });
+
+  const port = (portId: string, interfaceName = 'wg1') => ({ kind: 'port' as const, portId, interfaceName });
+  function codeOf(f: () => unknown): string | undefined {
+    try {
+      f();
+    } catch (e) {
+      return e instanceof NetworkRefusalError ? e.code : `not a refusal: ${String(e)}`;
+    }
+    return undefined;
+  }
+  function withMember(): { doc: Document; portIds: string[] } {
+    const { doc, portIds } = deviceWithPorts(['wg0', 'wg1']);
+    return { doc: addSubnet(doc, { prefix: '10.8.0.0/24', attach: [{ target: port(portIds[0], 'wg0'), address: '10.8.0.1/24' }] }, { now: NOW }), portIds };
+  }
+
+  it('joins a subnet that has a member with the same mask', () => {
+    const { doc, portIds } = withMember();
+    const next = attachToSubnet(doc, { prefix: '10.8.0.0/24', target: port(portIds[1]), address: '10.8.0.2/24' }, { now: NOW });
+    const values = next.nodes.filter((n) => n.absentSince === undefined && parseNodeId(n.id).kind === 'Address').map((n) => n.fields['Address.value']?.value);
+    expect(values).toHaveLength(2);
+  });
+
+  it('refuses a wider network that merely contains a member (10.0.0.0/8 around a /24)', () => {
+    const { doc, portIds } = withMember();
+    expect(codeOf(() => attachToSubnet(doc, { prefix: '10.0.0.0/8', target: port(portIds[1]), address: '10.0.0.2/8' }, { now: NOW }))).toBe('unknown-reference');
+  });
+
+  it('refuses a narrower network inside a member subnet (10.8.0.0/25 inside a /24)', () => {
+    const { doc, portIds } = withMember();
+    expect(codeOf(() => attachToSubnet(doc, { prefix: '10.8.0.0/25', target: port(portIds[1]), address: '10.8.0.2/25' }, { now: NOW }))).toBe('unknown-reference');
+  });
+});
+
+describe('addSubnet address checks', () => {
+  const port = (portId: string) => ({ kind: 'port' as const, portId, interfaceName: 'wg0' });
+  function codeOf(f: () => unknown): string | undefined {
+    try {
+      f();
+    } catch (e) {
+      return e instanceof NetworkRefusalError ? e.code : `not a refusal: ${String(e)}`;
+    }
+    return undefined;
+  }
+  const add = (prefix: string, address: string) => {
+    const { doc, portIds } = deviceWithPorts(['wg0']);
+    return () => addSubnet(doc, { prefix, attach: [{ target: port(portIds[0]), address }] }, { now: NOW });
+  };
+
+  it('refuses an address whose mask differs from the subnet', () => {
+    expect(codeOf(add('10.8.0.0/24', '10.8.0.5/16'))).toBe('address-mask-mismatch');
+    expect(codeOf(add('10.8.0.0/16', '10.8.0.5/24'))).toBe('address-mask-mismatch');
+  });
+
+  it('still records a network or broadcast address, which the engine check flags instead', () => {
+    expect(codeOf(add('10.8.0.0/24', '10.8.0.0/24'))).toBeUndefined();
+    expect(codeOf(add('10.8.0.0/24', '10.8.0.255/24'))).toBeUndefined();
+  });
+
+  it('accepts the first and last host, and both ends of a /31 and a /32', () => {
+    expect(codeOf(add('10.8.0.0/24', '10.8.0.1/24'))).toBeUndefined();
+    expect(codeOf(add('10.8.0.0/24', '10.8.0.254/24'))).toBeUndefined();
+    expect(codeOf(add('10.255.255.0/31', '10.255.255.0/31'))).toBeUndefined();
+    expect(codeOf(add('10.255.255.0/31', '10.255.255.1/31'))).toBeUndefined();
+    expect(codeOf(add('10.9.9.9/32', '10.9.9.9/32'))).toBeUndefined();
+  });
+
+  it('refuses /0', () => {
+    expect(codeOf(add('0.0.0.0/0', '10.8.0.1/0'))).toBe('prefix-too-wide');
+  });
 });
 
 describe('detachVlanMember / removeVlanNetwork', () => {
