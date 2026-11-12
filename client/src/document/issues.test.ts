@@ -132,6 +132,19 @@ describe('answerStep, closeIssue, linkPlan', () => {
     expect(() => answerStep(next, s.issue.steps[2].id, { answer: 'nope' as never, gate: TYPED_AS_WRITTEN })).toThrow(IssueRefusal);
   });
 
+  it('moves the outcome with an answer in the same undo step, and saves a note alone without touching the answer', () => {
+    const s = saved();
+    const before = s.doc.batches.length;
+    const next = answerStep(s.doc, s.issue.steps[2].id, { answer: 'ok', outcome: 'Everything Fathom can check looks fine so far.', gate: TYPED_AS_WRITTEN, ...tick() });
+    expect(next.batches.length).toBe(before + 1);
+    expect(readIssue(next, s.id).outcome).toBe('Everything Fathom can check looks fine so far.');
+    const stamped = readIssue(next, s.id).steps[2].answeredAt;
+    const noted = answerStep(next, s.issue.steps[2].id, { note: 'light came back', gate: TYPED_AS_WRITTEN, ...tick() });
+    expect(readIssue(noted, s.id).steps[2]).toMatchObject({ answer: 'ok', note: 'light came back', answeredAt: stamped });
+    // The same sentence again changes nothing; nothing at all to write is no undo step.
+    expect(answerStep(noted, s.issue.steps[2].id, { gate: TYPED_AS_WRITTEN, outcome: 'Everything Fathom can check looks fine so far.' })).toBe(noted);
+  });
+
   it('closes an issue, keeps the frozen sentence and adds typed text after it, then refuses more changes', () => {
     const s = saved();
     const closed = closeIssue(s.doc, s.id, { text: 'Replaced the cable', gate: TYPED_AS_WRITTEN, ...tick() });

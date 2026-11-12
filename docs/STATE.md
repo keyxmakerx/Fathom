@@ -632,7 +632,9 @@ kind, docs on maintenance plans.
 opens a side panel with the device's chain as a checklist (power, neighbours, link, port, address, gateway)
 answered OK / Not OK / Can't tell, with Why? cards, an optional typed note, where the answers point and Also
 affected. Plan a fix makes and opens a plan; Save as an issue puts it in the device's history and the
-Inventory's Issues list (an Issue page per record). A read holder sees saved issues only; the server refuses
+Inventory's Issues list (an Issue page per record). A saved, open issue can be picked up where it stopped
+(r110): the checklist comes back with its answers, and each answer then saves to the issue as one undo step,
+moving its "where the answers point" sentence with it. A read holder sees saved issues only; the server refuses
 a credential in issue text. Logic: `components/troubleshoot/`, `document/issues.ts`,
 `drawing/troubleMarks.ts`. Checked by `scripts/drive-troubleshoot.mjs`.
 

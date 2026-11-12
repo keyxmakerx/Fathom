@@ -7,6 +7,7 @@ import { foldFrom } from '../../document/freeform';
 import {
   IssueRefusal,
   TYPED_AS_WRITTEN,
+  answerStep,
   closeIssue,
   createIssue,
   issuesTouching,
@@ -21,16 +22,18 @@ import type { Document } from '../../document/model';
 import { PlanRefusal, addStep, createPlan, linkStepIssue } from '../../document/plans';
 import { buildCanon, isTypingTarget, type Canon } from '../checks/checksModel';
 import { ENGINE_DOWN, refusalText } from '../plans/usePlansController';
-import { outcomeText } from './pointing';
 import {
   canvasKeys,
+  draftFromIssue,
   fixSteps,
   issueTitle,
   nextOpen,
+  outcomeOf,
   planFixState,
   planTitle,
   pointOf,
   startDraft,
+  syncFromIssue,
   toDraftSteps,
   troubleEscTarget,
   withAnswer,
@@ -73,9 +76,14 @@ export interface TroubleController {
    * `from`: opened from a plan (Troubleshoot on a step, or a check after the work); the issue saved says so. */
   start(elementId: string, from?: { stepId: string | null; said: string }): boolean;
   openIssue(id: string): void;
+  /** Picks a saved, open issue up where it stopped: the checklist again, each answer saved as it is given.
+   * Returns whether it opened. */
+  continueIssue(id: string): boolean;
   focusStep(index: number): void;
   answer(index: number, answer: Answer): void;
   setNote(index: number, note: string, pasted: boolean): void;
+  /** On a saved draft, writes a step's note to the issue (when the note field is left). */
+  saveNote(index: number): Promise<boolean>;
   save(): Promise<boolean>;
   planAFix(): Promise<boolean>;
   markClosed(): Promise<boolean>;
@@ -155,6 +163,28 @@ export function useTroubleController({ doc, boot, mirrorNow, redact, applyDocCha
   useEffect(() => {
     if (viewingId != null && doc != null && viewing == null) setViewingId(null);
   }, [viewingId, doc, viewing]);
+
+  // A saved draft follows its issue: another editor's answer, or an undo, shows here. Gone, it ends; closed, it is
+  // read as a saved issue.
+  const draftSaved = draft?.savedId ?? null;
+  useEffect(() => {
+    if (doc == null || draftSaved == null) return;
+    let issue: Issue;
+    try {
+      issue = readIssue(doc, draftSaved);
+    } catch {
+      setDraft(null);
+      setFocus(-1);
+      return;
+    }
+    if (issue.stage === 'closed') {
+      setDraft(null);
+      setFocus(-1);
+      setViewingId(issue.id);
+      return;
+    }
+    setDraft((cur) => (cur != null && cur.savedId === issue.id ? syncFromIssue(cur, issue) : cur));
+  }, [doc, draftSaved]);
 
   // What the canvas reads. One write per change of the session; the camera moves once when it opens.
   const sessionKey = draft ? `d|${draft.deviceId}|${draft.openedAt}` : viewing ? `v|${viewing.id}` : '';
@@ -255,7 +285,6 @@ export function useTroubleController({ doc, boot, mirrorNow, redact, applyDocCha
   /** Saves the draft as an issue unless it is already saved; returns the doc and the issue's id. */
   const saveInto = (doc0: Document, d: Draft, gate: TextGate): { doc: Document; id: string } => {
     if (d.savedId !== null) return { doc: doc0, id: d.savedId };
-    const point = outcomeText(d.steps.map((s, i) => ({ ordinal: i, answer: s.answer, suspects: s.suspects, tests: s.tests })));
     const from = doc0.batches.length;
     const made = createIssue(doc0, {
       deviceId: d.deviceId,
@@ -263,7 +292,7 @@ export function useTroubleController({ doc, boot, mirrorNow, redact, applyDocCha
       steps: toDraftSteps(d),
       author: latest.current.authorName,
       // The words that sent it here are the plan's own, already stored; they lead the outcome.
-      outcome: d.from ? `From ${d.from.said}\n${point}` : point,
+      outcome: outcomeOf(d),
       ...(d.from?.stepId ? { step: d.from.stepId } : {}),
       gate,
       ...stamp(),
@@ -330,6 +359,30 @@ export function useTroubleController({ doc, boot, mirrorNow, redact, applyDocCha
       setNotice(null);
       setConfirmingClose(false);
     },
+    continueIssue: (id) => {
+      const now = latest.current;
+      if (now.doc == null || !now.canEdit) return false;
+      let issue: Issue;
+      try {
+        issue = readIssue(now.doc, id);
+      } catch {
+        return false;
+      }
+      if (issue.stage === 'closed') {
+        setNotice('This issue is closed and cannot change.');
+        return false;
+      }
+      const made = draftFromIssue(now.doc, issue, Date.now());
+      latest.current.foldPlans?.();
+      setViewingId(null);
+      setDraft(made);
+      setFocus(firstOpen(made.steps));
+      setPanelOpen(true);
+      setWhy(null);
+      setNotice(null);
+      setConfirmingClose(false);
+      return true;
+    },
     focusStep: (index) => {
       setFocus(index);
       setWhy(null);
@@ -342,8 +395,24 @@ export function useTroubleController({ doc, boot, mirrorNow, redact, applyDocCha
       setWhy(null);
       // Once an answer is Not OK it is narrowed: no further card opens by itself, the point block says the rest.
       setFocus(next.steps.some((s) => s.answer === 'not_ok') ? -1 : nextOpen(next.steps, index));
+      // Saved already: the answer goes to the issue now, one undo step, and the sentence moves with it.
+      const stepId = d.steps[index]?.stepId ?? '';
+      if (d.savedId === null || stepId === '') return;
+      void run((doc0, gate) => answerStep(doc0, stepId, { answer, outcome: outcomeOf(next), gate, ...stamp() }), 'typed').then((ok) => {
+        if (!ok) setDraft((cur) => (cur != null && cur.savedId === d.savedId ? { ...cur, steps: cur.steps.map((s, i) => (i === index ? d.steps[index] : s)) } : cur));
+      });
     },
     setNote: (index, note, pasted) => setDraft((cur) => (cur == null ? cur : withNote(cur, index, note, pasted))),
+    saveNote: async (index) => {
+      const d = latest.current.draft;
+      const step = d?.steps[index];
+      if (d == null || d.savedId === null || step == null || step.stepId === '') return false;
+      if (step.note.trim() === '' || step.note === step.savedNote) return false;
+      const ok = await run((doc0, gate) => answerStep(doc0, step.stepId, { note: step.note, gate, ...stamp() }), step.pasted ? 'pasted' : 'typed');
+      // The issue now holds this note (through the gate when pasted): let the next sync bring its stored form in.
+      if (ok) setDraft((cur) => (cur == null ? cur : { ...cur, steps: cur.steps.map((s, i) => (i === index && s.note === step.note ? { ...s, savedNote: s.note } : s)) }));
+      return ok;
+    },
     save: async () => {
       const d = latest.current.draft;
       if (d == null || d.savedId !== null) return false;
