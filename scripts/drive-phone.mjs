@@ -231,6 +231,60 @@ try {
     await ctx.close();
   }
 
+  // ---- Owner audit 2026-11-11: the bar was 721px wide on a 390px phone (Home), and past 760px it clipped ----
+  {
+    const fitsBar = (pg) => pg.evaluate(() => {
+      const bar = document.querySelector('.shell-bar');
+      return { page: document.documentElement.scrollWidth, bar: bar.scrollWidth, width: window.innerWidth };
+    });
+    const ctx = await browser.newContext(PHONE);
+    const ph = await ctx.newPage();
+    ph.on('pageerror', (e) => pageErrors.push(e.message));
+    await ph.goto(`${BASE}/drive.html?scene=home&capability=steward`);
+    await ph.waitForSelector('.shell-bar', { timeout: 240_000 });
+    await ph.waitForTimeout(800);
+    let f = await fitsBar(ph);
+    check('phone Home: the bar fits the screen', f.bar <= f.width + 1 && f.page <= f.width + 1, JSON.stringify(f));
+    check('phone Home: the account is on the screen', await ph.evaluate(() => document.querySelector('.shell-account').getBoundingClientRect().right <= window.innerWidth));
+    await ph.screenshot({ path: SHOTS + 'phone-09-home-bar.png' });
+    await ctx.close();
+
+    for (const width of [768, 1024]) {
+      const c2 = await browser.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 2 });
+      const tp = await c2.newPage();
+      tp.on('pageerror', (e) => pageErrors.push(e.message));
+      await tp.goto(`${BASE}/drive.html?scene=estate&scale=0.15&capability=steward`);
+      await tp.waitForSelector('.drawing', { timeout: 240_000 });
+      await tp.waitForTimeout(800);
+      f = await fitsBar(tp);
+      check(`${width}px: the bar fits the screen`, f.bar <= f.width + 1 && f.page <= f.width + 1, JSON.stringify(f));
+      check(`${width}px: the account is on the screen`, await tp.evaluate(() => document.querySelector('.shell-account').getBoundingClientRect().right <= window.innerWidth));
+      if (width === 768) {
+        const menu = tp.locator('[data-testid=views-menu]');
+        check('768px: the views are one menu naming the current view', (await menu.count()) === 1 && /canvas/i.test(await menu.innerText()));
+        await menu.click();
+        const rows = (await tp.locator('.shell-popover__row').allInnerTexts()).join('|');
+        check('768px: the menu lists the four views and Work', /Diagram/.test(rows) && /Canvas/.test(rows) && /Inventory/.test(rows) && /Sheet/.test(rows) && /Work/.test(rows), rows);
+        await tp.screenshot({ path: SHOTS + 'tablet-01-views-menu.png' });
+        await tp.keyboard.press('Escape');
+      }
+      await c2.close();
+    }
+
+    // The Find list draws the columns that fit; the table does not scroll sideways on a phone.
+    const c3 = await browser.newContext(PHONE);
+    const fp = await c3.newPage();
+    fp.on('pageerror', (e) => pageErrors.push(e.message));
+    await fp.goto(`${BASE}/drive.html?scene=estate&scale=0.15&capability=steward`);
+    await fp.waitForSelector('.inv-table__row', { timeout: 240_000 });
+    const t = await fp.evaluate(() => {
+      const s = document.querySelector('.inv-table__scroll');
+      return { scroll: s.scrollWidth, client: s.clientWidth };
+    });
+    check('phone Find: the table fits its pane, no sideways scroll', t.scroll <= t.client + 1, JSON.stringify(t));
+    await c3.close();
+  }
+
   // ---- A computer is unchanged ----
   {
     const desk = await browser.newContext({ viewport: { width: 1440, height: 900 } });

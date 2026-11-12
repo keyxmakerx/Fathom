@@ -193,6 +193,8 @@ export function Bar({
   const pathFolded = fold >= 3;
   const lensesFolded = fold >= 4;
   const editsFolded = fold >= 5;
+  // Last to give: the four views (and Work) become one menu naming the view you are on (a tablet, a phone).
+  const viewsMenu = fold >= 6;
   const canvasFolded = toolsOnCanvas && actionsFolded;
   const canvasDoing = doing != null && doing.length > 0 && task == null;
 
@@ -221,7 +223,7 @@ export function Bar({
             any has been, they are named but are not controls: a view needs a
             design, and Home is where you pick one. */}
         {mainView != null || place === null ? (
-          <ViewTabs view={work?.on ? null : (mainView?.value ?? null)} onChange={mainView?.onChange} backTo={mainView?.backTo} folded={task != null} work={work} />
+          <ViewTabs view={work?.on ? null : (mainView?.value ?? null)} onChange={mainView?.onChange} backTo={mainView?.backTo} folded={task != null} work={work} menu={viewsMenu} />
         ) : (
         <div className="shell-bar__tabs">
           <button
@@ -798,12 +800,15 @@ function ViewTabs({
   backTo,
   folded = false,
   work,
+  menu = false,
 }: {
   view: MainView | null;
   onChange?: (view: MainView) => void;
   backTo?: string;
   folded?: boolean;
   work?: ShellProps['work'];
+  /** Narrow bar: one menu named for the current view instead of the row of tabs. */
+  menu?: boolean;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [mark, setMark] = useState<{ left: number; width: number } | null>(null);
@@ -832,7 +837,41 @@ function ViewTabs({
       row.removeEventListener('transitionend', onEnd);
       ro?.disconnect();
     };
-  }, [view, folded, work?.on]);
+  }, [view, folded, work?.on, menu]);
+  if (menu) {
+    // With no design to act on the views are not controls, so there is nothing to fold into a menu.
+    if (onChange == null) return null;
+    const current = work?.on ? 'Work' : view != null ? VIEW_LABEL[view] : 'Views';
+    return (
+      <Popover
+        renderTrigger={({ open, triggerProps, triggerRef }) => (
+          <button
+            type="button"
+            className={open ? 'shell-lens shell-bar__fold shell-bar__views-menu shell-lens--on' : 'shell-lens shell-bar__fold shell-bar__views-menu'}
+            data-testid="views-menu"
+            aria-label={`Views: ${current}`}
+            ref={(el) => {
+              triggerRef.current = el;
+            }}
+            {...triggerProps}
+          >
+            {current} ▾
+          </button>
+        )}
+      >
+        {VIEWS.map((v) => (
+          <PopoverRow key={v} current={!work?.on && v === view} onSelect={() => onChange(v)} testId={`view-${v}`}>
+            {VIEW_LABEL[v]}
+          </PopoverRow>
+        ))}
+        {work != null && (
+          <PopoverRow current={work.on} onSelect={work.onOpen} testId="view-work">
+            Work
+          </PopoverRow>
+        )}
+      </Popover>
+    );
+  }
   return (
     <div className={folded ? 'shell-bar__tabs shell-bar__tabs--views shell-bar__tabs--folded' : 'shell-bar__tabs shell-bar__tabs--views'} ref={rowRef} role="tablist" aria-label="Views">
       {VIEWS.map((v) =>

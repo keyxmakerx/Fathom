@@ -3,6 +3,7 @@
 // Keys: arrows move, Enter or F2 or typing edits, Tab and Shift Tab move to the next editable cell
 // (committing), Escape cancels. It never writes the document: `onCommit` does, and may refuse.
 
+import { usePhone } from '../phone/usePhone';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { ContextMenu } from '../drawing/ContextMenu';
@@ -65,6 +66,7 @@ function inputType(col: Column): string {
 
 export function DataTable(props: DataTableProps) {
   const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, empty, initialScrollTop = 0, onScrollTop, aiMarked, rowMenu } = props;
+  const phone = usePhone();
   const tableRef = useRef<HTMLDivElement | null>(null);
   const [rowMenuAt, setRowMenuAt] = useState<{ items: readonly MenuItem[]; x: number; y: number } | null>(null);
   const closeRowMenu = useCallback(() => setRowMenuAt(null), []);
@@ -118,7 +120,7 @@ export function DataTable(props: DataTableProps) {
     return () => ro.disconnect();
   }, []);
 
-  const totalWidth = CHECK_WIDTH + columns.reduce((n, c) => n + c.width, 0);
+  const totalWidth = (phone ? 0 : CHECK_WIDTH) + columns.reduce((n, c) => n + c.width, 0);
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const last = Math.min(rows.length, Math.ceil((scrollTop + viewHeight) / ROW_HEIGHT) + OVERSCAN);
   const visible = rows.slice(first, last);
