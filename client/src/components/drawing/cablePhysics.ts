@@ -205,8 +205,12 @@ const LEAD_SHARE = 0.18;
 function leadInto(hung: Pt[], dir: 1 | -1 | undefined, lead: number): Pt[] {
   if (dir == null || hung.length < 6) return hung;
   const p0 = hung[0]!;
+  // A cable that has to turn back on itself (a top-row port whose rope falls away below) bends round
+  // in a short, wide hook rather than standing up as a spike.
+  const turnsBack = (hung[Math.min(hung.length - 1, 4)]!.y - p0.y) * dir < 0;
+  const bootLen = turnsBack ? lead * 0.4 : lead;
   // The plug's rigid boot: straight out of the port.
-  const boot = { x: p0.x, y: p0.y + dir * lead };
+  const boot = { x: p0.x, y: p0.y + dir * bootLen };
   // Hand over a few plug lengths along the rope, and never past a share of it.
   let k = 2;
   const most = Math.max(2, Math.round((hung.length - 1) * LEAD_SHARE));
@@ -214,8 +218,8 @@ function leadInto(hung: Pt[], dir: 1 | -1 | undefined, lead: number): Pt[] {
   const q = hung[k]!;
   const after = hung[k + 1]!;
   const tl = Math.hypot(after.x - q.x, after.y - q.y) || 1;
-  const reach = Math.min(lead * 2, Math.hypot(q.x - boot.x, q.y - boot.y) / 2);
-  const c1 = { x: boot.x, y: boot.y + dir * lead * 0.8 };
+  const reach = Math.min(lead * (turnsBack ? 3 : 2), Math.hypot(q.x - boot.x, q.y - boot.y) / 2);
+  const c1 = { x: boot.x, y: boot.y + dir * lead * (turnsBack ? 0.5 : 0.8) };
   const c2 = { x: q.x - ((after.x - q.x) / tl) * reach, y: q.y - ((after.y - q.y) / tl) * reach };
   const out: Pt[] = [p0];
   for (let i = 0; i < k; i++) {
