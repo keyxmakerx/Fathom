@@ -28,10 +28,11 @@ sha2 = "=0.11.1"
 aes = "=0.9.3"
 cfb-mode = "=0.9.1"
 getrandom = "=0.4.3"
-# SSH (r87 question 2 A): russh 0.65.0 on ring, able to check RSA host keys; no compression,
+# SSH (r87 question 2 A): russh on ring (0.65.1, the security release after the 0.65.0 measured
+# for r87), able to check RSA host keys; no compression,
 # no aws-lc-rs. tokio is the runtime russh already brings; the reader runs one current-thread
 # runtime per SSH job.
-russh = { version = "=0.65.0", default-features = false, features = ["ring", "rsa"] }
+russh = { version = "=0.65.1", default-features = false, features = ["ring", "rsa"] }
 tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time"] }
 # The redaction gate (ADR-0082 §4.2): Fathom's own crate, by path, with no external dependency
 # (crates/fathom-ingest/Cargo.toml), so it adds nothing to this lockfile's closure.

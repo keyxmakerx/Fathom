@@ -57,8 +57,16 @@ pub fn gate(dict: &'static str, output: &[u8]) -> Result<Gated, String> {
         fathom_ingest::ingest(output, &d)
     }
     .map_err(|e| format!("the gate refused the output: {e:?}"))?;
+    // Control characters are never part of a configuration, and a terminal this text is later
+    // pasted into would act on them.
+    let text = out
+        .capture
+        .text()
+        .chars()
+        .filter(|c| *c == '\n' || *c == '\t' || !c.is_control())
+        .collect();
     Ok(Gated {
-        text: out.capture.text().to_string(),
+        text,
         drops: out.drops.entries.len(),
     })
 }
@@ -84,5 +92,39 @@ interface Ethernet1\n   description uplink\n";
         let g = gate("eos", eos).unwrap();
         assert!(!g.text.contains("$6$abcd"), "{}", g.text);
         assert!(g.text.contains("leaf1"));
+    }
+
+    /// A password with no hash around it: Junos keeps an archive site's URL as it was typed
+    /// (`ftp://username<:password>@host`, "Back Up Configurations to an Archive Site", Junos OS
+    /// CLI User Guide, read 2026-11-12), and `| display set` prints it back.
+    #[test]
+    fn a_password_inside_a_url_never_leaves_the_reader() {
+        let junos = b"set system host-name srx-lab\n\
+set system archival configuration archive-sites \"scp://backup:B4ckup!@10.1.1.20/configs\"\n\
+set event-options destinations D archive-sites \"ftp://netops:Summer24@10.1.1.21/logs\"\n\
+set system archival configuration archive-sites \"scp://backup@10.1.1.22/configs\" password \"$9$Qz3n6tOrlMX7VwYgoGjHq\"\n";
+        let g = gate("junos-srx", junos).unwrap();
+        for secret in ["B4ckup!", "Summer24", "$9$Qz3n"] {
+            assert!(!g.text.contains(secret), "{secret}: {}", g.text);
+        }
+        assert!(g.text.contains("srx-lab"));
+        assert!(
+            g.text.contains("scp://backup@10.1.1.22/configs"),
+            "{}",
+            g.text
+        );
+    }
+
+    #[test]
+    fn terminal_escapes_a_device_prints_are_dropped() {
+        let g = gate("junos-srx", b"set system host-name a\x1b[2J\x07\x01b\n").unwrap();
+        assert_eq!(g.text, "set system host-name a[2Jb\n");
+    }
+
+    /// The output is answered gated or not at all: bytes that are not text stop the read.
+    #[test]
+    fn output_the_gate_cannot_read_is_refused_whole() {
+        let bad = b"set system host-name a\n\xff\xfeset system radius-server 10.1.1.9 secret \"$9$Qz3n6tOrlMX7\"\n";
+        assert!(gate("junos-srx", bad).is_err());
     }
 }

@@ -113,8 +113,8 @@ pub struct Config {
     /// CA). Unset means Mozilla's roots alone.
     pub outside_vault_ca: Option<std::path::PathBuf>,
     /// `FATHOM_OUTSIDE_VAULT_HOSTS`: comma-separated host names (or `[v6]` literals). When set,
-    /// people may connect outside vaults at these hosts only; unset means any host this server
-    /// can reach, over HTTPS.
+    /// people may connect outside vaults at these hosts only. Unset means any host over HTTPS
+    /// whose every address is a public one; a vault on a private network must be listed.
     pub outside_vault_hosts: Option<Vec<String>>,
     /// `FATHOM_PASSBOLT_HELPER`: the Unix socket of the Passbolt helper (`helpers/passbolt/`),
     /// when the operator runs one (the compose `passbolt` profile). Unset means Passbolt is not

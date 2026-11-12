@@ -68,7 +68,14 @@ pub fn answer(request: &[u8]) -> Vec<u8> {
         Ok(_) => json!({"ok": false, "error": "internal"}),
         Err(Refused(why)) => json!({"ok": false, "error": why}),
     };
-    serde_json::to_vec(&v).unwrap_or_else(|_| br#"{"ok":false,"error":"internal"}"#.to_vec())
+    match serde_json::to_vec(&v) {
+        // An answer that would not fit the frame is said, not dropped.
+        Ok(bytes) if bytes.len() <= MAX_FRAME => bytes,
+        Ok(_) => {
+            br#"{"ok":false,"error":"the device answered more than the reader passes on"}"#.to_vec()
+        }
+        Err(_) => br#"{"ok":false,"error":"internal"}"#.to_vec(),
+    }
 }
 
 fn run(m: &Map<String, Value>) -> Result<Value, Refused> {

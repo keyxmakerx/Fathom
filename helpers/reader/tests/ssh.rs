@@ -134,6 +134,19 @@ fn reads_a_real_ssh_server_and_never_sends_more_than_it_should() {
     assert_eq!(r["hostKey"], key.as_str(), "{r}");
     assert!(sent().is_empty());
 
+    // A connection that dies part way through leaves a configuration cut short, and says so.
+    let r = read(
+        &addr,
+        port,
+        &key,
+        json!({"user": "fathomcut", "password": "read-only-pw-7Qx"}),
+    );
+    assert_eq!(r["outcome"], "read", "{r}");
+    let out = &r["reading"]["outputs"][0];
+    assert_eq!(out["incomplete"], true, "{out}");
+    assert!(out["exit"].is_null(), "{out}");
+    let _ = sent();
+
     // An address outside the job's ranges is refused before any connection.
     let mut j = job(&addr, port, "junos-srx", Some(&key));
     j["ranges"] = json!(["198.51.100.0/24"]);

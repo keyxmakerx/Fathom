@@ -26,6 +26,9 @@ use crate::gate;
 /// JSON around the text adds a little.
 pub const MAX_OUTPUT: usize = 640 * 1024;
 
+/// How long the reader waits for the connection and the key exchange.
+pub const CONNECT: std::time::Duration = std::time::Duration::from_secs(15);
+
 pub struct Failure {
     pub code: &'static str,
     pub message: String,
@@ -174,10 +177,18 @@ async fn session(
         got: Arc::clone(&got),
     };
     let seen = || got.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let connected = client::connect(config(), peer, handler).await;
+    // An address where nothing answers is given up on early, so it does not hold one of the
+    // reader's few device connections for the whole read budget.
+    let connected = tokio::time::timeout(CONNECT, client::connect(config(), peer, handler)).await;
     let mut handle = match connected {
-        Ok(h) => h,
-        Err(e) => {
+        Err(_) => {
+            return Err(fail(
+                "unreachable",
+                "nothing answered SSH at that address in 15 seconds",
+            ))
+        }
+        Ok(Ok(h)) => h,
+        Ok(Err(e)) => {
             // The key check said no: a key was seen and it was not the confirmed one.
             if let (Some((fp, _)), Some(want)) = (seen(), expected.as_ref()) {
                 if &fp != want {
@@ -275,6 +286,9 @@ async fn run(handle: &client::Handle<Seen>, command: &'static str) -> Result<Raw
     let mut out = Vec::new();
     let mut incomplete = false;
     let mut exit = None;
+    // Whether the device said its output was over. A connection that drops or goes quiet part
+    // way through leaves a configuration cut short, which must not be kept as a whole one.
+    let mut ended = false;
     while let Some(msg) = ch.wait().await {
         match msg {
             ChannelMsg::Data { data } => {
@@ -290,12 +304,17 @@ async fn run(handle: &client::Handle<Seen>, command: &'static str) -> Result<Raw
             ChannelMsg::Failure => {
                 return Err(fail("refused", format!("the device refused `{command}`")))
             }
+            ChannelMsg::Eof => ended = true,
             // The exit status comes after the end of output, so only a close ends the wait.
-            ChannelMsg::Close => break,
+            ChannelMsg::Close => {
+                ended = true;
+                break;
+            }
             _ => {}
         }
     }
     let _ = ch.close().await;
+    incomplete |= !ended;
     if incomplete {
         // Never hand the gate half a line: a secret cut in two might not be recognised.
         let end = out.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);

@@ -144,6 +144,7 @@ async fn main() -> ExitCode {
     // ADR-0071 part four: the one outbound HTTPS client, for people's outside vaults.
     let outside = match fathom_server::vault_outside::https::Https::new(
         config.outside_vault_ca.as_deref(),
+        config.outside_vault_hosts.clone().unwrap_or_default(),
     ) {
         Ok(net) => Arc::new(fathom_server::vault_outside::Outside {
             net: Box::new(net),

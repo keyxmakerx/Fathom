@@ -316,10 +316,13 @@ one collection (one folder) in it. The server makes the requests, over HTTPS, to
 member types; your firewall must let the server reach it.
 
 - **`FATHOM_OUTSIDE_VAULT_HOSTS`**: comma-separated host names. When set, members may connect
-  vaults at these hosts only. Unset means any host the server can reach, which lets a member make
-  the server send two fixed HTTPS requests to an address of their choosing; set it if the server
-  sits beside services that should not be probed. Secret Server is four requests: a sign-in
-  (`/oauth2/token`), its folders, its secrets, and one secret when Fathom uses it.
+  vaults at these hosts only. **A vault on your own network must be listed here**: unset, the
+  server reaches a vault only at a public address, and refuses a host that resolves to this
+  machine, a private network (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7), a link-local
+  address or any other the internet does not route. That stops a member making the server call
+  the services beside it. A listed host is reached wherever it resolves. Secret Server is four
+  requests: a sign-in (`/oauth2/token`), its folders, its secrets, and one secret when Fathom
+  uses it.
 - **`FATHOM_OUTSIDE_VAULT_CA`**: a PEM file of certificates to trust beside Mozilla's roots, for a
   vault behind a private CA. The server refuses to start (exit code 10) if the file holds none.
   There is no setting that skips certificate checks.

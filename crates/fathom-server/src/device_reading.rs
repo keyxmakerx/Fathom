@@ -404,6 +404,9 @@ pub struct Identity {
     pub element: String,
     pub seen_at_ms: i64,
     pub approved_by: Option<String>,
+    /// Whether the person who confirmed it was a Steward then. Sealed with the rest, so a row
+    /// edited in the database cannot claim it.
+    pub by_steward: bool,
 }
 
 impl Identity {
@@ -415,6 +418,9 @@ impl Identity {
             ("element", s(&self.element)),
             ("previous", self.previous.as_deref().map_or(Json::Null, s)),
         ];
+        if self.by_steward {
+            fields.push(("bySteward", Json::Bool(true)));
+        }
         match self.protocol {
             Protocol::Snmp => fields.push(("engineId", s(&self.value))),
             Protocol::Ssh => {
@@ -480,6 +486,7 @@ fn identity_from_row(
         element: get("element")?,
         seen_at_ms: row.get("seen_ms"),
         approved_by: row.get("approved_by"),
+        by_steward: matches!(m.get("bySteward"), Some(Json::Bool(true))),
     })
 }
 
@@ -585,6 +592,7 @@ pub async fn record_seen(
         element: target.element.clone(),
         seen_at_ms: now_ms(),
         approved_by: None,
+        by_steward: false,
     };
     write_identity(tx, keys, &organisation, &actor, target.address, &identity).await?;
     Ok(identity)
@@ -647,7 +655,9 @@ pub async fn approve_typed(
             "nothing has answered at that address yet; press Read now to ask it",
         ));
     };
-    if identity.state == "approved" {
+    // A Steward typing the characters of one a member confirmed makes it Steward-confirmed.
+    let steward = is_steward(tx, auth).await?;
+    if identity.state == "approved" && (identity.by_steward || !steward) {
         return Ok(identity);
     }
     if !last_eight_match(protocol, &identity.value, typed) {
@@ -665,6 +675,7 @@ pub async fn approve_typed(
     identity.design = target.design.clone();
     identity.element = target.element.clone();
     identity.approved_by = Some(actor.clone());
+    identity.by_steward = steward;
     write_identity(tx, keys, &organisation, &actor, target.address, &identity).await?;
     chains::append_org(
         tx,
@@ -688,18 +699,39 @@ pub async fn approve_typed(
     Ok(identity)
 }
 
-async fn require_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(), VaultError> {
+/// Whether the signed-in person is a Steward now.
+pub async fn is_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<bool, VaultError> {
     let verified = grants::verify_authority_state(tx, auth).await?;
     let mut check = StewardCheck::new();
-    if grants::steward_anchors(tx, auth, &verified, &mut check)
+    Ok(!grants::steward_anchors(tx, auth, &verified, &mut check)
         .await?
-        .is_empty()
-    {
+        .is_empty())
+}
+
+async fn require_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(), VaultError> {
+    if !is_steward(tx, auth).await? {
         return Err(VaultError::NotAllowed(
             "only a Steward approves agents for a whole range",
         ));
     }
     Ok(())
+}
+
+/// What a person who is not a Steward is told when a range's login would go to a host key no
+/// Steward confirmed.
+pub const RANGE_LOGIN_NEEDS_A_STEWARD: &str = "this device would be read with the login set for its whole range, so a Steward confirms its SSH host key first: a Steward reads it once, or confirms it under Device reading";
+
+/// Whether this read must wait for a Steward. Over SSH the password itself is handed to
+/// whatever holds the host key (RFC 4252 §8), and a range's login is one the person reading
+/// need not hold. So it goes only to a host key a Steward confirmed; otherwise anyone who can
+/// draw could put a machine of their own at an address in the range, confirm its key
+/// themselves and be sent the password.
+pub fn range_login_waits_for_a_steward(
+    protocol: Protocol,
+    by_range: bool,
+    identity: Option<&Identity>,
+) -> bool {
+    protocol == Protocol::Ssh && by_range && !identity.is_some_and(|i| i.by_steward)
 }
 
 /// The Steward's list: every agent and host key waiting for someone, newest first.
@@ -755,12 +787,13 @@ pub async fn approve_batch(
     }
     let mut count = 0;
     for (a, mut e) in found {
-        if e.state == "approved" {
+        if e.state == "approved" && e.by_steward {
             continue;
         }
         e.state = "approved".to_string();
         e.previous = None;
         e.approved_by = Some(actor.clone());
+        e.by_steward = true;
         write_identity(tx, keys, &organisation, &actor, a, &e).await?;
         count += 1;
     }

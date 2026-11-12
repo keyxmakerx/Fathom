@@ -1593,6 +1593,60 @@ async fn a_host_key_is_confirmed_on_its_own_and_apart_from_the_snmp_agent() {
     .expect("typed");
     assert_eq!(ok.state, "approved");
 
+    // Alice can draw and is no Steward. The key she confirmed is good for a login marked on the
+    // device, which its holder chose to use there; it is not good for the range's login, whose
+    // password SSH would hand to whatever holds that key.
+    assert!(!ok.by_steward);
+    assert!(!device_reading::range_login_waits_for_a_steward(
+        Protocol::Ssh,
+        false,
+        Some(&ok)
+    ));
+    assert!(device_reading::range_login_waits_for_a_steward(
+        Protocol::Ssh,
+        true,
+        Some(&ok)
+    ));
+    assert!(device_reading::range_login_waits_for_a_steward(
+        Protocol::Ssh,
+        true,
+        None
+    ));
+    // The Steward types the same characters, and it is kept as theirs.
+    let t1 = t.clone();
+    let theirs = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Ssh, "s54GFg+0").await?;
+            device_reading::identity_at(
+                tx,
+                &keys,
+                &auth.ctx.tenant().to_string(),
+                Protocol::Ssh,
+                t1.address,
+            )
+            .await
+        })
+    })
+    .await
+    .expect("the Steward's")
+    .expect("kept");
+    assert!(theirs.by_steward);
+    assert!(!device_reading::range_login_waits_for_a_steward(
+        Protocol::Ssh,
+        true,
+        Some(&theirs)
+    ));
+    // Alice typing again does not take that away.
+    let t1 = t.clone();
+    let still = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Ssh, "s54GFg+0").await
+        })
+    })
+    .await
+    .expect("typed again");
+    assert!(still.by_steward);
+
     // A new key is `changed`, keeps the confirmed one, and the Steward sees it marked SSH.
     let t1 = t.clone();
     let changed = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
@@ -1641,4 +1695,46 @@ async fn a_host_key_is_confirmed_on_its_own_and_apart_from_the_snmp_agent() {
     .await
     .unwrap();
     assert_eq!(n, 1);
+
+    // A key a member confirmed is the Steward's once the Steward approves its address.
+    let t2 = target(&design, "10.20.0.22");
+    let t1 = t2.clone();
+    let members = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::record_seen(
+                tx,
+                auth,
+                &keys,
+                &t1,
+                Protocol::Ssh,
+                fp,
+                Some("ssh-ed25519"),
+            )
+            .await?;
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Ssh, "s54GFg+0").await
+        })
+    })
+    .await
+    .expect("the member's");
+    assert!(members.state == "approved" && !members.by_steward);
+    let one: Vec<std::net::IpAddr> = vec![t2.address];
+    let t1 = t2.clone();
+    let after = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
+        Box::pin(async move {
+            let n = device_reading::approve_batch(tx, auth, &keys, Protocol::Ssh, &one).await?;
+            let now = device_reading::identity_at(
+                tx,
+                &keys,
+                &auth.ctx.tenant().to_string(),
+                Protocol::Ssh,
+                t1.address,
+            )
+            .await?;
+            Ok::<_, VaultError>((n, now))
+        })
+    })
+    .await
+    .expect("approved");
+    assert_eq!(after.0, 1);
+    assert!(after.1.expect("kept").by_steward);
 }
