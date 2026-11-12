@@ -636,3 +636,48 @@
 .home-folders__approval label {
   cursor: pointer;
 }
+
+/* --- Sign-off r123: "Start your own network" beside the practice lab ------------- */
+
+.practice-welcome__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--s4);
+  margin-top: var(--s3);
+}
+
+.practice-welcome__pair .practice-welcome__card {
+  margin-top: 0;
+  align-items: stretch;
+}
+
+.practice-welcome__card--own {
+  border-color: var(--ink);
+}
+
+.practice-welcome__field-label {
+  display: block;
+  border-bottom: 0;
+  padding-bottom: var(--s1);
+}
+
+.practice-welcome__field {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: var(--s3);
+}
+
+.practice-welcome__go:not(:disabled) {
+  background: var(--ink);
+  color: var(--page);
+  border-color: var(--ink);
+}
+
+.practice-welcome__key {
+  margin: 0 0 var(--s2);
+}
+
+.practice-welcome__card--own .signin__toggle {
+  margin: var(--s2) 0 var(--s3);
+}
