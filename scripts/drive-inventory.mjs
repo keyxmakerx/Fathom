@@ -114,7 +114,7 @@ try {
 
   await page.goto(`${BASE}/drive.html?scene=inventory`);
   await page.waitForSelector('.drawing', { timeout: 15_000 });
-  await page.getByRole('button', { name: 'Inventory', exact: true }).click();
+  await page.locator('[data-testid="view-inventory"]').click();
   await page.waitForSelector('.inv-table__row', { timeout: 15_000 });
 
   // 1 — the rail counts every device, the table renders only a window of them.

@@ -139,7 +139,8 @@ try {
 
     // The trace starts from a racked device; the canvas offers it on a rack's devices.
     const router = page.locator('.react-flow__node-chassis', { hasText: 'router-1' }).first();
-    await router.click({ button: 'right', position: { x: 20, y: 6 } });
+    // dispatched on the node itself: at the sample's zoom a pointer click can land on the rack's free-space layer
+    await router.dispatchEvent('contextmenu', { button: 2, clientX: 0, clientY: 0 });
     const item = page.locator('.drawing-context-menu__item', { hasText: 'Trace from here' });
     check('the router offers Trace from here', (await item.count()) === 1);
     if ((await item.count()) === 1) {

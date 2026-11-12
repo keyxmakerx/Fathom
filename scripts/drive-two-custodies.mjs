@@ -86,7 +86,7 @@ const DB_NAME = 'fathom_c3';
 const RUNTIME_URL = runtimeUrl(DB_NAME);
 const MIGRATE_URL = migrateUrl(DB_NAME);
 const CHROME = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
-const PLAYWRIGHT = '/opt/node22/lib/node_modules/playwright/index.mjs';
+const PLAYWRIGHT = process.env.PW_PLAYWRIGHT ?? '/opt/node22/lib/node_modules/playwright/index.mjs';
 const ADDRESS = 'owner@example.test';
 // A password of the length and shape ADR-0055 decision 10 requires and a
 // person actually chooses -- the CI script's own, for the same reason.
@@ -487,7 +487,8 @@ async function main() {
     `${flagBefore.fieldCount} field(s): ${JSON.stringify(flagBefore)}`,
   );
 
-  const { chromium } = await import(PLAYWRIGHT);
+  const pwModule = await import(PLAYWRIGHT);
+  const { chromium } = pwModule.default ?? pwModule;
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
 
   const errors = [];

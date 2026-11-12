@@ -31,7 +31,7 @@ const DB_NAME = 'fathom_design_burst';
 const RUNTIME_URL = runtimeUrl(DB_NAME);
 const MIGRATE_URL = migrateUrl(DB_NAME);
 const CHROME = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
-const PLAYWRIGHT = '/opt/node22/lib/node_modules/playwright/index.mjs';
+const PLAYWRIGHT = process.env.PW_PLAYWRIGHT ?? '/opt/node22/lib/node_modules/playwright/index.mjs';
 // The setup password the server is started with (ADR-0057).
 const SETUP_PASSWORD = 'amber-kestrel-harbour-0057';
 const ADDRESS = 'owner@example.test';
@@ -208,7 +208,8 @@ async function main() {
   const stateBefore = await setupState(BASE_URL);
   check('GET /setup/state says pending on a fresh install', stateBefore === 'pending', stateBefore);
 
-  const { chromium } = await import(PLAYWRIGHT);
+  const pwModule = await import(PLAYWRIGHT);
+  const { chromium } = pwModule.default ?? pwModule;
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
 
   const errors = [];

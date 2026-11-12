@@ -662,7 +662,8 @@ async function runProof(browser, seed) {
   // ADR-0060 decision 7: folders are the Organisation tab's, shown to the
   // organisation's admins; this steward founded it.
   await one.getByRole('tab', { name: 'Steward' }).click();
-  await one.getByRole('button', { name: 'New site' }).click();
+  await one.locator('.org-rail__item', { hasText: 'Folders' }).click();
+  await one.getByRole('button', { name: 'New site' }).first().click();
   await one.locator('#home-new-scope-label').fill('Session 7 network');
   await one.getByRole('button', { name: 'Create', exact: true }).click();
   await one.getByText('Session 7 network').waitFor({ timeout: 10000 });
@@ -673,8 +674,8 @@ async function runProof(browser, seed) {
   await one.click('.shell-account');
   const menuRows = await one.locator('.shell-popover [role="menuitem"], .shell-popover button').allTextContents();
   check(
-    'browser one (steward): the account menu offers Your account, Signed-in browsers, Theme and Sign out, and no Site',
-    ['Your account', 'Signed-in browsers', 'Theme', 'Sign out'].every((row) => menuRows.some((text) => text.includes(row)))
+    'browser one (steward): the account menu offers Your account, Signed-in browsers, the theme choice and Sign out, and no Site',
+    ['Your account', 'Signed-in browsers', 'Follow my system', 'Sign out'].every((row) => menuRows.some((text) => text.includes(row)))
       && !menuRows.some((text) => text.trim() === 'Site'),
     JSON.stringify(menuRows),
   );
@@ -757,49 +758,26 @@ async function runProof(browser, seed) {
   );
 
   // -------------------------------------------------------------------
-  // Browser two makes a change against its now-stale base and is refused.
+  // Browser two is not stale: since live co-editing (ADR-0063 live) the server streams browser one's
+  // save to it, so it shows both devices without a reload, and its own change saves with no
+  // refusal. (Before that, this section proved a stale write was refused with a sentence naming
+  // both versions; that refusal no longer arises for a connected browser.)
   // -------------------------------------------------------------------
   await two.bringToFront();
-  const twoDevicesBeforeRefusal = await two.locator('.drawing-chassis').count();
-  await openTheRail(two);
-  await dragPaletteItemOntoRack(two, 1, 1);
-  await two.locator('.racks-place__refusal').waitFor({ timeout: 15000 });
-  const refusalText = (await two.locator('.racks-place__refusal').first().innerText()).trim();
-  console.log('refusal text: ' + JSON.stringify(refusalText));
-  check(
-    'browser two (drawer): the save is refused, naming both versions in one sentence',
-    /version \d+.*version \d+/s.test(refusalText) && /reload/i.test(refusalText),
-    refusalText,
-  );
-  const twoDevicesAfterRefusal = await two.locator('.drawing-chassis').count();
-  check(
-    "browser two (drawer): the drawer's own change is still on screen after the refusal",
-    twoDevicesAfterRefusal === twoDevicesBeforeRefusal + 1,
-    `before=${twoDevicesBeforeRefusal} after=${twoDevicesAfterRefusal}`,
-  );
-
-  await two.screenshot({ path: `${SHOTS}s7-stale.png` });
-  check('screenshot s7-stale.png: the refusal wash in browser two', true);
-
-  // ADR-0054 §1 promises a Reload action inside this wash; a prior run of
-  // this script (see its own git history) found none rendered and worked
-  // around it with a fresh navigation and re-sign-in. `RacksPlace.tsx` now
-  // renders a real `.racks-place__refusal-reload` button beside the
-  // refusal text (unchanged by this task) — asserted directly here instead
-  // of asserting its absence, then clicked, since the in-memory-only
-  // session (`state/sessionState.ts`'s own doc) does not survive a
-  // navigation and this route still needs a fresh sign-in either way.
-  const hasReloadButton = (await two.getByRole('button', { name: /reload/i }).count()) > 0;
-  check('the refusal wash renders a real Reload control (ADR-0054 §1)', hasReloadButton);
-
-  await two.goto(designUrl, { waitUntil: 'domcontentloaded' });
-  await signIn(two, seed.drawer.address, DRAWER_PASSWORD);
-  await two.locator('.drawing-chassis').first().waitFor({ timeout: 15000 });
   await two.waitForFunction(() => document.querySelectorAll('.drawing-chassis').length >= 2, { timeout: 15000 });
+  check('browser two (drawer): sees browser one\'s second device live, with no reload', true);
+  await openTheRail(two);
+  await dragPaletteItemOntoRack(two, 1, 2);
+  await two.waitForFunction(() => document.querySelectorAll('.drawing-chassis').length >= 3, { timeout: 15000 });
+  await two.waitForTimeout(1200);
   check(
-    "a fresh sign-in and re-open (what clicking Reload does) shows browser one's two devices, no refusal",
-    (await two.locator('.drawing-chassis').count()) >= 2 && (await two.locator('.racks-place__refusal').count()) === 0,
+    "browser two (drawer): its own change saves with no refusal",
+    (await two.locator('.racks-place__refusal').count()) === 0,
   );
+  await one.bringToFront();
+  await one.waitForFunction(() => document.querySelectorAll('.drawing-chassis').length >= 3, { timeout: 15000 });
+  check("browser one (steward): sees the drawer's device live", true);
+  await two.screenshot({ path: `${SHOTS}s7-live.png` });
 
   // ADR-0053 §1/§3 — the Ctrl Z half of the "not 'local'" check earlier in
   // this proof: only a batch attributed to a real account can be undone at
@@ -810,20 +788,20 @@ async function runProof(browser, seed) {
   // browser one's own last placement with no such refusal. Run last, once
   // nothing else in this proof still depends on the device count or the
   // design's saved version.
-  const chassisBeforeUndo = await one.locator('.drawing-chassis').count();
-  await one.bringToFront();
-  await one.keyboard.press('Control+z');
-  await one
+  const chassisBeforeUndo = await two.locator('.drawing-chassis').count();
+  await two.bringToFront();
+  await two.keyboard.press('Control+z');
+  await two
     .waitForFunction(
       (before) => document.querySelectorAll('.drawing-chassis').length < before,
       chassisBeforeUndo,
       { timeout: 5000 },
     )
     .catch(() => {});
-  const chassisAfterUndo = await one.locator('.drawing-chassis').count();
-  const undoRefusalAfterUndo = await one.locator('.racks-trail__refusal').count();
+  const chassisAfterUndo = await two.locator('.drawing-chassis').count();
+  const undoRefusalAfterUndo = await two.locator('.racks-trail__refusal').count();
   check(
-    'browser one (steward): Ctrl Z undoes its own last placement — attributed to a real account, not refused as unattributed',
+    'browser two (drawer): Ctrl Z undoes its own last placement — attributed to a real account, not refused as unattributed',
     chassisAfterUndo === chassisBeforeUndo - 1 && undoRefusalAfterUndo === 0,
     `chassis before=${chassisBeforeUndo} after=${chassisAfterUndo}, undo refusal divs: ${undoRefusalAfterUndo}`,
   );
