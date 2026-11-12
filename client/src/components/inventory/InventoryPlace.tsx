@@ -38,6 +38,9 @@ import { imageRows } from '../firmware/images';
 import { modelKey, modelOfKey, modelTableRows } from '../firmware/rows';
 import { nextSorts, setSort, sortRows } from './sorting';
 import { ColumnMenu } from './ColumnMenu';
+import { fitColumns } from './fitColumns';
+import { usePhone } from '../phone/usePhone';
+import { useWindowWidth } from '../shell/Dock';
 import { ListFoot } from './ListFoot';
 import { PROGRESS_FROM, applyPlan, applyPlanChunked, bulkStillUndoable, dryRun, keepSelected, type BulkPlan } from './bulk';
 import { undo as undoBatch } from '../../document/undo';
@@ -415,6 +418,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     const picked = keys.map((k) => byKey.get(k)).filter((c): c is Column => c !== undefined);
     return picked.length > 0 ? picked : columnsAll.slice(0, 4);
   }, [columnsAll, prefs, kind, lens]);
+
+  // A phone draws the columns that fit its width; the table never scrolls sideways there (ADR-0075).
+  const phone = usePhone();
+  const windowWidth = useWindowWidth();
+  const shownColumns = useMemo(() => (phone ? fitColumns(columns, windowWidth) : columns), [phone, columns, windowWidth]);
 
   const schema = useMemo(() => schemaFor(kindWord(kind), columnsAll, FACETS[kind] ?? []), [kind, columnsAll]);
   const filtered = useMemo(() => filterRows(baseRows, schema, q), [baseRows, schema, q]);
@@ -1059,7 +1067,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 <DataTable
                   key={`${kind}:${moves}`}
                   aiMarked={aiTargets}
-                  columns={columns}
+                  columns={shownColumns}
                   rows={rows}
                   openKey={lastOpened}
                   checked={checked}
