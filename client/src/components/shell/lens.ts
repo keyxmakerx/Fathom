@@ -19,9 +19,9 @@ export const LENS_LABEL: Record<Lens, string> = {
  * anything (the shell brief "the lit one has an ink background and page-coloured
  * text"). */
 /** The lenses shown in each place: only those that change what it draws
- * (the owner, 2026-09-23). Links, Power and Owner have no drawing yet. */
+ * (the owner, 2026-09-23). Links draws in the Diagram look (r109); Power and Owner have no drawing yet. */
 export const LENSES_IN: Record<'racks' | 'inventory', readonly Lens[]> = {
-  racks: ['cables', 'routing'],
+  racks: ['cables', 'links', 'routing'],
   inventory: ['cables', 'routing', 'power', 'owner'],
 };
 

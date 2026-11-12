@@ -77,6 +77,10 @@ function plain(e: unknown, ctx: { prefix?: string; vlanId?: number }): IpamRefus
         return new IpamRefusal('That is not an IPv4 address. Only IPv4 can be added here.');
       case 'address-outside-prefix':
         return new IpamRefusal(`That address is not inside ${ctx.prefix ?? 'the prefix'}.`);
+      case 'address-mask-mismatch':
+        return new IpamRefusal(`That address's mask doesn't match ${ctx.prefix ?? 'the prefix'}. Use the same /length.`);
+      case 'prefix-too-wide':
+        return new IpamRefusal('A /0 covers every address. Use a length of 1 to 32.');
       case 'duplicate-address':
         return new IpamRefusal('That interface already has this address.');
       case 'vlan-id-range':

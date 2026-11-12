@@ -41,6 +41,7 @@
   font: inherit;
 }
 .plate-templates__note { margin: var(--s1, 4px) 0 var(--s2, 8px); font-size: var(--t-small, 12px); color: var(--muted); }
+.plate-templates__error { color: var(--danger); }
 .plate-templates__list { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; }
 .plate-templates__item {
   display: grid;

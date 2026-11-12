@@ -16,7 +16,7 @@ use deadpool_postgres::{Pool, Transaction};
 
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::crypto::{self, Key32};
-use fathom_server::device_reading;
+use fathom_server::device_reading::{self, Protocol};
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant, GrantRequest};
 use fathom_server::keys::{self, KeyRing};
 use fathom_server::repo::{self, AccountId, OrganisationId, ScopeKind};
@@ -1046,9 +1046,16 @@ async fn use_to_read(
     let fk = Arc::clone(fk);
     with_auth(pool, ring, org, who.account, |tx, auth| {
         Box::pin(async move {
-            vault_fathom::use_login_to_read(tx, auth, &fk, &id, &d, &e, by_range)
+            vault_fathom::use_login_to_read(tx, auth, &fk, &id, &d, &e, by_range, Protocol::Snmp)
                 .await
-                .map(|(l, a)| (l.user.clone(), l.password.clone(), l.privacy.clone(), a))
+                .map(|(l, a)| {
+                    (
+                        l.user.clone(),
+                        l.password.clone(),
+                        l.privacy.clone(),
+                        a.unwrap_or_default(),
+                    )
+                })
         })
     })
     .await
@@ -1137,6 +1144,61 @@ async fn a_device_is_read_only_with_a_read_only_snmp_login_marked_on_it_or_set_f
         "{refused:?}"
     );
 
+    // Over SSH it is the other way round: a login, ticked read-only, and never an SNMP one.
+    let ssh_meta = Meta::clean(
+        "srx-ro",
+        "login",
+        vec![(design.to_string(), "dev-1".to_string())],
+    )
+    .unwrap()
+    .with_read_only(true);
+    let ssh = a_login_with(
+        &pool,
+        &ring,
+        &estate,
+        &alice,
+        ssh_meta,
+        &[(&a, alice.account.to_string())],
+    )
+    .await;
+    let c = consent(org, &ssh, &alice, &fk.id().to_string(), 1);
+    turn_on(&pool, &ring, org, &alice, &fk, &ssh, c, "read-only-pw-7Qx")
+        .await
+        .expect("on");
+    let over_ssh = |credential: String| {
+        let fk = Arc::clone(&fk);
+        let d = design.clone();
+        with_auth(&pool, &ring, org, alice.account, move |tx, auth| {
+            Box::pin(async move {
+                vault_fathom::use_login_to_read(
+                    tx,
+                    auth,
+                    &fk,
+                    &credential,
+                    &d,
+                    "dev-1",
+                    false,
+                    Protocol::Ssh,
+                )
+                .await
+                .map(|(l, a)| (l.password.clone(), a))
+            })
+        })
+    };
+    let (password, auth_name) = over_ssh(ssh.id.clone()).await.expect("an SSH login");
+    assert_eq!(password, "read-only-pw-7Qx");
+    assert_eq!(auth_name, None, "an SSH login names no SNMP authentication");
+    let refused = over_ssh(ro.id.clone()).await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "an SNMP login is not an SSH one: {refused:?}"
+    );
+    let refused = over_ssh(plain.id.clone()).await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "a login without the read-only tick is never used: {refused:?}"
+    );
+
     // MD5 has no spelling; a non-SNMP login names no SNMP authentication.
     let m = Meta::clean("x", "snmp", vec![]).unwrap();
     assert!(m.clone().with_snmp_auth(Some("md5")).is_err());
@@ -1152,6 +1214,7 @@ fn target(design: &str, address: &str) -> device_reading::Target {
         element: "dev-1".to_string(),
         address: address.parse().unwrap(),
         range: fathom_server::device_read::Range::parse("10.20.0.0/24", None, None).unwrap(),
+        platform: Some("junos-srx".to_string()),
     }
 }
 
@@ -1201,7 +1264,16 @@ async fn an_agent_is_confirmed_before_any_login_and_what_a_device_said_is_kept_s
     let t1 = t.clone();
     let seen = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
         Box::pin(async move {
-            device_reading::record_seen(tx, auth, &keys, &t1, "80000009030001c2b3d4e5f60a").await
+            device_reading::record_seen(
+                tx,
+                auth,
+                &keys,
+                &t1,
+                Protocol::Snmp,
+                "80000009030001c2b3d4e5f60a",
+                None,
+            )
+            .await
         })
     })
     .await
@@ -1209,17 +1281,17 @@ async fn an_agent_is_confirmed_before_any_login_and_what_a_device_said_is_kept_s
     assert_eq!(seen.state, "seen");
     let t1 = t.clone();
     let wrong = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
-        Box::pin(
-            async move { device_reading::approve_typed(tx, auth, &keys, &t1, "3d4e5f6a").await },
-        )
+        Box::pin(async move {
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Snmp, "3d4e5f6a").await
+        })
     })
     .await;
     assert!(matches!(wrong, Err(VaultError::NotAllowed(_))), "{wrong:?}");
     let t1 = t.clone();
     let ok = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
-        Box::pin(
-            async move { device_reading::approve_typed(tx, auth, &keys, &t1, "d4e5f60a").await },
-        )
+        Box::pin(async move {
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Snmp, "d4e5f60a").await
+        })
     })
     .await
     .expect("typed");
@@ -1229,7 +1301,16 @@ async fn an_agent_is_confirmed_before_any_login_and_what_a_device_said_is_kept_s
     let t1 = t.clone();
     let again = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
         Box::pin(async move {
-            device_reading::record_seen(tx, auth, &keys, &t1, "80000009030001c2b3d4e5f60a").await
+            device_reading::record_seen(
+                tx,
+                auth,
+                &keys,
+                &t1,
+                Protocol::Snmp,
+                "80000009030001c2b3d4e5f60a",
+                None,
+            )
+            .await
         })
     })
     .await
@@ -1238,7 +1319,16 @@ async fn an_agent_is_confirmed_before_any_login_and_what_a_device_said_is_kept_s
     let t1 = t.clone();
     let changed = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
         Box::pin(async move {
-            device_reading::record_seen(tx, auth, &keys, &t1, "8000000903000a11b2c3d4e5f6").await
+            device_reading::record_seen(
+                tx,
+                auth,
+                &keys,
+                &t1,
+                Protocol::Snmp,
+                "8000000903000a11b2c3d4e5f6",
+                None,
+            )
+            .await
         })
     })
     .await
@@ -1253,7 +1343,16 @@ async fn an_agent_is_confirmed_before_any_login_and_what_a_device_said_is_kept_s
     let t2 = target(&design, "10.20.0.15");
     as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
         Box::pin(async move {
-            device_reading::record_seen(tx, auth, &keys, &t2, "80000009030001c2b3d4e57a11").await
+            device_reading::record_seen(
+                tx,
+                auth,
+                &keys,
+                &t2,
+                Protocol::Snmp,
+                "80000009030001c2b3d4e57a11",
+                None,
+            )
+            .await
         })
     })
     .await
@@ -1277,7 +1376,9 @@ async fn an_agent_is_confirmed_before_any_login_and_what_a_device_said_is_kept_s
     let both: Vec<std::net::IpAddr> =
         vec!["10.20.0.14".parse().unwrap(), "10.20.0.15".parse().unwrap()];
     let refused = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
-        Box::pin(async move { device_reading::approve_batch(tx, auth, &keys, &both).await })
+        Box::pin(async move {
+            device_reading::approve_batch(tx, auth, &keys, Protocol::Snmp, &both).await
+        })
     })
     .await;
     assert!(
@@ -1286,7 +1387,9 @@ async fn an_agent_is_confirmed_before_any_login_and_what_a_device_said_is_kept_s
     );
     let one: Vec<std::net::IpAddr> = vec!["10.20.0.15".parse().unwrap()];
     let n = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
-        Box::pin(async move { device_reading::approve_batch(tx, auth, &keys, &one).await })
+        Box::pin(async move {
+            device_reading::approve_batch(tx, auth, &keys, Protocol::Snmp, &one).await
+        })
     })
     .await
     .unwrap();
@@ -1414,4 +1517,224 @@ async fn an_agent_is_confirmed_before_any_login_and_what_a_device_said_is_kept_s
             .count(),
         1
     );
+}
+
+/// ADR-0082 §4.4: an SSH host key is confirmed like an engine id, kept apart from the SNMP agent
+/// at the same address, and a changed key is never approved with the rest of a range.
+#[tokio::test]
+async fn a_host_key_is_confirmed_on_its_own_and_apart_from_the_snmp_agent() {
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let org = estate.organisation;
+    let alice = a_member(&pool, &ring, &estate, "alice", Some(Capability::Draw)).await;
+    let design = a_design(&pool, &estate).await;
+    let t = target(&design, "10.20.0.21");
+    // The reader's test server's key, as `ssh-keygen -l` printed it.
+    let fp = "SHA256:/d1tvcieVX3qdA57VhyjGjMJOESBaYv/AxSs54GFg+0";
+
+    let t1 = t.clone();
+    let seen = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::record_seen(
+                tx,
+                auth,
+                &keys,
+                &t1,
+                Protocol::Ssh,
+                fp,
+                Some("ssh-ed25519"),
+            )
+            .await
+        })
+    })
+    .await
+    .expect("seen");
+    assert_eq!(
+        (seen.state.as_str(), seen.protocol),
+        ("seen", Protocol::Ssh)
+    );
+    assert_eq!(seen.key_type.as_deref(), Some("ssh-ed25519"));
+
+    // The SNMP agent at the same address is a different row, still unknown.
+    let t1 = t.clone();
+    let snmp = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::identity_at(
+                tx,
+                &keys,
+                &auth.ctx.tenant().to_string(),
+                Protocol::Snmp,
+                t1.address,
+            )
+            .await
+        })
+    })
+    .await
+    .unwrap();
+    assert!(snmp.is_none(), "{snmp:?}");
+
+    // Capitals count in base64.
+    let t1 = t.clone();
+    let wrong = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Ssh, "S54GFG+0").await
+        })
+    })
+    .await;
+    assert!(matches!(wrong, Err(VaultError::NotAllowed(_))), "{wrong:?}");
+    let t1 = t.clone();
+    let ok = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Ssh, "s54GFg+0").await
+        })
+    })
+    .await
+    .expect("typed");
+    assert_eq!(ok.state, "approved");
+
+    // Alice can draw and is no Steward. The key she confirmed is good for a login marked on the
+    // device, which its holder chose to use there; it is not good for the range's login, whose
+    // password SSH would hand to whatever holds that key.
+    assert!(!ok.by_steward);
+    assert!(!device_reading::range_login_waits_for_a_steward(
+        Protocol::Ssh,
+        false,
+        Some(&ok)
+    ));
+    assert!(device_reading::range_login_waits_for_a_steward(
+        Protocol::Ssh,
+        true,
+        Some(&ok)
+    ));
+    assert!(device_reading::range_login_waits_for_a_steward(
+        Protocol::Ssh,
+        true,
+        None
+    ));
+    // The Steward types the same characters, and it is kept as theirs.
+    let t1 = t.clone();
+    let theirs = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Ssh, "s54GFg+0").await?;
+            device_reading::identity_at(
+                tx,
+                &keys,
+                &auth.ctx.tenant().to_string(),
+                Protocol::Ssh,
+                t1.address,
+            )
+            .await
+        })
+    })
+    .await
+    .expect("the Steward's")
+    .expect("kept");
+    assert!(theirs.by_steward);
+    assert!(!device_reading::range_login_waits_for_a_steward(
+        Protocol::Ssh,
+        true,
+        Some(&theirs)
+    ));
+    // Alice typing again does not take that away.
+    let t1 = t.clone();
+    let still = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Ssh, "s54GFg+0").await
+        })
+    })
+    .await
+    .expect("typed again");
+    assert!(still.by_steward);
+
+    // A new key is `changed`, keeps the confirmed one, and the Steward sees it marked SSH.
+    let t1 = t.clone();
+    let changed = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::record_seen(
+                tx,
+                auth,
+                &keys,
+                &t1,
+                Protocol::Ssh,
+                "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                Some("ssh-ed25519"),
+            )
+            .await
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(changed.state, "changed");
+    assert_eq!(changed.previous.as_deref(), Some(fp));
+    let list = as_who(&pool, &ring, org, &estate.steward, |tx, auth, keys| {
+        Box::pin(async move { device_reading::waiting(tx, auth, &keys).await })
+    })
+    .await
+    .expect("the Steward's list");
+    assert_eq!(list.len(), 1);
+    let shown = String::from_utf8(list[0].to_json().to_canonical_bytes()).unwrap();
+    assert!(shown.contains(r#""protocol":"ssh""#), "{shown}");
+    assert!(shown.contains(r#""hostKey":"SHA256:AAAA"#), "{shown}");
+
+    // Approving it as an SNMP agent finds nothing; as a host key, on its own, it goes.
+    let one: Vec<std::net::IpAddr> = vec!["10.20.0.21".parse().unwrap()];
+    let as_snmp = one.clone();
+    let refused = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::approve_batch(tx, auth, &keys, Protocol::Snmp, &as_snmp).await
+        })
+    })
+    .await;
+    assert!(matches!(refused, Err(VaultError::NotFound)), "{refused:?}");
+    let n = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::approve_batch(tx, auth, &keys, Protocol::Ssh, &one).await
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(n, 1);
+
+    // A key a member confirmed is the Steward's once the Steward approves its address.
+    let t2 = target(&design, "10.20.0.22");
+    let t1 = t2.clone();
+    let members = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::record_seen(
+                tx,
+                auth,
+                &keys,
+                &t1,
+                Protocol::Ssh,
+                fp,
+                Some("ssh-ed25519"),
+            )
+            .await?;
+            device_reading::approve_typed(tx, auth, &keys, &t1, Protocol::Ssh, "s54GFg+0").await
+        })
+    })
+    .await
+    .expect("the member's");
+    assert!(members.state == "approved" && !members.by_steward);
+    let one: Vec<std::net::IpAddr> = vec![t2.address];
+    let t1 = t2.clone();
+    let after = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
+        Box::pin(async move {
+            let n = device_reading::approve_batch(tx, auth, &keys, Protocol::Ssh, &one).await?;
+            let now = device_reading::identity_at(
+                tx,
+                &keys,
+                &auth.ctx.tenant().to_string(),
+                Protocol::Ssh,
+                t1.address,
+            )
+            .await?;
+            Ok::<_, VaultError>((n, now))
+        })
+    })
+    .await
+    .expect("approved");
+    assert_eq!(after.0, 1);
+    assert!(after.1.expect("kept").by_steward);
 }

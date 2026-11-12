@@ -1,6 +1,6 @@
 // Drives "It's down" (ADR-0061 troubleshooting) on the real App over the `canvas` scene: right-click, the checklist,
 // answers by key and by button, Why?, the point block, the fade, Plan a fix opening the plan, Save as an issue and
-// the device history, a read holder, phone width and dark mode. Usage: bash scripts/build-wasm.sh (once), then
+// the device history, picking a saved issue up where it stopped, a read holder, the read-only phone canvas and dark mode. Usage: bash scripts/build-wasm.sh (once), then
 // node scripts/drive-troubleshoot.mjs. Overrides: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT, FATHOM_SHOTS.
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -102,6 +102,8 @@ try {
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=canvas${read ? '&capability=read' : ''}`);
+    // At phone width the design opens on Find (ADR-0075 decision 1); the Canvas tab is one tap away.
+    if (w <= 600) await page.locator('.phone-tabs button', { hasText: /^canvas$/i }).click({ timeout: 15_000 });
     await page.waitForSelector('.react-flow__pane', { timeout: 15_000 });
     await page.waitForTimeout(1200);
     return { context, page, pageErrors };
@@ -256,11 +258,23 @@ try {
     await note.focus();
     await page.keyboard.press('Control+End');
     await page.keyboard.press('Control+V');
-    check('[note] the paste landed in the field', (await note.inputValue()).includes(SECRET));
+    // The app's paste gate (PasteGateBoundary, CLAUDE.md rule 4) redacts before the field takes the text, and its
+    // insert is async: the line lands, its key never does.
+    const landed = async (n) => {
+      for (let i = 0; i < 30; i += 1) {
+        const v = await note.inputValue();
+        if ((v.match(/pre-shared-key/g) ?? []).length >= n) return v;
+        await settle(page, 100);
+      }
+      return note.inputValue();
+    };
+    const pasted1 = await landed(1);
+    check('[note] the paste landed in the field, its key already redacted', /pre-shared-key/.test(pasted1) && /REDACTED/.test(pasted1) && !pasted1.includes(SECRET), pasted1);
     await page.evaluate((t) => navigator.clipboard.writeText(t), '\n' + JUNOS_SHORT);
     await page.keyboard.press('Control+End');
     await page.keyboard.press('Control+V');
-    check('[note] a short key pasted too', (await note.inputValue()).includes(SHORT));
+    const pasted2 = await landed(2);
+    check('[note] a short key pasted too, also redacted', (pasted2.match(/pre-shared-key/g) ?? []).length === 2 && !pasted2.includes(SHORT), pasted2);
     await page.keyboard.press('Escape');
     await settle(page, 300);
     check('[note] Esc leaves the note and keeps the panel', (await T(page, 'trouble-panel').count()) === 1);
@@ -292,17 +306,17 @@ try {
     check('[flow] no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
   }
 
-  // ---------------------------------------------------------------- 2. Save as an issue, the history, Mark closed
+  // ---------------------------------------------------------------- 2. Save as an issue, pick it up later, Mark closed
   {
     const { context, page, pageErrors } = await open();
     await opened(page);
-    await page.keyboard.press('2');
+    await page.keyboard.press('1');
     await settle(page, 300);
-    check('[save] 2 answers Not OK', (await answers(page))[0] === 'not_ok');
+    check('[save] 1 answers OK', (await answers(page))[0] === 'ok');
     await T(page, 'trouble-save').click();
     await settle(page, 1000);
     check('[save] Save as an issue says it is saved to the history', (await T(page, 'trouble-saved').count()) === 1, await T(page, 'trouble-panel').innerText());
-    check('[save] the answers are then read only', (await page.locator('[data-testid=trouble-step][data-state=current] [data-answer]:not([disabled])').count()) === 0);
+    check('[save] the open step still takes an answer once saved', (await page.locator('[data-testid=trouble-step][data-state=current] [data-answer]:not([disabled])').count()) === 3);
     await stopSession(page);
     await settle(page, 400);
     check('[save] Close after saving closes without asking', (await T(page, 'trouble-panel').count()) === 0 && (await T(page, 'trouble-confirm').count()) === 0);
@@ -313,12 +327,34 @@ try {
     check('[history] the device page lists the saved issue', (await T(page, 'device-issues').count()) === 1 && (await T(page, 'device-issue').count()) === 1, await T(page, 'device-issues').innerText().catch(() => ''));
     await T(page, 'device-issue').click();
     await settle(page, 600);
-    check('[history] opening it shows the saved answers read only', (await T(page, 'trouble-saved-head').count()) === 1 && /✗/.test(await T(page, 'trouble-steps').innerText().catch(() => '')) || (await page.locator('.trouble-steps--saved').count()) === 1);
+    check('[history] opening it shows the saved answers and how many are answered', (await T(page, 'trouble-saved-head').count()) === 1 && /1 of \d+ answered/.test(await T(page, 'trouble-saved-head').innerText()), await T(page, 'trouble-saved-head').innerText());
+    check('[pick up] an open issue offers Pick up where it stopped', (await T(page, 'trouble-continue').count()) === 1 && /Pick up where it stopped/i.test(await T(page, 'trouble-continue').innerText()));
+    await shot(page, '07-saved-open');
+    await T(page, 'trouble-continue').click();
+    await settle(page, 700);
+    check('[pick up] the checklist is back, on the first unanswered step', (await answers(page))[0] === 'ok' && (await page.locator('[data-testid=trouble-step][data-state=current]').count()) === 1 && (await page.locator('[data-testid=trouble-step]').nth(1).getAttribute('data-state')) === 'current');
+    check('[pick up] it says each answer saves as it is given', /Each answer now saves to it/.test(await T(page, 'trouble-saved').innerText()));
+    await shot(page, '08-picked-up');
+    const openBefore = await page.evaluate(() => document.querySelectorAll('[data-testid=trouble-step][data-answer=unanswered]').length);
+    await page.keyboard.press('2');
+    await settle(page, 800);
+    check('[pick up] 2 answers Not OK on the step it stopped at', (await answers(page))[1] === 'not_ok' && openBefore > 0);
+    check('[pick up] the point block says where the answers point now', (await T(page, 'trouble-point').count()) === 1);
+    await shot(page, '09-picked-up-answered');
+    await T(page, 'trouble-close').click();
+    await settle(page, 400);
+    check('[pick up] Close closes without asking: the answer is already saved', (await T(page, 'trouble-panel').count()) === 0 && (await T(page, 'trouble-confirm').count()) === 0);
+    await page.locator('.react-flow__node-chassis', { hasText: 'fw-01' }).click();
+    await settle(page, 600);
+    await T(page, 'device-issue').click();
+    await settle(page, 600);
+    check('[pick up] the saved issue holds the new answer', /2 of \d+ answered/.test(await T(page, 'trouble-saved-head').innerText()) && /✗/.test(await page.locator('.trouble-steps--saved').innerText()), await T(page, 'trouble-saved-head').innerText());
     check('[history] it shows the frozen sentence', (await T(page, 'trouble-outcome').count()) === 1 && /Your answers point at/.test(await T(page, 'trouble-outcome').innerText()));
     await T(page, 'trouble-close-issue').click();
     await settle(page, 800);
     check('[history] Mark closed closes it', /closed/.test(await T(page, 'trouble-saved-head').innerText()), await T(page, 'trouble-saved-head').innerText());
     check('[history] Mark closed is gone once closed', (await T(page, 'trouble-close-issue').count()) === 0);
+    check('[pick up] a closed issue cannot be picked up', (await T(page, 'trouble-continue').count()) === 0);
     await stopSession(page);
     await settle(page, 300);
 
@@ -364,9 +400,10 @@ try {
     await T(page, 'trouble-step').first().focus();
     await page.keyboard.press('Escape');
     await settle(page, 400);
-    check('[close] Esc inside the panel folds it and keeps the session', (await T(page, 'trouble-folded').count()) === 1 && (await T(page, 'trouble-panel').count()) === 0);
-    check('[close] the fold leaves focus on the Open button', await page.evaluate(() => document.activeElement?.textContent?.startsWith('Open') === true && document.activeElement.closest('[data-testid=trouble-folded]') != null));
-    await T(page, 'trouble-folded').getByRole('button', { name: /^Open/ }).click();
+    // Folded, "It's down" is a tab of the right-hand dock (r30-panels) and the session stays in the bar.
+    check('[close] Esc inside the panel folds it and keeps the session', (await T(page, 'trouble-panel').count()) === 0 && (await T(page, 'dock-down').getAttribute('aria-expanded')) === 'false' && /IT'S DOWN/i.test(await page.locator('header, .shell').first().innerText()));
+    check("[close] the fold leaves focus on the It's down tab", await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'dock-down'), await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 120)));
+    await T(page, 'dock-down').click();
     await settle(page, 400);
     check('[close] opening it again finds the answer where it was', (await answers(page))[0] === 'ok');
     await stopSession(page);
@@ -407,22 +444,23 @@ try {
   }
 
   // ---------------------------------------------------------------- 5. phone width and dark mode
+  // At phone width the Canvas is read-only (ADR-0075 decision 1), so It's down is not offered there at all.
+  {
+    const { context, page, pageErrors } = await open({ w: 390, h: 800 });
+    await page.locator('.react-flow__node-chassis', { hasText: 'fw-01' }).click({ button: 'right', force: true });
+    await settle(page, 400);
+    const items = await page.locator('.drawing-context-menu__item').allInnerTexts();
+    check("[phone] the read-only canvas does not offer It's down", !items.some((t) => /It's down/.test(t)), items.join(' | '));
+    check('[phone] nothing opened', (await T(page, 'trouble-panel').count()) === 0);
+    check('[phone] no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
   for (const opts of [
     { tag: 'dark', w: 1400, h: 900, dark: true },
-    { tag: 'phone', w: 390, h: 800, dark: false },
-    { tag: 'phone-dark', w: 390, h: 800, dark: true },
   ]) {
     const { tag } = opts;
     const { context, page, pageErrors } = await open(opts);
-    if (opts.w === 390) {
-      // At phone width the canvas is narrow; the right-click still works on a device.
-      await page.locator('.react-flow__node-chassis', { hasText: 'fw-01' }).click({ button: 'right', force: true });
-      await page.locator('.drawing-context-menu__item', { hasText: "It's down" }).click();
-      await page.waitForSelector('[data-testid=trouble-panel]', { timeout: 10_000 });
-      await settle(page, 700);
-    } else {
-      await opened(page);
-    }
+    await opened(page);
     await page.keyboard.press('1');
     await page.keyboard.press('2');
     await settle(page, 400);
@@ -432,10 +470,6 @@ try {
     });
     check(`[${tag}] the panel does not overflow sideways`, overflow === '', overflow);
     const box = await T(page, 'trouble-panel').boundingBox();
-    if (opts.w === 390) {
-      const lit = await page.locator('.react-flow__node-chassis:not(.checks-faded)').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().bottom));
-      check(`[${tag}] the lit chain is above the panel, not under it`, lit.length > 0 && box != null && lit.every((b) => b <= box.y + 4), `${lit.map(Math.round).join(',')} vs panel top ${box?.y}`);
-    }
     check(`[${tag}] the panel is on screen`, box != null && box.x >= -1 && box.x + box.width <= opts.w + 1, JSON.stringify(box));
     await ink(page, `[${tag}]`);
     await shot(page, `05-${tag}-panel`);

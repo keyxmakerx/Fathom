@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { loadJsonPref, readPref, saveJsonPref, writePref } from './prefs';
+import { forgetPrefsStartingWith, loadJsonPref, readPref, saveJsonPref, writePref } from './prefs';
+import { NAMES_PREFIX, loadNames, rememberNames } from './components/collab/changesSince';
 
 function memoryStorage(): Storage {
   const m = new Map<string, string>();
@@ -54,5 +55,24 @@ describe('prefs', () => {
     expect(() => writePref('k', null)).not.toThrow();
     expect(() => saveJsonPref('k', [1])).not.toThrow();
     expect(loadJsonPref('k', (raw) => raw, 'fallback')).toBe('fallback');
+  });
+});
+
+describe('forgetPrefsStartingWith', () => {
+  it('forgets every cached collaborator name and nothing else', () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    rememberNames('acct-1', 'design-a', [{ account: 'u2', name: 'Priya Rao' }]);
+    rememberNames('acct-1', 'design-b', [{ account: 'u3', name: 'Ben Okafor' }]);
+    writePref('fathom.theme', 'dark');
+    expect(loadNames('acct-1', 'design-a').get('u2')).toBe('Priya Rao');
+    forgetPrefsStartingWith(NAMES_PREFIX);
+    expect(loadNames('acct-1', 'design-a').size).toBe(0);
+    expect(loadNames('acct-1', 'design-b').size).toBe(0);
+    expect(readPref('fathom.theme')).toBe('dark');
+  });
+
+  it('does not throw when storage is refused', () => {
+    vi.stubGlobal('localStorage', refusingStorage());
+    expect(() => forgetPrefsStartingWith(NAMES_PREFIX)).not.toThrow();
   });
 });

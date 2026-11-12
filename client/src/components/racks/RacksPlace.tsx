@@ -56,7 +56,8 @@ import { looksLikeFacts } from '../../document/facts';
 import { looksLikeMacTable } from '../../document/hosts';
 import { looksLikeNeighbours } from '../../document/neighbours';
 import type { PastePlatform } from '../../engine/frames';
-import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
+import { devicePlatform, pastePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
+import { READ_AS_PASTE } from '../reading/store';
 import { countsOfCapture, pastedNotice } from '../paste/pastedNotice';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
@@ -72,7 +73,6 @@ import {
   loadCableGroupsState,
   migratedOrDefaultCableGroupsState,
   resolveStoredGroups,
-  saveCableGroupsState,
   withAllCablesShown,
   withCableHidden,
   withCableShown,
@@ -80,6 +80,7 @@ import {
   type StoredCableGroupsState,
 } from '../drawing/cableGroups';
 import { CableGroupsPopover } from '../drawing/CableGroupsPopover';
+import { loadCableView, peekCableView, storeCableView } from '../drawing/cableViewStore';
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { layerWords } from '../drawing/layerLabels';
@@ -99,6 +100,7 @@ import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
 import { routingMarks, tableLit, tableNames } from '../drawing/routingLens';
+import { linksMarks } from '../drawing/linksLens';
 import { RoutingContext, type RoutingApi } from '../drawing/RoutingTab';
 import { TracePanel } from '../trace/TracePanel';
 import { useTraceElsewhere } from '../trace/traceElsewhere';
@@ -881,6 +883,8 @@ export function RacksPlace(props: RacksPlaceProps) {
   const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
   // The Routing lens (sign-off r101): routed against switched, on the same boxes.
   const routing = useMemo(() => (shellProps.lens === 'routing' ? routingMarks(doc, displayView) : undefined), [shellProps.lens, doc, displayView]);
+  // The Links lens (r109): VLAN colours, hollow trunks and weight by speed, drawn in the Diagram look.
+  const links = useMemo(() => (shellProps.lens === 'links' && look === 'diagram' ? linksMarks(doc, displayView) : undefined), [shellProps.lens, look, doc, displayView]);
   // The Routing lens's table picker (r101): one table lit, the rest faded; a trace walks in it.
   const [pickedTable, setPickedTable] = useState<string | null>(null);
   const tableChoice = useMemo(() => {
@@ -898,19 +902,20 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
   const vpns = useMemo(() => (doc != null && layerOn(layers, 'vpns') ? listOverlays(doc) : undefined), [doc, layers]);
 
-  // The Cables list. `cableGroupsState`'s own initial value is read from
-  // storage synchronously (never a placeholder that then flashes every
-  // cable): the lazy `useState` initialiser runs before the first render,
-  // and the only case it cannot cover — nothing stored yet, needing the
-  // real `view` to pick a default type list — starts at the empty state,
-  // which draws exactly the same as that default (every group unticked)
-  // until the effect below replaces it.
+  // The Cables list, each person's own per design. With an organisation it lives on the server
+  // (sign-off r114, `cableViewStore.ts`); the first render draws the memory copy when there is one
+  // (switching back to a design), else the empty state, which draws exactly what the default
+  // (every group unticked) draws. Nothing is written until the server has answered, so a default
+  // never overwrites a list saved from another browser.
   const EMPTY_CABLE_GROUPS_STATE: StoredCableGroupsState = { groups: [], none: false, hiddenCableIds: [] };
+  const cableOrg = session.organisationId ?? null;
   const [cableGroupsDesignId, setCableGroupsDesignId] = useState(designId);
   const [cableGroupsState, setCableGroupsStateRaw] = useState<StoredCableGroupsState>(
-    () => loadCableGroupsState(designId) ?? EMPTY_CABLE_GROUPS_STATE,
+    () => peekCableView(cableOrg, designId) ?? EMPTY_CABLE_GROUPS_STATE,
   );
-  const [cableGroupsNeedsDefault, setCableGroupsNeedsDefault] = useState(() => loadCableGroupsState(designId) == null);
+  const [cableGroupsNeedsDefault, setCableGroupsNeedsDefault] = useState(() => peekCableView(cableOrg, designId) == null);
+  const [cableViewReady, setCableViewReady] = useState(cableOrg === null);
+  const [cableViewOnServer, setCableViewOnServer] = useState(false);
 
   // Switching design without remounting this component: reset during
   // render, the moment the prop itself changes, rather than one render
@@ -918,24 +923,53 @@ export function RacksPlace(props: RacksPlaceProps) {
   // docs give for a prop-keyed reset.
   if (designId !== cableGroupsDesignId) {
     setCableGroupsDesignId(designId);
-    const stored = loadCableGroupsState(designId);
-    setCableGroupsStateRaw(stored ?? EMPTY_CABLE_GROUPS_STATE);
-    setCableGroupsNeedsDefault(stored == null);
+    const known = peekCableView(cableOrg, designId);
+    setCableGroupsStateRaw(known ?? EMPTY_CABLE_GROUPS_STATE);
+    setCableGroupsNeedsDefault(known == null);
+    setCableViewReady(cableOrg === null);
   }
 
   useEffect(() => {
-    if (!cableGroupsNeedsDefault || doc == null) return;
+    if (cableOrg === null) {
+      setCableViewOnServer(false);
+      setCableViewReady(true);
+      return;
+    }
+    let live = true;
+    void loadCableView(cableOrg, designId).then(({ state, server }) => {
+      if (!live) return;
+      setCableViewOnServer(server);
+      if (state) setCableGroupsStateRaw(state);
+      setCableGroupsNeedsDefault(state == null);
+      setCableViewReady(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, [cableOrg, designId]);
+
+  const persistCableGroups = useCallback(
+    (next: StoredCableGroupsState) => {
+      if (cableViewReady) storeCableView(cableOrg, designId, next, cableViewOnServer);
+    },
+    [cableViewReady, cableOrg, designId, cableViewOnServer],
+  );
+
+  useEffect(() => {
+    if (!cableGroupsNeedsDefault || !cableViewReady || doc == null) return;
     const initial = migratedOrDefaultCableGroupsState(displayView);
     setCableGroupsStateRaw(initial);
-    saveCableGroupsState(designId, initial);
+    persistCableGroups(initial);
     setCableGroupsNeedsDefault(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `displayView` is read fresh at the one moment this runs (doc arriving, or nothing stored for this design); it is not meant to re-run on every later view change.
-  }, [doc, designId, cableGroupsNeedsDefault]);
+  }, [doc, designId, cableGroupsNeedsDefault, cableViewReady]);
 
-  // Two tabs open on the same design: another tab's own save fires a
-  // `storage` event in this one: take its state rather than keep drawing a
-  // filter this tab's own click never made.
+  // Two tabs open on the same design, kept in this browser: another tab's
+  // own save fires a `storage` event in this one: take its state rather
+  // than keep drawing a filter this tab's own click never made. A list on
+  // the server is read afresh when the design opens.
   useEffect(() => {
+    if (cableViewOnServer) return;
     const key = cableGroupsStorageKey(designId);
     function onStorage(event: StorageEvent): void {
       if (event.key !== key) return;
@@ -944,14 +978,14 @@ export function RacksPlace(props: RacksPlaceProps) {
     }
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [designId]);
+  }, [designId, cableViewOnServer]);
 
   const setCableGroupsState = useCallback(
     (next: StoredCableGroupsState) => {
       setCableGroupsStateRaw(next);
-      saveCableGroupsState(designId, next);
+      persistCableGroups(next);
     },
-    [designId],
+    [persistCableGroups],
   );
 
   // A hidden id whose cable no longer exists anywhere in the design drops
@@ -972,9 +1006,9 @@ export function RacksPlace(props: RacksPlaceProps) {
   useEffect(() => {
     if (effectiveCableGroupsState !== cableGroupsState) {
       setCableGroupsStateRaw(effectiveCableGroupsState);
-      saveCableGroupsState(designId, effectiveCableGroupsState);
+      persistCableGroups(effectiveCableGroupsState);
     }
-  }, [effectiveCableGroupsState, cableGroupsState, designId]);
+  }, [effectiveCableGroupsState, cableGroupsState, persistCableGroups]);
 
   const tickedCableGroups = useMemo(
     () => resolvedCableGroupRows.filter((r) => r.stored.on).map((r) => r.resolved),
@@ -1496,6 +1530,17 @@ export function RacksPlace(props: RacksPlaceProps) {
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
   }, [canDraw, doc, startPaste]);
+  // A configuration read over SSH, compared with the drawing through the same paste reader and card (ADR-0082 §4.7).
+  useEffect(() => {
+    if (!canDraw || doc == null) return;
+    const onRead = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: unknown; platform?: unknown }>).detail;
+      if (typeof detail?.text !== 'string' || !worthReading(detail.text)) return;
+      startPaste(detail.text, pastePlatform(typeof detail.platform === 'string' ? detail.platform : null) ?? undefined);
+    };
+    window.addEventListener(READ_AS_PASTE, onRead);
+    return () => window.removeEventListener(READ_AS_PASTE, onRead);
+  }, [canDraw, doc, startPaste]);
 
   const jotOrigin = useMemo(() => (jot ? originOf(realView, jot.id, jot.origin) : { x: 0, y: 0 }), [jot, realView]);
   const jotPlateList = useMemo(() => (jot ? jotPlates(realView, jot.id, jotOrigin) : null), [jot, realView, jotOrigin]);
@@ -1534,8 +1579,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   // The owner's ticked ideas (schema 0.20): drag hand-typed ports on their plate, and faceplate
-  // templates kept in this browser per account. Every write is one undo step through `freeWrite`.
-  const faceplateTemplates = useFaceplateTemplates(accountId);
+  // templates, one shared list per organisation on the server (sign-off r114). Every write to the
+  // design is one undo step through `freeWrite`.
+  const templateOwner = useMemo(() => ({ organisationId: session.organisationId ?? null, accountId }), [session.organisationId, accountId]);
+  const faceplateTemplates = useFaceplateTemplates(templateOwner);
   // A pinned note's byline names whoever this client can name: you, and the people here live.
   const ownInitials = shellProps.account?.initials;
   const livePeople = session.live.people;
@@ -2303,6 +2350,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           overlays={vpns}
           routing={routing}
           table={tableChoice}
+          links={links}
         />
       ) : (
         <Drawing
@@ -2378,6 +2426,14 @@ export function RacksPlace(props: RacksPlaceProps) {
           onRedo={shellProps.onRedo}
         />
       )}
+      {doc != null && look === 'rack' && shellProps.lens === 'links' ? (
+        <div className="drawing-lens-key" data-testid="links-lens-rack-note">
+          <span>The Links lens draws in the Diagram look</span>
+          <button type="button" className="drawing-lens-key__go" onClick={() => changeLook('diagram')}>
+            Show Diagram
+          </button>
+        </div>
+      ) : null}
       {shelfOpen != null && doc != null ? (
         <ShelfRoom
           key={shelfOpen}
@@ -2418,7 +2474,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           renderInsideStop={renderInsideStop}
           onPlacePorts={canDraw ? handlePlacePorts : undefined}
           onResetPorts={canDraw ? handleResetPorts : undefined}
-          templateOwner={accountId}
+          templateOwner={templateOwner}
           onApplyTemplate={canDraw ? handleApplyTemplate : undefined}
         />
       ) : null}

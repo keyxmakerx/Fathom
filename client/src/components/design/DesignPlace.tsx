@@ -66,13 +66,13 @@ import { presenceViewOf } from './liveSession';
 import { recordDesignOpen, recordDeviceOpen } from '../home/recent';
 import { canStageFirmwareFor } from '../home/capabilities';
 import { loadResume, patchResume } from './resume';
-import { useDesignSession } from './useDesignSession';
+import { describeError, useDesignSession } from './useDesignSession';
 import { LearnContext } from '../learn/context';
 import { LearnOverlay } from '../learn/LearnOverlay';
 import { useLearnApi } from '../learn/useLearnApi';
 import { LessonPanel, type LessonTraceAsk } from '../lessons/LessonPanel';
 import { fromDesignLesson, lesson as lessonById, loadRuns, runForDesign, saveRun, type LessonRun } from '../lessons/lessonModel';
-import { LessonBuilder } from '../lessons/LessonBuilder';
+import { LessonBuilder, type PublishedLesson } from '../lessons/LessonBuilder';
 import { publishedCopy, publishedLesson } from '../../document/lessons';
 import { createDesign, renameDesign } from '../../api/designs';
 import { writePlain } from '../../document/plain';
@@ -521,15 +521,20 @@ export function DesignPlace(props: DesignPlaceProps) {
   const [builderOpen, setBuilderOpen] = useState(false);
   const isLessonCopy = lessonRun != null || lessonInDoc != null;
   const publishLesson = useCallback(
-    async (lessonId: string): Promise<string> => {
+    async (lessonId: string): Promise<PublishedLesson> => {
       const current = session.doc;
       if (current == null) throw new Error('No design is open.');
       const copy = publishedCopy(current, lessonId, { sourceDesign: designId, actor: accountId ?? undefined });
       const title = publishedLesson(copy)?.title ?? 'Lesson';
       const made = await createDesign(organisationId, scopeId, writePlain(copy));
       const name = `Lesson: ${title}`;
-      await renameDesign(organisationId, made.designId, name).catch(() => undefined);
-      return name;
+      try {
+        await renameDesign(organisationId, made.designId, name);
+        return { name, nameError: null };
+      } catch (error) {
+        // The copy is made either way; say that it is untitled rather than claim the name.
+        return { name, nameError: describeError(error) };
+      }
     },
     [session.doc, designId, accountId, organisationId, scopeId],
   );
@@ -964,6 +969,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     onRedo: handleRedo,
     onPrint: openPrintPanel,
     onHistory: doc != null ? () => toggleHistory() : undefined,
+    onShortcuts: () => setShortcutsOpen(true),
     historyOpen,
     // Offered to stewards only; the server refuses anyone else regardless.
     onShare: capability === 'steward' ? () => setSharing(true) : undefined,

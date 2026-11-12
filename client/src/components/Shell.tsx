@@ -56,6 +56,7 @@ export function Shell({
   onPrint,
   onShare,
   onHistory,
+  onShortcuts,
   historyOpen,
   account,
   editor,
@@ -279,6 +280,7 @@ export function Shell({
         onRedo={onRedo}
         onPrint={onPrint}
         onShare={onShare}
+        onShortcuts={onShortcuts}
         account={account}
         viewOnly={viewOnly}
         barExtra={barExtra}

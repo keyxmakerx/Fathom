@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** prose brought up to main (b23b646) on 2026-10-31. Test counts are not kept here: read them off a real run.
+**Last confirmed:** prose brought up to main (9fbbfd5) on 2026-11-09; the newest entries are from 2026-11-03. Test counts are not kept here: read them off a real run.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -14,7 +14,7 @@ deliberately. The schema is real and enforced; read counts off `fathom-schema-ch
 
 **Paste, eight platforms (engine).** The wasm shell holds every dictionary at once, keyed by platform
 (Junos SRX, Junos EX, EdgeOS, OPNsense, and the four below with front ends of their own). The paste
-frame and the "Which device is this from?" picker name the first four only. A paste names its platform (frame flag byte, bits 1-3) or the
+frame and the "Which device is this from?" picker name all ten (2026-11-09). A paste names its platform (frame flag byte, bits 1-4) or the
 engine detects it from lines only one dictionary binds; unsure is `ERR_PLATFORM_CHOICE` with the
 candidates, never a guess. `OP_REDACT_TEXT` runs every set-form dictionary. A paste into a device reads as that
 device's platform; otherwise, when the engine cannot tell, the card asks "Which device is this from?" once.
@@ -291,6 +291,12 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   stages wait for a sign-off by the stage's power and never by the opener or a worker; a send-back
   restarts its lane from the target stage; answers follow decision 16. A job's `holds` (a device or a
   `port` field) counts as busy from when it is ready until the order closes. No screens yet.
+- **Faceplate templates and Cables lists on the server (migration 0076, sign-off r114; 2026-11-09,
+  draft).** `faceplate_templates.rs`: one shared list per organisation, name, role and ports sealed
+  under the organisation content key; anyone with `draw` saves, the maker or a Steward removes; at
+  most 200. `cable_views.rs`: each person's own Cables list per design, sealed, 64 KB at most, read
+  only by its owner. Neither is a design field or writes a chain entry. The browser sends up what it
+  kept before, once, and clears its copy; with no organisation it keeps them as before.
 - **Orders on the server (ADR-0084 piece 2's server half; migration 0075; 2026-11-03).**
   `orders.rs` keeps order types (a Steward's, each save a new version, slugs matched to standing
   teams) and orders (any member opens one; W- numbers from the shared work counter). An order's
@@ -611,6 +617,8 @@ focus styles stay inside the app, so a password manager's own controls keep thei
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
   Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.
+  Inventory › Tags (r111) lists every tag with its count, empty ones last as Not used, and renames or
+  deletes one (one undoable change); suggestions and cable groups skip tags nothing carries.
 
 **Saves, designs, scopes** (ADR-0054). A save names its base version; a stale base is refused naming both
 numbers and nothing is written (the wash offers Reload). Draw can create a design, a steward of the parent
@@ -643,7 +651,9 @@ kind, docs on maintenance plans.
 opens a side panel with the device's chain as a checklist (power, neighbours, link, port, address, gateway)
 answered OK / Not OK / Can't tell, with Why? cards, an optional typed note, where the answers point and Also
 affected. Plan a fix makes and opens a plan; Save as an issue puts it in the device's history and the
-Inventory's Issues list (an Issue page per record). A read holder sees saved issues only; the server refuses
+Inventory's Issues list (an Issue page per record). A saved, open issue can be picked up where it stopped
+(r110): the checklist comes back with its answers, and each answer then saves to the issue as one undo step,
+moving its "where the answers point" sentence with it. A read holder sees saved issues only; the server refuses
 a credential in issue text. Logic: `components/troubleshoot/`, `document/issues.ts`,
 `drawing/troubleMarks.ts`. Checked by `scripts/drive-troubleshoot.mjs`.
 
@@ -718,8 +728,8 @@ A store's bin label opens its page (Print bin label there); a Scan button fills 
 Not yet: door labels (rooms). Drive: `scripts/drive-phone.mjs`.
 
 **Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
-VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Per browser and design, never
-saved; both looks. Quick search also finds cables, VLANs and containers by name or tag.
+VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Each person's own per design,
+on the server and sealed (migration 0076, sign-off r114; draft), never in the design; both looks. Quick search also finds cables, VLANs and containers by name or tag.
 
 **Show menu** (#110, #121, #123). Layers on the drawing: Checks (on by default), Addresses, VLANs, Docs,
 Maintenance, Tags. Device style for the Diagram look: Boxes or Icons (outline router, switch, firewall,
@@ -766,6 +776,14 @@ Tailscale's `tskey-` keys (detector `key-prefix`, source Tailscale "Key prefixes
 dashed spoke to each, a two-member VPN as one dashed arc with its name, and each member's VPN address under its
 box; a badge opens a card with range, members, exit node and routes. Not yet: pasting `tailscale status` or
 `netbird status`, and the Rack look. `scripts/drive-vpns.mjs` drives it.
+
+**Links lens on the canvas** (sign-off r109, borrowed from homelab-diagram's grammar in Fathom's theme; no
+schema change). With the Links lens lit, the Diagram look draws an access line in its VLAN's colour
+(`--vlan-1` to `--vlan-6` in `design/tokens.css`, then they repeat), a line carrying more than one VLAN hollow
+(ink with a page core), and every line's weight by the slower end's `Interface.speed` (none set draws the
+copper weight). A Networks key sits bottom left. Boxes are never coloured. In the Rack look the lens says it
+draws in the Diagram look and offers to switch. `components/drawing/linksLens.ts`;
+`scripts/drive-links-lens.mjs` drives it. Nothing yet sets `Interface.speed` by hand (r109 item 5).
 
 **Routing lens on the canvas** (sign-off r101, option A; no schema change). With the Routing lens lit, the
 Diagram look writes on the same boxes: a device that routes says `ROUTES · n TABLES`, a VLAN gateway says

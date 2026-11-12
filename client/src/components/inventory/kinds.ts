@@ -25,7 +25,7 @@ import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './
 import type { Place, PlaceIndex } from './placeIndex';
 import type { FacetSpec } from './rowQuery';
 
-export type Kind = 'devices' | 'ports' | 'parts' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'models' | 'firmware' | 'passwords' | 'issues' | 'everywhere';
+export type Kind = 'devices' | 'ports' | 'parts' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'models' | 'firmware' | 'passwords' | 'issues' | 'tags' | 'everywhere';
 /** The side list's kinds in quiet groups. Docs and Maintenance are not built, so not listed. Issues has its own body. */
 export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string }>> = [
   [
@@ -35,6 +35,8 @@ export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string
     { key: 'racks', label: 'Racks' },
     { key: 'cables', label: 'Cables' },
     { key: 'models', label: 'Models' },
+    // Sign-offs r111: every tag in the design, where one is renamed or deleted. Its own body.
+    { key: 'tags', label: 'Tags' },
   ],
   [
     { key: 'networks', label: 'Networks' },
@@ -66,6 +68,7 @@ const ONE: Partial<Record<Kind, string>> = {
   addresses: 'address',
   passwords: 'password',
   issues: 'issue',
+  tags: 'tag',
 };
 
 /** A kind's word in running text, for n rows: "1 device", "3 VLANs", "No VLANs yet". */
@@ -244,6 +247,7 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
   ],
   networks: [],
   issues: [],
+  tags: [],
   firmware: [],
   passwords: [],
   everywhere: [],
@@ -849,10 +853,6 @@ export function applyCellEdits(
     if (good.length > 0) working = setFieldValues(working, good, ctx.defs, opts);
   }
   return { doc: working, refused, changed };
-}
-
-export function kindOfNode(id: string): string {
-  return parseNodeId(id).kind;
 }
 
 export { whereText };

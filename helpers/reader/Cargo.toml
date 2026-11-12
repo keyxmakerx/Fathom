@@ -7,8 +7,8 @@
 # answers the server over one Unix socket (README.md here).
 #
 # SNMPv3 is Fathom's own encoder on RustCrypto pieces (r87 question 1 A): HMAC with SHA-1 or
-# SHA-2, AES-128 in CFB mode, and the operating system's random source for the AES salt. SSH
-# (russh 0.65.0 on ring) comes in the next part, with its records in deps/decisions/.
+# SHA-2, AES-128 in CFB mode, and the operating system's random source for the AES salt.
+# SSH is russh on ring, with the redaction gate run here before any output leaves (ADR-0082 §4.2).
 [workspace]
 
 [package]
@@ -27,7 +27,16 @@ sha1 = "=0.11.0"
 sha2 = "=0.11.1"
 aes = "=0.9.3"
 cfb-mode = "=0.9.1"
-getrandom = "=0.3.4"
+getrandom = "=0.4.3"
+# SSH (r87 question 2 A): russh on ring (0.65.1, the security release after the 0.65.0 measured
+# for r87), able to check RSA host keys; no compression,
+# no aws-lc-rs. tokio is the runtime russh already brings; the reader runs one current-thread
+# runtime per SSH job.
+russh = { version = "=0.65.1", default-features = false, features = ["ring", "rsa"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time"] }
+# The redaction gate (ADR-0082 §4.2): Fathom's own crate, by path, with no external dependency
+# (crates/fathom-ingest/Cargo.toml), so it adds nothing to this lockfile's closure.
+fathom-ingest = { path = "../../crates/fathom-ingest" }
 
 [profile.release]
 panic = "abort"

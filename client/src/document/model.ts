@@ -556,6 +556,29 @@ function parseIpv4(s: string): [number, number, number, number] {
   return octets as [number, number, number, number];
 }
 
+/** Whether `s` is an IPv4 address exactly as Rust's `std::net::Ipv4Addr`
+ * reads it -- the one IPv4 rule every browser-side check uses, so the browser
+ * never writes an address the engine then refuses. */
+export function isCanonicalIpv4(s: string): boolean {
+  try {
+    parseIpv4(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `s` as a 32-bit number, or undefined when it is not a canonical IPv4
+ * address (see [`isCanonicalIpv4`]). */
+export function ipv4Number(s: string): number | undefined {
+  try {
+    const o = parseIpv4(s);
+    return ((o[0] * 256 + o[1]) * 256 + o[2]) * 256 + o[3];
+  } catch {
+    return undefined;
+  }
+}
+
 function formatIpv4(o: readonly [number, number, number, number]): string {
   return o.join('.');
 }

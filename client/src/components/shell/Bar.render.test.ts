@@ -49,6 +49,16 @@ describe('Bar — what is present where', () => {
     }
   });
 
+  it('the round "?" beside the account square opens the shortcuts sheet, only when it is offered', () => {
+    expect(renderToStaticMarkup(createElement(Bar, BASE))).not.toContain('data-testid="shell-shortcuts"');
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, onShortcuts: () => {} }));
+    expect(markup).toContain('data-testid="shell-shortcuts"');
+    expect(markup).toContain('aria-label="Keyboard shortcuts"');
+    expect(markup).toContain('title="Keyboard shortcuts (?)"');
+    // It sits just before the account square.
+    expect(markup.indexOf('shell-shortcuts-btn')).toBeLessThan(markup.indexOf('class="shell-account"'));
+  });
+
   it('with nothing open (Home, Admin), and no design opened this session: no view names, no Undo, no Redo', () => {
     const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: null, work: { on: false, onOpen: () => {} } }));
     for (const name of ['Diagram', 'Canvas', 'Inventory', 'Sheet']) expect(markup).not.toContain(`>${name}<`);

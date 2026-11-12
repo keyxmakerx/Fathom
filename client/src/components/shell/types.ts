@@ -119,6 +119,8 @@ export interface ShellProps {
   onHistory?: () => void;
   /** History is open: the button reads as on. */
   historyOpen?: boolean;
+  /** The round "?" beside the account square: opens the keyboard shortcuts sheet. */
+  onShortcuts?: () => void;
 
   /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
    * `menu` rows, then the theme switch and Sign out. */

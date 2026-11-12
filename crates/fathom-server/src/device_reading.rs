@@ -6,16 +6,19 @@
 //! 1. **Who and where.** The person can draw on the design; reading is on for the organisation
 //!    and allowed by the server; the device's management address, read from the design itself and
 //!    never from the request, is inside a range a Steward listed ([`crate::device_read`]).
-//! 2. **Which agent.** Before any login is sent, the SNMPv3 agent at that address has a confirmed
-//!    engine id: confirmed for this one device by someone typing its last 8 characters, or for a
-//!    whole range by a Steward (r90 "keys": A). An agent nobody confirmed is only asked who it is.
-//! 3. **Which login.** A vault login Fathom may use (Mode B), ticked read-only, an SNMP login
-//!    that names its authentication; marked on the device, or the login the Steward set for the
-//!    range (r90 "logins": A). Opening it files `vault_read` with purpose `read`.
+//! 2. **Which agent.** Before any login is sent, what answers at that address is confirmed: the
+//!    SNMPv3 agent's engine id, or the SSH server's host key (ADR-0082 §4.4). Confirmed for this
+//!    one device by someone typing its last 8 characters, or for a whole range by a Steward (r90
+//!    "keys": A). Something nobody confirmed is only asked who it is, and sent no login.
+//! 3. **Which login.** A vault login Fathom may use (Mode B), ticked read-only: for SNMP an SNMP
+//!    login that names its authentication, for SSH a login; marked on the device, or the login
+//!    the Steward set for the range (r90 "logins": A). Opening it files `vault_read` with purpose
+//!    `read`.
 //! 4. **The reader reads**, outside the database transaction, and answers.
 //! 5. **Through the gate, then sealed.** Every string the device answered passes the redaction
 //!    gate's detector ([`fathom_ingest::redact::looks_like_credential_bare`]) before it is
-//!    stored or sent on (CLAUDE.md rule 4). The answer is sealed under a key of its own and one
+//!    stored or sent on (CLAUDE.md rule 4); SSH text has already been through the whole gate in
+//!    the reader, and is checked again here line by line. The answer is sealed under a key of its own and one
 //!    `device_read_done` entry is filed with its SHA-256.
 //!
 //! Nothing here acts on what was read. The differences from the drawing are worked out in the
@@ -44,6 +47,40 @@ pub const DEVICE_PURPOSES: [&str; 4] = ["system", "inventory", "interfaces", "ll
 /// MAC and ARP, with what decides which ports are edge ports: the interfaces and the LLDP
 /// neighbours, read in the same pass so the filter uses one moment's facts.
 pub const MACARP_PURPOSES: [&str; 4] = ["interfaces", "lldp", "mac", "arp"];
+
+/// How a device is read. Each has its own confirmed identity at an address: an SNMPv3 agent's
+/// engine id, an SSH server's host key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Protocol {
+    Snmp,
+    Ssh,
+}
+
+impl Protocol {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Protocol::Snmp => "snmp",
+            Protocol::Ssh => "ssh",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "snmp" => Some(Protocol::Snmp),
+            "ssh" => Some(Protocol::Ssh),
+            _ => None,
+        }
+    }
+
+    /// The protocol a reading's kind is read with: `config` over SSH, the rest over SNMP.
+    pub fn of_kind(kind: &str) -> Self {
+        if kind == "config" {
+            Protocol::Ssh
+        } else {
+            Protocol::Snmp
+        }
+    }
+}
 
 /// How many readings of each kind a device keeps (r90: the latest plus what changed).
 pub const KEEP: i64 = 10;
@@ -125,9 +162,16 @@ impl ReadingKeys {
         }
     }
 
-    /// The row key for an address: an HMAC, so the address is never in the clear.
-    fn address_mac(&self, address: IpAddr) -> Vec<u8> {
-        crypto::mac(self.address.expose(), canonical_ip(address).as_bytes()).to_vec()
+    /// The row key for an address: an HMAC, so the address is never in the clear. An SSH host
+    /// key's row is keyed apart from the SNMP agent's at the same address (an SNMP row keeps the
+    /// key it had before SSH existed).
+    fn address_mac(&self, protocol: Protocol, address: IpAddr) -> Vec<u8> {
+        let ip = canonical_ip(address);
+        let what = match protocol {
+            Protocol::Snmp => ip,
+            Protocol::Ssh => format!("ssh|{ip}"),
+        };
+        crypto::mac(self.address.expose(), what.as_bytes()).to_vec()
     }
 
     fn field_mac(&self, design: &str, element: &str, field: &str) -> Vec<u8> {
@@ -210,6 +254,11 @@ pub struct Target {
     pub element: String,
     pub address: IpAddr,
     pub range: Range,
+    /// The device's platform (`schema/platforms.yaml`), which picks the SSH reader's fixed
+    /// commands: as the design says, or for a device the design names none for (drawn by hand),
+    /// the one the person chose for this read. Every list holds only `show` commands, so a wrong
+    /// choice reads nothing it should not; it reads nothing useful, and says so.
+    pub platform: Option<String>,
 }
 
 /// The design's folder, or not found.
@@ -247,9 +296,12 @@ pub async fn require(
     }
 }
 
-/// The device's management address, from the design's head. The request never names it, so
-/// nobody can have one device's reading filed under another.
-pub fn management_address(plain: &[u8], element: &str) -> Result<String, &'static str> {
+/// The device's management address and platform, from the design's head. The request never
+/// names the address, so nobody can have one device's reading filed under another.
+pub fn management_address(
+    plain: &[u8],
+    element: &str,
+) -> Result<(String, Option<String>), &'static str> {
     use fathom_ir::generated::ir_types::{DeviceField, NodeKind};
     let graph = fathom_workspace::read_plain(plain).map_err(|_| "the design could not be read")?;
     let snap = graph
@@ -275,7 +327,15 @@ pub fn management_address(plain: &[u8], element: &str) -> Result<String, &'stati
     if value.is_empty() {
         return Err("the device has no management address; add one on Details › Management");
     }
-    Ok(value)
+    let platform = node
+        .fields
+        .iter()
+        .find(|f| f.key == DeviceField::Platform.key())
+        .and_then(|f| match &f.value {
+            Some(Json::Str(v)) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        });
+    Ok((value, platform))
 }
 
 /// Steps 1 of a read: the person, the switches, the address, the range.
@@ -304,7 +364,8 @@ pub async fn target(
     let head = crate::designs::read_version_in_tx(tx, auth, None, design_id, Some(scope), None)
         .await
         .map_err(|_| VaultError::Corrupt("the design's head"))?;
-    let text = management_address(&head.payload, element).map_err(VaultError::NotAllowed)?;
+    let (text, platform) =
+        management_address(&head.payload, element).map_err(VaultError::NotAllowed)?;
     let bare = text.split('/').next().unwrap_or("");
     let address: IpAddr = bare.parse().map_err(|_| {
         VaultError::NotAllowed("the device's management address is not an IP address")
@@ -318,6 +379,7 @@ pub async fn target(
         element: element.to_string(),
         address,
         range,
+        platform,
     })
 }
 
@@ -325,29 +387,48 @@ pub async fn target(
 // 2. Which agent
 // ---------------------------------------------------------------------------
 
-/// An agent as the store holds it.
+/// What answered at an address, as the store holds it: an SNMPv3 agent's engine id or an SSH
+/// server's host key fingerprint.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Engine {
+pub struct Identity {
+    pub protocol: Protocol,
     pub state: String,
     pub address: String,
-    pub engine_id: String,
-    /// The id that was approved before, for a `changed` one.
+    /// The engine id (lower-case hex) or the host key's fingerprint (`SHA256:` and base64).
+    pub value: String,
+    /// An SSH host key's algorithm, such as `ssh-ed25519`.
+    pub key_type: Option<String>,
+    /// The value that was approved before, for a `changed` one.
     pub previous: Option<String>,
     pub design: String,
     pub element: String,
     pub seen_at_ms: i64,
     pub approved_by: Option<String>,
+    /// Whether the person who confirmed it was a Steward then. Sealed with the rest, so a row
+    /// edited in the database cannot claim it.
+    pub by_steward: bool,
 }
 
-impl Engine {
+impl Identity {
+    /// The sealed body. An SNMP agent's keeps the shape it had before SSH (`engineId`).
     fn body(&self) -> Json {
-        obj(vec![
+        let mut fields = vec![
             ("address", s(&self.address)),
             ("design", s(&self.design)),
             ("element", s(&self.element)),
-            ("engineId", s(&self.engine_id)),
             ("previous", self.previous.as_deref().map_or(Json::Null, s)),
-        ])
+        ];
+        if self.by_steward {
+            fields.push(("bySteward", Json::Bool(true)));
+        }
+        match self.protocol {
+            Protocol::Snmp => fields.push(("engineId", s(&self.value))),
+            Protocol::Ssh => {
+                fields.push(("hostKey", s(&self.value)));
+                fields.push(("keyType", self.key_type.as_deref().map_or(Json::Null, s)));
+            }
+        }
+        obj(fields)
     }
 
     pub fn to_json(&self) -> Json {
@@ -355,6 +436,7 @@ impl Engine {
             Json::Obj(m) => m,
             _ => BTreeMap::new(),
         };
+        m.insert("protocol".into(), s(self.protocol.as_str()));
         m.insert("state".into(), s(&self.state));
         m.insert("seenAt".into(), Json::Int(self.seen_at_ms));
         m.insert(
@@ -365,12 +447,14 @@ impl Engine {
     }
 }
 
-fn engine_from_row(
+fn identity_from_row(
     keys: &ReadingKeys,
     organisation: &str,
     row: &tokio_postgres::Row,
-) -> Result<Engine, VaultError> {
+) -> Result<Identity, VaultError> {
     let mac: Vec<u8> = row.get("address_mac");
+    let protocol = Protocol::parse(row.get::<_, &str>("protocol"))
+        .ok_or(VaultError::Corrupt("an identity row's protocol"))?;
     let body = keys.open(
         row.get("key_epoch"),
         &row.get::<_, Vec<u8>>("sealed"),
@@ -378,69 +462,81 @@ fn engine_from_row(
         &aad("engines", &[organisation, &crate::crypto::hex(&mac)]),
     )?;
     let Json::Obj(m) = body else {
-        return Err(VaultError::Corrupt("an engine row"));
+        return Err(VaultError::Corrupt("an identity row"));
     };
     let get = |k: &str| match m.get(k) {
         Some(Json::Str(v)) => Ok(v.clone()),
-        _ => Err(VaultError::Corrupt("an engine row")),
+        _ => Err(VaultError::Corrupt("an identity row")),
     };
-    Ok(Engine {
+    let opt = |k: &str| match m.get(k) {
+        Some(Json::Str(v)) => Some(v.clone()),
+        _ => None,
+    };
+    Ok(Identity {
+        protocol,
         state: row.get("state"),
         address: get("address")?,
-        engine_id: get("engineId")?,
-        previous: match m.get("previous") {
-            Some(Json::Str(p)) => Some(p.clone()),
-            _ => None,
-        },
+        value: get(match protocol {
+            Protocol::Snmp => "engineId",
+            Protocol::Ssh => "hostKey",
+        })?,
+        key_type: opt("keyType"),
+        previous: opt("previous"),
         design: get("design")?,
         element: get("element")?,
         seen_at_ms: row.get("seen_ms"),
         approved_by: row.get("approved_by"),
+        by_steward: matches!(m.get("bySteward"), Some(Json::Bool(true))),
     })
 }
 
-const ENGINE_COLUMNS: &str = "address_mac, state, key_epoch, sealed, nonce, approved_by, \
-    (extract(epoch from seen_at) * 1000)::bigint AS seen_ms";
+const IDENTITY_COLUMNS: &str = "address_mac, protocol, state, key_epoch, sealed, nonce, \
+    approved_by, (extract(epoch from seen_at) * 1000)::bigint AS seen_ms";
 
-/// The agent on record for an address, if any.
-pub async fn engine_at(
+/// What is on record as answering at an address over `protocol`, if anything.
+pub async fn identity_at(
     tx: &Transaction<'_>,
     keys: &ReadingKeys,
     organisation: &str,
+    protocol: Protocol,
     address: IpAddr,
-) -> Result<Option<Engine>, VaultError> {
+) -> Result<Option<Identity>, VaultError> {
     let row = tx
         .query_opt(
             &format!(
-                "SELECT {ENGINE_COLUMNS} FROM device_read_engines \
-                  WHERE organisation_id = $1 AND address_mac = $2 FOR UPDATE"
+                "SELECT {IDENTITY_COLUMNS} FROM device_read_engines \
+                  WHERE organisation_id = $1 AND address_mac = $2 AND protocol = $3 FOR UPDATE"
             ),
-            &[&organisation, &keys.address_mac(address)],
+            &[
+                &organisation,
+                &keys.address_mac(protocol, address),
+                &protocol.as_str(),
+            ],
         )
         .await?;
-    row.map(|r| engine_from_row(keys, organisation, &r))
+    row.map(|r| identity_from_row(keys, organisation, &r))
         .transpose()
 }
 
-async fn write_engine(
+async fn write_identity(
     tx: &Transaction<'_>,
     keys: &ReadingKeys,
     organisation: &str,
     actor: &str,
     address: IpAddr,
-    engine: &Engine,
+    identity: &Identity,
 ) -> Result<(), VaultError> {
-    let mac = keys.address_mac(address);
+    let mac = keys.address_mac(identity.protocol, address);
     let (sealed, nonce) = keys.seal(
-        &engine.body().to_canonical_bytes(),
+        &identity.body().to_canonical_bytes(),
         &aad("engines", &[organisation, &crate::crypto::hex(&mac)]),
     )?;
-    let approved = engine.state == "approved";
+    let approved = identity.state == "approved";
     tx.execute(
         "INSERT INTO device_read_engines \
-             (organisation_id, address_mac, state, key_epoch, sealed, nonce, seen_by, \
+             (organisation_id, address_mac, protocol, state, key_epoch, sealed, nonce, seen_by, \
               approved_by, approved_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, \
+         VALUES ($1, $2, $9, $3, $4, $5, $6, $7, \
                  CASE WHEN $8 THEN $7 ELSE NULL END, CASE WHEN $8 THEN now() ELSE NULL END) \
          ON CONFLICT (organisation_id, address_mac) DO UPDATE SET \
              state = EXCLUDED.state, key_epoch = EXCLUDED.key_epoch, sealed = EXCLUDED.sealed, \
@@ -451,49 +547,55 @@ async fn write_engine(
         &[
             &organisation,
             &mac,
-            &engine.state,
+            &identity.state,
             &keys.epoch,
             &sealed,
             &nonce,
             &actor,
             &approved,
+            &identity.protocol.as_str(),
         ],
     )
     .await?;
     Ok(())
 }
 
-/// Record what answered at an address. A new agent is `seen`; one that differs from the
-/// approved id is `changed`, keeping the approved id as `previous`; an approved agent that
-/// answers with its own id stays as it is.
+/// Record what answered at an address. A new one is `seen`; one that differs from the approved
+/// value is `changed`, keeping the approved value as `previous`; an approved one that answers
+/// with its own value stays as it is.
 pub async fn record_seen(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     keys: &ReadingKeys,
     target: &Target,
-    engine_id: &str,
-) -> Result<Engine, VaultError> {
+    protocol: Protocol,
+    value: &str,
+    key_type: Option<&str>,
+) -> Result<Identity, VaultError> {
     let organisation = auth.ctx.tenant().to_string();
     let actor = auth.ctx.actor().to_string();
-    let current = engine_at(tx, keys, &organisation, target.address).await?;
+    let current = identity_at(tx, keys, &organisation, protocol, target.address).await?;
     let (state, previous) = match &current {
-        Some(e) if e.state == "approved" && e.engine_id == engine_id => return Ok(e.clone()),
-        Some(e) if e.state == "approved" => ("changed", Some(e.engine_id.clone())),
+        Some(e) if e.state == "approved" && e.value == value => return Ok(e.clone()),
+        Some(e) if e.state == "approved" => ("changed", Some(e.value.clone())),
         Some(e) if e.state == "changed" => ("changed", e.previous.clone()),
         _ => ("seen", None),
     };
-    let engine = Engine {
+    let identity = Identity {
+        protocol,
         state: state.to_string(),
         address: canonical_ip(target.address),
-        engine_id: engine_id.to_string(),
+        value: value.to_string(),
+        key_type: key_type.map(str::to_string),
         previous,
         design: target.design.clone(),
         element: target.element.clone(),
         seen_at_ms: now_ms(),
         approved_by: None,
+        by_steward: false,
     };
-    write_engine(tx, keys, &organisation, &actor, target.address, &engine).await?;
-    Ok(engine)
+    write_identity(tx, keys, &organisation, &actor, target.address, &identity).await?;
+    Ok(identity)
 }
 
 /// An engine id as the reader writes it: lower-case hex, 10 to 64 characters (RFC 3411
@@ -506,45 +608,75 @@ pub fn engine_id_ok(id: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// Whether `typed` is the last 8 characters of `engine_id`, ignoring case and spaces.
-pub fn last_eight_match(engine_id: &str, typed: &str) -> bool {
-    let typed: String = typed
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect::<String>()
-        .to_ascii_lowercase();
-    typed.len() == 8 && engine_id.len() >= 8 && engine_id.ends_with(&typed)
+/// A host key fingerprint as the reader writes it, and as `ssh-keygen -l` prints one:
+/// `SHA256:` and 43 characters of unpadded base64 (a SHA-256 digest is 32 bytes).
+pub fn host_key_ok(fp: &str) -> bool {
+    fp.strip_prefix("SHA256:").is_some_and(|b64| {
+        b64.len() == 43
+            && b64
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+    })
 }
 
-/// Someone with Draw confirms one device's agent by typing the last 8 characters of its id.
+/// An SSH host key algorithm name as the reader writes it, such as `ssh-ed25519` or
+/// `ecdsa-sha2-nistp256`: short, and only letters, digits, `-`, `@` and `.`.
+pub fn key_type_ok(t: &str) -> bool {
+    (1..=64).contains(&t.len())
+        && t.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'@' | b'.'))
+}
+
+/// Whether `typed` is the last 8 characters of `value`, ignoring spaces. An engine id is hex,
+/// so its case is ignored; a host key fingerprint is base64, where case is part of the value.
+pub fn last_eight_match(protocol: Protocol, value: &str, typed: &str) -> bool {
+    let typed: String = typed.chars().filter(|c| !c.is_whitespace()).collect();
+    let typed = match protocol {
+        Protocol::Snmp => typed.to_ascii_lowercase(),
+        Protocol::Ssh => typed,
+    };
+    typed.chars().count() == 8 && value.len() >= 8 && value.ends_with(&typed)
+}
+
+/// Someone with Draw confirms what answers at one device by typing the last 8 characters of it.
 pub async fn approve_typed(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     keys: &ReadingKeys,
     target: &Target,
+    protocol: Protocol,
     typed: &str,
-) -> Result<Engine, VaultError> {
+) -> Result<Identity, VaultError> {
     let organisation = auth.ctx.tenant().to_string();
     let actor = auth.ctx.actor().to_string();
-    let Some(mut engine) = engine_at(tx, keys, &organisation, target.address).await? else {
+    let Some(mut identity) = identity_at(tx, keys, &organisation, protocol, target.address).await?
+    else {
         return Err(VaultError::NotAllowed(
             "nothing has answered at that address yet; press Read now to ask it",
         ));
     };
-    if engine.state == "approved" {
-        return Ok(engine);
+    // A Steward typing the characters of one a member confirmed makes it Steward-confirmed.
+    let steward = is_steward(tx, auth).await?;
+    if identity.state == "approved" && (identity.by_steward || !steward) {
+        return Ok(identity);
     }
-    if !last_eight_match(&engine.engine_id, typed) {
-        return Err(VaultError::NotAllowed(
-            "those are not the last 8 characters of the engine id the device gave",
-        ));
+    if !last_eight_match(protocol, &identity.value, typed) {
+        return Err(VaultError::NotAllowed(match protocol {
+            Protocol::Snmp => {
+                "those are not the last 8 characters of the engine id the device gave"
+            }
+            Protocol::Ssh => {
+                "those are not the last 8 characters of the host key the device gave; capitals count"
+            }
+        }));
     }
-    engine.state = "approved".to_string();
-    engine.previous = None;
-    engine.design = target.design.clone();
-    engine.element = target.element.clone();
-    engine.approved_by = Some(actor.clone());
-    write_engine(tx, keys, &organisation, &actor, target.address, &engine).await?;
+    identity.state = "approved".to_string();
+    identity.previous = None;
+    identity.design = target.design.clone();
+    identity.element = target.element.clone();
+    identity.approved_by = Some(actor.clone());
+    identity.by_steward = steward;
+    write_identity(tx, keys, &organisation, &actor, target.address, &identity).await?;
     chains::append_org(
         tx,
         auth.ring,
@@ -559,20 +691,25 @@ pub async fn approve_typed(
                 ("design", s(&target.design)),
                 ("element", s(&target.element)),
                 ("how", s("typed")),
+                ("protocol", s(protocol.as_str())),
             ],
         ),
     )
     .await?;
-    Ok(engine)
+    Ok(identity)
+}
+
+/// Whether the signed-in person is a Steward now.
+pub async fn is_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<bool, VaultError> {
+    let verified = grants::verify_authority_state(tx, auth).await?;
+    let mut check = StewardCheck::new();
+    Ok(!grants::steward_anchors(tx, auth, &verified, &mut check)
+        .await?
+        .is_empty())
 }
 
 async fn require_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(), VaultError> {
-    let verified = grants::verify_authority_state(tx, auth).await?;
-    let mut check = StewardCheck::new();
-    if grants::steward_anchors(tx, auth, &verified, &mut check)
-        .await?
-        .is_empty()
-    {
+    if !is_steward(tx, auth).await? {
         return Err(VaultError::NotAllowed(
             "only a Steward approves agents for a whole range",
         ));
@@ -580,18 +717,35 @@ async fn require_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(
     Ok(())
 }
 
-/// The Steward's list: every agent waiting for someone, newest first.
+/// What a person who is not a Steward is told when a range's login would go to a host key no
+/// Steward confirmed.
+pub const RANGE_LOGIN_NEEDS_A_STEWARD: &str = "this device would be read with the login set for its whole range, so a Steward confirms its SSH host key first: a Steward reads it once, or confirms it under Device reading";
+
+/// Whether this read must wait for a Steward. Over SSH the password itself is handed to
+/// whatever holds the host key (RFC 4252 §8), and a range's login is one the person reading
+/// need not hold. So it goes only to a host key a Steward confirmed; otherwise anyone who can
+/// draw could put a machine of their own at an address in the range, confirm its key
+/// themselves and be sent the password.
+pub fn range_login_waits_for_a_steward(
+    protocol: Protocol,
+    by_range: bool,
+    identity: Option<&Identity>,
+) -> bool {
+    protocol == Protocol::Ssh && by_range && !identity.is_some_and(|i| i.by_steward)
+}
+
+/// The Steward's list: every agent and host key waiting for someone, newest first.
 pub async fn waiting(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     keys: &ReadingKeys,
-) -> Result<Vec<Engine>, VaultError> {
+) -> Result<Vec<Identity>, VaultError> {
     require_steward(tx, auth).await?;
     let organisation = auth.ctx.tenant().to_string();
     let rows = tx
         .query(
             &format!(
-                "SELECT {ENGINE_COLUMNS} FROM device_read_engines \
+                "SELECT {IDENTITY_COLUMNS} FROM device_read_engines \
                   WHERE organisation_id = $1 AND state <> 'approved' \
                   ORDER BY seen_at DESC LIMIT 2000"
             ),
@@ -599,16 +753,18 @@ pub async fn waiting(
         )
         .await?;
     rows.iter()
-        .map(|r| engine_from_row(keys, &organisation, r))
+        .map(|r| identity_from_row(keys, &organisation, r))
         .collect()
 }
 
-/// A Steward approves agents in one batch, by address: one entry on the log for the batch (r90
-/// "log": A). A `changed` agent is approved only on its own, never with the rest (r100).
+/// A Steward approves agents or host keys in one batch, by address: one entry on the log for
+/// the batch (r90 "log": A). A `changed` one is approved only on its own, never with the rest
+/// (r100).
 pub async fn approve_batch(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     keys: &ReadingKeys,
+    protocol: Protocol,
     addresses: &[IpAddr],
 ) -> Result<usize, VaultError> {
     require_steward(tx, auth).await?;
@@ -619,25 +775,26 @@ pub async fn approve_batch(
     let actor = auth.ctx.actor().to_string();
     let mut found = Vec::with_capacity(addresses.len());
     for a in addresses {
-        let Some(e) = engine_at(tx, keys, &organisation, *a).await? else {
+        let Some(e) = identity_at(tx, keys, &organisation, protocol, *a).await? else {
             return Err(VaultError::NotFound);
         };
         if e.state == "changed" && addresses.len() > 1 {
             return Err(VaultError::NotAllowed(
-                "an agent whose id changed is approved on its own, never with the rest",
+                "one whose id or host key changed is approved on its own, never with the rest",
             ));
         }
         found.push((*a, e));
     }
     let mut count = 0;
     for (a, mut e) in found {
-        if e.state == "approved" {
+        if e.state == "approved" && e.by_steward {
             continue;
         }
         e.state = "approved".to_string();
         e.previous = None;
         e.approved_by = Some(actor.clone());
-        write_engine(tx, keys, &organisation, &actor, a, &e).await?;
+        e.by_steward = true;
+        write_identity(tx, keys, &organisation, &actor, a, &e).await?;
         count += 1;
     }
     if count > 0 {
@@ -653,6 +810,7 @@ pub async fn approve_batch(
                     ("actor", s(&actor)),
                     ("count", Json::Int(count as i64)),
                     ("how", s("range")),
+                    ("protocol", s(protocol.as_str())),
                 ],
             ),
         )
@@ -666,14 +824,15 @@ pub async fn approve_batch(
 // ---------------------------------------------------------------------------
 
 /// The login for this read: the one asked for, which the vault then checks; `by_range` when it
-/// is the login the Steward set for the device's range.
+/// is the login the Steward set for the device's range. Answers, over SNMP, its authentication.
 pub async fn open_login(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     fk: &FathomKey,
     target: &Target,
+    protocol: Protocol,
     login: &str,
-) -> Result<(UsedLogin, String), VaultError> {
+) -> Result<(UsedLogin, Option<String>), VaultError> {
     let by_range = target.range.login.as_deref() == Some(login);
     vault_fathom::use_login_to_read(
         tx,
@@ -683,6 +842,7 @@ pub async fn open_login(
         &target.design,
         &target.element,
         by_range,
+        protocol,
     )
     .await
 }
@@ -691,7 +851,7 @@ pub async fn open_login(
 // 4. The reader
 // ---------------------------------------------------------------------------
 
-/// The job the reader takes (`helpers/reader/src/lib.rs`, `snmp_read`): self-contained and
+/// The SNMP job the reader takes (`helpers/reader/src/lib.rs`, `snmp_read`): self-contained and
 /// versioned, so a reader elsewhere (ADR-0089) takes the same.
 pub fn job(target: &Target, purposes: &[&str], engine_id: Option<&str>) -> Json {
     obj(vec![
@@ -708,7 +868,43 @@ pub fn job(target: &Target, purposes: &[&str], engine_id: Option<&str>) -> Json 
     ])
 }
 
-/// The request, with the login in its own envelope. The caller drops it as soon as it is sent.
+/// The SSH platforms the reader has fixed commands for (`helpers/reader/src/commands.rs`). A
+/// device on another platform is not offered an SSH read.
+pub const SSH_PLATFORMS: [&str; 3] = ["junos-srx", "junos-ex", "eos"];
+
+/// The SSH job the reader takes (`ssh_read`). It names the platform, never a command: the
+/// reader holds the only list of what may run. Without a confirmed host key the reader learns
+/// the key, sends no login and runs nothing.
+pub fn ssh_job(target: &Target, platform: &str, host_key: Option<&str>) -> Json {
+    obj(vec![
+        ("version", Json::Int(1)),
+        ("device", s(&target.element)),
+        ("address", s(&canonical_ip(target.address))),
+        ("port", Json::Int(target.range.ssh_port as i64)),
+        ("ranges", Json::Arr(vec![s(&target.range.cidr())])),
+        ("platform", s(platform)),
+        ("hostKey", host_key.map_or(Json::Null, s)),
+    ])
+}
+
+/// The SSH request, with the login in its own envelope. The caller drops it once it is sent.
+pub fn ssh_request(job: Json, login: Option<&UsedLogin>) -> Json {
+    let mut m = BTreeMap::from([
+        ("op".to_string(), s("ssh_read")),
+        ("protocol".to_string(), Json::Int(PROTOCOL)),
+        ("job".to_string(), job),
+    ]);
+    if let Some(l) = login {
+        m.insert(
+            "login".to_string(),
+            obj(vec![("user", s(&l.user)), ("password", s(&l.password))]),
+        );
+    }
+    Json::Obj(m)
+}
+
+/// The SNMP request, with the login in its own envelope. The caller drops it as soon as it is
+/// sent.
 pub fn request(job: Json, login: Option<(&UsedLogin, &str)>) -> Json {
     let mut m = BTreeMap::from([
         ("op".to_string(), s("snmp_read")),
@@ -774,6 +970,66 @@ pub fn gate(v: &mut Json) -> usize {
     }
 }
 
+/// What a line the second check stopped reads as instead.
+pub const WITHHELD_LINE: &str = "[withheld: this line looked like it held a password]";
+
+/// The second check over SSH text, which the reader's gate has already been through: each line
+/// the detector reads as a credential is replaced by [`WITHHELD_LINE`]. A line is checked with
+/// the gate's own redaction markers taken out, since a marker is where a secret was destroyed,
+/// not a secret. Answers how many lines were withheld.
+pub fn gate_lines(text: &mut String) -> usize {
+    let mut withheld = 0;
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let unmarked: String = line
+            .split_whitespace()
+            .filter(|t| !(t.starts_with("<REDACTED:") && t.ends_with('>')))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if fathom_ingest::redact::looks_like_credential_bare(&unmarked) {
+            out.push_str(WITHHELD_LINE);
+            withheld += 1;
+        } else {
+            out.push_str(line);
+        }
+    }
+    *text = out;
+    withheld
+}
+
+/// The second check over an SSH reading: every output's text line by line, and every other
+/// string as [`gate`] checks it.
+fn gate_config(reading: &mut Json) -> usize {
+    let Json::Obj(r) = reading else {
+        return gate(reading);
+    };
+    let mut withheld = 0;
+    if let Some(Json::Arr(outputs)) = r.get_mut("outputs") {
+        for o in outputs.iter_mut() {
+            let Json::Obj(o) = o else {
+                withheld += gate(o);
+                continue;
+            };
+            for (k, v) in o.iter_mut() {
+                withheld += match (k.as_str(), v) {
+                    ("text", Json::Str(t)) => gate_lines(t),
+                    // The command is the reader's own fixed string; checked like any other.
+                    (_, v) => gate(v),
+                };
+            }
+        }
+    }
+    for (k, v) in r.iter_mut() {
+        if k != "outputs" {
+            withheld += gate(v);
+        }
+    }
+    withheld
+}
+
 /// SHA-256 over the canonical bytes, hex: what the reader computes over the same JSON.
 pub fn digest(v: &Json) -> String {
     crate::crypto::hex(&Sha256::digest(v.to_canonical_bytes()))
@@ -821,6 +1077,8 @@ pub fn kept(answer: &Json, kind: &str) -> Json {
     for k in [
         "outcome",
         "engineId",
+        "hostKey",
+        "platform",
         "incomplete",
         "failed",
         "durationMs",
@@ -844,7 +1102,11 @@ pub fn kept(answer: &Json, kind: &str) -> Json {
             }
         }
     }
-    let withheld = gate(&mut reading);
+    let withheld = if kind == "config" {
+        gate_config(&mut reading)
+    } else {
+        gate(&mut reading)
+    };
     out.insert("withheld".into(), Json::Int(withheld as i64));
     out.insert("digest".into(), s(&digest(&reading)));
     out.insert("reading".into(), reading);
@@ -971,7 +1233,8 @@ pub fn table_changes(newer: &Json, older: &Json) -> Json {
 
 /// Everything the Readings tab shows for one device: the latest reading in full, the earlier
 /// ones as a line each, the latest MAC and ARP tables with what changed since the one before,
-/// what was dismissed, and whether the agent is confirmed.
+/// the latest configuration read over SSH in full and the earlier ones as a line each, and what
+/// was dismissed.
 pub async fn panel(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -994,11 +1257,13 @@ pub async fn panel(
         .await?;
     let mut device: Vec<Json> = Vec::new();
     let mut macarp: Vec<Json> = Vec::new();
+    let mut config: Vec<Json> = Vec::new();
     for r in rows.iter() {
         let id: String = r.get(0);
         let kind: String = r.get(1);
         let latest_of_kind = match kind.as_str() {
             "device" => device.is_empty(),
+            "config" => config.is_empty(),
             _ => macarp.len() < 2,
         };
         let mut line = BTreeMap::from([
@@ -1025,6 +1290,7 @@ pub async fn panel(
         }
         match kind.as_str() {
             "device" => device.push(Json::Obj(line)),
+            "config" => config.push(Json::Obj(line)),
             _ => macarp.push(Json::Obj(line)),
         }
     }
@@ -1061,6 +1327,7 @@ pub async fn panel(
         ("readings", Json::Arr(device)),
         ("macArp", Json::Arr(macarp.into_iter().take(1).collect())),
         ("macArpChanges", changes),
+        ("configs", Json::Arr(config)),
         ("dismissed", Json::Arr(dismissed)),
     ]))
 }
@@ -1163,12 +1430,27 @@ mod tests {
 
     #[test]
     fn the_last_eight_must_be_typed_whole() {
+        let snmp = Protocol::Snmp;
         let id = "80000009030001c2b3d4e5f60";
-        assert!(last_eight_match(id, "3d4e5f60"));
-        assert!(last_eight_match(id, "3D4E 5F60"));
-        assert!(!last_eight_match(id, "d4e5f60"), "seven is not eight");
-        assert!(!last_eight_match(id, "2b3d4e5f"));
-        assert!(!last_eight_match(id, ""));
+        assert!(last_eight_match(snmp, id, "3d4e5f60"));
+        assert!(last_eight_match(snmp, id, "3D4E 5F60"));
+        assert!(!last_eight_match(snmp, id, "d4e5f60"), "seven is not eight");
+        assert!(!last_eight_match(snmp, id, "2b3d4e5f"));
+        assert!(!last_eight_match(snmp, id, ""));
+        // A host key is base64: case is part of it (the reader's test server's key, as
+        // `ssh-keygen -l` printed it).
+        let fp = "SHA256:/d1tvcieVX3qdA57VhyjGjMJOESBaYv/AxSs54GFg+0";
+        assert!(host_key_ok(fp));
+        assert!(last_eight_match(Protocol::Ssh, fp, "s54GFg+0"));
+        assert!(last_eight_match(Protocol::Ssh, fp, "s54G Fg+0"));
+        assert!(
+            !last_eight_match(Protocol::Ssh, fp, "S54GFG+0"),
+            "capitals count in a host key"
+        );
+        assert!(!host_key_ok("SHA256:short"));
+        assert!(!host_key_ok("MD5:aa:bb"));
+        assert!(key_type_ok("ssh-ed25519") && key_type_ok("ecdsa-sha2-nistp256"));
+        assert!(!key_type_ok("ssh ed25519"));
         assert!(engine_id_ok("80000009030001c2b3d4"));
         assert!(
             !engine_id_ok("80000009030001C2B3D4"),
@@ -1236,6 +1518,7 @@ mod tests {
             element: "dev-1".into(),
             address: "::ffff:10.20.0.14".parse().unwrap(),
             range: Range::parse("10.20.0.0/24", Some(1161), None).unwrap(),
+            platform: Some("junos-srx".into()),
         };
         let text =
             String::from_utf8(job(&target, &DEVICE_PURPOSES, Some("8000aa")).to_canonical_bytes())
@@ -1247,5 +1530,46 @@ mod tests {
         assert!(!String::from_utf8(no_login.to_canonical_bytes())
             .unwrap()
             .contains("login"));
+        // Over SSH: port 22 unless the range says otherwise, the platform, never a command.
+        let ssh = String::from_utf8(
+            ssh_request(ssh_job(&target, "junos-srx", None), None).to_canonical_bytes(),
+        )
+        .unwrap();
+        assert!(ssh.contains(r#""op":"ssh_read""#), "{ssh}");
+        assert!(ssh.contains(r#""port":22"#), "{ssh}");
+        assert!(ssh.contains(r#""platform":"junos-srx""#));
+        assert!(ssh.contains(r#""hostKey":null"#));
+        assert!(!ssh.contains("login") && !ssh.contains("show "));
+    }
+
+    /// Rule 2: what the reader answers for a real Junos read (the fake device's set-form, after
+    /// the reader's gate), and a line the reader's dictionary would not know, as a person might
+    /// type one into an `annotate` or a description on the device.
+    #[test]
+    fn the_second_check_keeps_gated_lines_and_withholds_a_password_the_reader_missed() {
+        let mut text = "set system host-name srx-lab\n\
+set system root-authentication encrypted-password <REDACTED:password>\n\
+set system login user ro-fathom class read-only\n\
+set interfaces ge-0/0/0 description \"enable secret cisco123\"\n\
+set interfaces ge-0/0/0 unit 0 family inet address 10.20.0.1/24\n"
+            .to_string();
+        assert_eq!(gate_lines(&mut text), 1, "{text}");
+        assert!(!text.contains("cisco123"), "{text}");
+        assert!(text.contains("set system host-name srx-lab"));
+        assert!(
+            text.contains("encrypted-password <REDACTED:password>"),
+            "a line the reader already gated is kept: {text}"
+        );
+        assert!(text.contains("10.20.0.1/24"));
+        assert!(text.contains(WITHHELD_LINE));
+
+        let answer = j(
+            r#"{"outcome":"read","hostKey":"SHA256:/d1tvcieVX3qdA57VhyjGjMJOESBaYv/AxSs54GFg+0","platform":"junos-srx","reading":{"outputs":[{"command":"show configuration | display set","text":"set system host-name a\nset snmp community s3cr3tR0 authorization read-only\n","drops":0,"incomplete":false,"exit":0}]}}"#,
+        );
+        let kept = kept(&answer, "config");
+        let text = String::from_utf8(kept.to_canonical_bytes()).unwrap();
+        assert!(!text.contains("s3cr3tR0"), "{text}");
+        assert!(text.contains(r#""withheld":1"#), "{text}");
+        assert!(text.contains(r#""hostKey":"SHA256:"#));
     }
 }

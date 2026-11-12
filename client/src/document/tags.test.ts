@@ -194,8 +194,10 @@ describe('untagObject', () => {
     const untagged = untagObject(tagged, deviceId, tagId, { actor: ACTOR, now: NOW + 1 });
     expect(tagsOf(untagged, deviceId)).toHaveLength(0);
     expect(findNode(untagged, tagId)!.absentSince).toBeUndefined();
-    // decision 7: the tag outlives its last use and is still offered.
-    expect(listTags(untagged).map((t) => t.name)).toEqual(['cameras']);
+    // decision 7 as amended by r111: the tag outlives its last use, but an
+    // empty tag is only listed when asked for (Inventory's Tags list).
+    expect(listTags(untagged)).toEqual([]);
+    expect(listTags(untagged, { includeEmpty: true }).map((t) => t.name)).toEqual(['cameras']);
   });
 
   it('refuses when the object does not carry that tag', () => {
@@ -530,8 +532,31 @@ describe('cascade on removing a tagged device', () => {
     expect(findNode(removed, deviceId)!.absentSince).toBe(NOW + 1);
     const tagId = tagsOf(tagged, deviceId)[0].tagId;
     expect(findNode(removed, tagId)!.absentSince).toBeUndefined();
-    expect(listTags(removed).map((t) => t.name)).toEqual(['cameras']);
-    expect(listTags(removed)[0].count).toBe(0);
+    expect(listTags(removed)).toEqual([]);
+    expect(listTags(removed, { includeEmpty: true })).toEqual([{ id: tagId, name: 'cameras', count: 0 }]);
+  });
+});
+
+describe('empty tags (r111, amending decision 7)', () => {
+  it('an empty tag is not offered, and tagging with its name again reuses the same node', () => {
+    const { doc, deviceId, portId } = deviceDoc();
+    const tagged = tagObject(doc, deviceId, 'cameras', { now: NOW });
+    const tagId = tagsOf(tagged, deviceId)[0].tagId;
+    const untagged = untagObject(tagged, deviceId, tagId, { now: NOW + 1 });
+    expect(listTags(untagged)).toEqual([]);
+    const again = tagObject(untagged, portId, 'Cameras', { now: NOW + 2 });
+    expect(tagNodeIds(again)).toEqual([tagId]);
+    expect(listTags(again)).toEqual([{ id: tagId, name: 'cameras', count: 1 }]);
+  });
+
+  it('removeTag deletes an empty tag, so it is gone even from the full list', () => {
+    const { doc, deviceId } = deviceDoc();
+    const tagged = tagObject(doc, deviceId, 'cameras', { now: NOW });
+    const tagId = tagsOf(tagged, deviceId)[0].tagId;
+    const untagged = untagObject(tagged, deviceId, tagId, { now: NOW + 1 });
+    const removed = removeTag(untagged, tagId, { actor: ACTOR, now: NOW + 2 });
+    expect(listTags(removed, { includeEmpty: true })).toEqual([]);
+    expect(tagNodeIds(removed)).toEqual([]);
   });
 });
 

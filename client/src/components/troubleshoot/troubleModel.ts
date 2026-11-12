@@ -2,7 +2,7 @@
 // the canvas, and the plan "Plan a fix" makes. No React. The draft is not in the document until it is saved.
 import type { Answer, DraftStep, Issue } from '../../document/issues';
 import { buildChain, alsoAffected, affectedLines, type ChainStep } from './chain';
-import { pointing, type PointStep, type Pointing } from './pointing';
+import { outcomeText, pointing, type PointStep, type Pointing } from './pointing';
 import type { Document } from '../../document/model';
 import type { Canon } from '../checks/checksModel';
 
@@ -12,6 +12,10 @@ export interface DraftStepState extends ChainStep {
   /** A real paste reached the note: it meets the gate when saved. */
   pasted: boolean;
   answeredAt: string;
+  /** The saved IssueStep this row writes to; '' until the draft is saved. */
+  stepId: string;
+  /** The note as the issue last held it, so a note being typed is not overwritten by a sync. */
+  savedNote: string;
 }
 
 export interface Draft {
@@ -21,7 +25,8 @@ export interface Draft {
   steps: DraftStepState[];
   /** The "Also affected" lines, read once when the session opens. */
   affected: string[];
-  /** Set once "Save as an issue" (or Plan a fix) has saved it: the steps are then read only. */
+  /** Set once "Save as an issue" (or Plan a fix) has saved it, or when a saved issue is continued: each answer
+   * then writes to the issue as it is given. */
   savedId: string | null;
   /** Opened from a plan (sign-off r73): the step, or null for a check after the work, and the words that sent it. */
   from: { stepId: string | null; said: string } | null;
@@ -38,7 +43,7 @@ export function startDraft(doc: Document, deviceId: string, now: number): Draft 
     deviceId,
     deviceName: chain.deviceName,
     openedAt: now,
-    steps: chain.steps.map((s) => ({ ...s, answer: 'unanswered', note: '', pasted: false, answeredAt: '' })),
+    steps: chain.steps.map((s) => ({ ...s, answer: 'unanswered', note: '', pasted: false, answeredAt: '', stepId: '', savedNote: '' })),
     affected: affectedLines(chain.deviceName, alsoAffected(doc, deviceId)),
     savedId: null,
     from: null,
@@ -62,13 +67,13 @@ export function answered(steps: readonly { answer: Answer }[]): number {
 }
 
 export function withAnswer(draft: Draft, index: number, answer: Answer, now: number): Draft {
-  if (draft.savedId !== null || index < 0 || index >= draft.steps.length) return draft;
+  if (index < 0 || index >= draft.steps.length) return draft;
   const steps = draft.steps.map((s, i) => (i === index ? { ...s, answer, answeredAt: answer === 'unanswered' ? '' : new Date(now).toISOString() } : s));
   return { ...draft, steps };
 }
 
 export function withNote(draft: Draft, index: number, note: string, pasted: boolean): Draft {
-  if (draft.savedId !== null || index < 0 || index >= draft.steps.length) return draft;
+  if (index < 0 || index >= draft.steps.length) return draft;
   return { ...draft, steps: draft.steps.map((s, i) => (i === index ? { ...s, note, pasted: s.pasted || pasted } : s)) };
 }
 
@@ -78,6 +83,56 @@ const pointSteps = (draft: Pick<Draft, 'steps'>): PointStep[] =>
 /** Where the answers so far point; null while nothing is answered. */
 export function pointOf(draft: Pick<Draft, 'steps'>): Pointing | null {
   return pointing(pointSteps(draft));
+}
+
+const FROM = 'From ';
+
+/** The sentence an issue keeps: where the answers point, after the plan's words that sent it here. */
+export function outcomeOf(draft: Pick<Draft, 'steps' | 'from'>): string {
+  const point = outcomeText(pointSteps(draft));
+  return draft.from ? `${FROM}${draft.from.said}\n${point}` : point;
+}
+
+/** A saved, open issue as a checklist again, to pick up where it stopped. Each saved step takes its Why?, How to
+ * check and suspects from the device's chain as the design is now, when a step there asks the same question; a step
+ * the design no longer asks keeps its own words and points at itself. */
+export function draftFromIssue(doc: Document, issue: Issue, now: number): Draft {
+  const chain = buildChain(doc, issue.deviceId);
+  const used = new Set<number>();
+  const steps: DraftStepState[] = issue.steps.map((s) => {
+    const at = chain.steps.findIndex((c, i) => !used.has(i) && c.topic === s.topic && c.question === s.question);
+    if (at !== -1) used.add(at);
+    const base: ChainStep =
+      at !== -1 ? chain.steps[at] : { topic: s.topic, question: s.question, detail: s.detail, targets: s.targets, why: [], how: [], known: false, suspects: [], tests: [] };
+    return { ...base, detail: s.detail, targets: s.targets, answer: s.answer, note: s.note, pasted: false, answeredAt: s.answeredAt, stepId: s.id, savedNote: s.note };
+  });
+  // The plan's words that sent it here lead the saved outcome; keep them.
+  const first = issue.outcome.split('\n')[0];
+  const from = issue.stepId !== '' || first.startsWith(FROM) ? { stepId: issue.stepId === '' ? null : issue.stepId, said: first.startsWith(FROM) ? first.slice(FROM.length) : '' } : null;
+  return {
+    deviceId: issue.deviceId,
+    deviceName: chain.deviceName,
+    openedAt: now,
+    steps,
+    affected: affectedLines(chain.deviceName, alsoAffected(doc, issue.deviceId)),
+    savedId: issue.id,
+    from: from && from.said !== '' ? from : null,
+  };
+}
+
+/** Brings a saved draft's answers in line with the issue (another editor, an undo). A note being typed is kept.
+ * The same draft comes back when nothing changed. */
+export function syncFromIssue(draft: Draft, issue: Issue): Draft {
+  let changed = false;
+  const steps = draft.steps.map((s, i) => {
+    const saved = issue.steps.find((x) => x.ordinal === i);
+    if (saved === undefined) return s;
+    const note = s.note === s.savedNote ? saved.note : s.note;
+    if (s.stepId === saved.id && s.answer === saved.answer && s.answeredAt === saved.answeredAt && s.note === note && s.savedNote === saved.note) return s;
+    changed = true;
+    return { ...s, stepId: saved.id, answer: saved.answer, answeredAt: saved.answeredAt, note, savedNote: saved.note };
+  });
+  return changed ? { ...draft, steps } : draft;
 }
 
 /** "nas-01 is down · 3 of 6" counting the open step; with none open, "· narrowed" or "· all answered". */

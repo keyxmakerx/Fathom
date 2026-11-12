@@ -245,23 +245,31 @@ function requireOpen(doc: Document, issueId: string): GraphNode {
 }
 
 export interface AnswerOptions extends Actor {
-  answer: Answer;
+  /** Left out: the answer stays as it is (a note alone). */
+  answer?: Answer;
   note?: string;
+  /** Where the answers now point (continuing a saved issue): replaces the outcome in the same undo step. */
+  outcome?: string;
   gate: TextGate;
 }
 
 /** Records the answer to a step of a saved, open issue. A new answer replaces the earlier one; a note is kept
- * until a new one is given. */
+ * until a new one is given. With `outcome`, the issue's sentence moves with the answers, in the same undo step. */
 export function answerStep(doc: Document, stepId: string, opts: AnswerOptions): Document {
-  requireOpen(doc, issueOf(doc, stepId));
-  if (!ANSWERS.includes(opts.answer)) throw new IssueRefusal('bad-answer', `"${opts.answer}" is not an answer`);
+  const issueId = issueOf(doc, stepId);
+  const issue = requireOpen(doc, issueId);
+  if (opts.answer !== undefined && !ANSWERS.includes(opts.answer)) throw new IssueRefusal('bad-answer', `"${opts.answer}" is not an answer`);
   const note = gated(opts.gate, opts.note, 'the note').trim();
+  const outcome = opts.outcome === undefined ? undefined : gated(opts.gate, opts.outcome, 'the outcome').trim();
   const now = opts.now ?? Date.now();
   const b = begin(doc, { actor: opts.actor, now });
-  setNodeField(b, stepId, 'IssueStep.answer', token(opts.answer));
+  if (opts.answer !== undefined) {
+    setNodeField(b, stepId, 'IssueStep.answer', token(opts.answer));
+    if (opts.answer !== 'unanswered') setNodeField(b, stepId, 'IssueStep.answered_at', text(new Date(now).toISOString()));
+  }
   if (note !== '') setNodeField(b, stepId, 'IssueStep.note', text(note));
-  if (opts.answer !== 'unanswered') setNodeField(b, stepId, 'IssueStep.answered_at', text(new Date(now).toISOString()));
-  return finish(b, 'answer step');
+  if (outcome !== undefined && outcome !== '' && outcome !== str(issue, 'Issue.outcome')) setNodeField(b, issueId, 'Issue.outcome', text(outcome));
+  return finish(b, opts.answer === undefined ? 'note on step' : 'answer step');
 }
 
 export interface CloseOptions extends Actor {

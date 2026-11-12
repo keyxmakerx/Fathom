@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { RightDock, type RightDockProps } from './RightDock';
+import { refocusAfterFold, RightDock, type RightDockProps } from './RightDock';
 
 const noop = () => {};
 function render(over: Partial<RightDockProps>): string {
@@ -109,5 +109,18 @@ describe('RightDock', () => {
 
   it('draws nothing where there is nothing to open', () => {
     expect(render({ trail: null, canOpenHistory: false })).toBe('');
+  });
+});
+
+describe('refocusAfterFold', () => {
+  const tabs = [{ id: 'checks' }, { id: 'down' }];
+  it("a side tab folded with focus inside: its own button takes focus", () => {
+    expect(refocusAfterFold('down', null, tabs, true)).toBe('down');
+  });
+  it('focus was not lost, another tab took the panel, or the tab went away: nothing moves', () => {
+    expect(refocusAfterFold('down', null, tabs, false)).toBeNull();
+    expect(refocusAfterFold('down', 'checks', tabs, true)).toBeNull();
+    expect(refocusAfterFold('down', null, [{ id: 'checks' }], true)).toBeNull();
+    expect(refocusAfterFold(null, null, tabs, true)).toBeNull();
   });
 });

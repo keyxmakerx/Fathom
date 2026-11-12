@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { Edge, Node } from '@xyflow/react';
 
-import { createIssue, readIssue, TYPED_AS_WRITTEN } from '../../document/issues';
+import { answerStep, createIssue, readIssue, TYPED_AS_WRITTEN } from '../../document/issues';
 import { buildCanon } from '../checks/checksModel';
 import { applyTrouble } from '../drawing/troubleMarks';
 import { DeviceIssues } from './DeviceIssues';
@@ -21,15 +21,18 @@ import {
   answerForKey,
   answered,
   canvasKeys,
+  draftFromIssue,
   firstOpen,
   fixSteps,
   headerText,
   historyLine,
   nextOpen,
+  outcomeOf,
   planFixState,
   planTitle,
   pointOf,
   startDraft,
+  syncFromIssue,
   toDraftSteps,
   troubleEscTarget,
   whenText,
@@ -72,9 +75,11 @@ function stub(over: Partial<TroubleController> = {}): TroubleController {
     openPlan: noop,
     start: () => true,
     openIssue: noop,
+    continueIssue: () => true,
     focusStep: noop,
     answer: noop,
     setNote: noop,
+    saveNote: async () => true,
     save: async () => true,
     planAFix: async () => true,
     markClosed: async () => true,
@@ -128,11 +133,11 @@ describe('the draft', () => {
     expect(draft.steps[2]).toMatchObject({ note: 'light is off', pasted: true });
   });
 
-  it('is read only once saved', () => {
+  it('keeps taking answers once saved: they then go to the issue as they are given', () => {
     const { draft } = drafted();
-    const locked = { ...draft, savedId: 'issue:X' };
-    expect(withAnswer(locked, 0, 'ok', NOW)).toBe(locked);
-    expect(withNote(locked, 0, 'x', false)).toBe(locked);
+    const saved = { ...draft, savedId: 'issue:X' };
+    expect(withAnswer(saved, 0, 'ok', NOW).steps[0].answer).toBe('ok');
+    expect(withNote(saved, 0, 'x', false).steps[0].note).toBe('x');
   });
 
   it('plans a fix only once an answer points at something, with one other step per suspect part', () => {
@@ -311,14 +316,15 @@ describe('the panel', () => {
     expect(html).toMatch(/<button[^>]*disabled[^>]*data-answer="ok"|<button[^>]*data-answer="ok"[^>]*disabled/);
   });
 
-  it('locks the steps once saved and offers Mark closed', () => {
+  it('keeps the steps answerable once saved and offers Mark closed', () => {
     const { draft } = drafted();
     const answeredDraft = withAnswer(draft, 0, 'ok', NOW);
     const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft: { ...answeredDraft, savedId: 'issue:X' }, focus: 1 }), besideChecks: false }));
-    expect(html).toContain("Saved to nas-01&#x27;s history.");
+    expect(html).toContain("Saved to nas-01&#x27;s history. Each answer now saves to it as you give it.");
     expect(html).toContain('Mark closed');
     expect(html).not.toContain('Save as an issue');
     expect(html).toMatch(/data-answer="ok"/);
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*data-answer="ok"/);
   });
 
   it('asks before throwing answers away', () => {
@@ -484,6 +490,68 @@ describe('the Issue page', () => {
     const html = renderToStaticMarkup(createElement(IssuesList, { doc, onShowOnCanvas: () => {} }));
     expect(html).toContain('tabindex="0"');
     expect(html).toContain('aria-label="Open nas-01 is down"');
+  });
+});
+
+describe('picking up a saved issue (r110, later)', () => {
+  function saved() {
+    const { draft, l } = drafted();
+    let d = withAnswer(withAnswer(draft, 0, 'ok', NOW), 1, 'ok', NOW);
+    d = withNote(d, 1, 'sw-02 answers ping', false);
+    const made = createIssue(l.doc, { deviceId: d.deviceId, title: 'nas-01 is down', author: 'KM', steps: toDraftSteps(d), outcome: outcomeOf(d), gate: TYPED_AS_WRITTEN, now: NOW });
+    return { doc: made.doc, issue: readIssue(made.doc, made.id), l };
+  }
+
+  it('turns the issue back into the checklist with its answers, notes and the chain\'s Why? and suspects', () => {
+    const { doc, issue } = saved();
+    const d = draftFromIssue(doc, issue, NOW);
+    expect(d.savedId).toBe(issue.id);
+    expect(d.deviceName).toBe('nas-01');
+    expect(d.steps.map((s) => s.answer)).toEqual(['ok', 'ok', 'unanswered', 'unanswered', 'unanswered', 'unanswered']);
+    expect(d.steps.map((s) => s.stepId)).toEqual(issue.steps.map((s) => s.id));
+    expect(d.steps[1]).toMatchObject({ note: 'sw-02 answers ping', savedNote: 'sw-02 answers ping' });
+    expect(firstOpen(d.steps)).toBe(2);
+    expect(d.steps[2].why.length).toBeGreaterThan(0);
+    // Answering on now points where a new session would.
+    const next = withAnswer(d, 2, 'not_ok', NOW);
+    expect(outcomeOf(next)).toBe('Your answers point at the cable or port 23 on sw-02.');
+  });
+
+  it('keeps a step the design no longer asks, in its own words, pointing at itself', () => {
+    const { doc, issue } = saved();
+    const changed = { ...issue, steps: issue.steps.map((s, i) => (i === 2 ? { ...s, question: 'Is the old patch lead in?' } : s)) };
+    const d = draftFromIssue(doc, changed, NOW);
+    expect(d.steps[2]).toMatchObject({ question: 'Is the old patch lead in?', why: [], suspects: [], known: false });
+    expect(outcomeOf(withAnswer(d, 2, 'not_ok', NOW))).toBe('Your answers point at this step, which Fathom has nothing recorded about.');
+  });
+
+  it('keeps the plan\'s words that sent it here at the head of the outcome', () => {
+    const { doc, issue } = saved();
+    const d = draftFromIssue(doc, { ...issue, outcome: 'From step 2 went differently: no link\nEverything Fathom can check looks fine so far.' }, NOW);
+    expect(d.from).toEqual({ stepId: null, said: 'step 2 went differently: no link' });
+    expect(outcomeOf(d).split('\n')[0]).toBe('From step 2 went differently: no link');
+  });
+
+  it('follows the issue when another editor answers, and keeps a note being typed', () => {
+    const { doc, issue } = saved();
+    let d = draftFromIssue(doc, issue, NOW);
+    expect(syncFromIssue(d, issue)).toBe(d);
+    d = withNote(d, 1, 'typing…', false);
+    const other = answerStep(doc, issue.steps[3].id, { answer: 'cant_tell', note: 'no access to the closet', gate: TYPED_AS_WRITTEN, now: NOW + 1000 });
+    const synced = syncFromIssue(d, readIssue(other, issue.id));
+    expect(synced.steps[3]).toMatchObject({ answer: 'cant_tell', note: 'no access to the closet' });
+    expect(synced.steps[1].note).toBe('typing…');
+  });
+
+  it('offers Pick up where it stopped on an open issue, Change an answer once all are answered, and nothing once closed', () => {
+    const { issue } = saved();
+    const panel = (i: typeof issue, canEdit = true) => renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ viewing: i, canEdit }), besideChecks: false }));
+    expect(panel(issue)).toContain('Pick up where it stopped');
+    expect(panel(issue)).toContain('2 of 6 answered');
+    const all = { ...issue, steps: issue.steps.map((s) => ({ ...s, answer: 'ok' as const })) };
+    expect(panel(all)).toContain('Change an answer');
+    expect(panel({ ...issue, stage: 'closed' })).not.toContain('Pick up where it stopped');
+    expect(panel(issue, false)).not.toContain('Pick up where it stopped');
   });
 });
 

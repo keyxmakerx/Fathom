@@ -334,3 +334,16 @@ describe('setPortConsoleBaud (schema 0.34, ADR-0080 decision 10)', () => {
     for (const bad of ['fast', '9600.5', '-9600', '10', '5000000']) expect(() => setPortConsoleBaud(doc, portId, bad)).toThrow(FieldValueError);
   });
 });
+
+describe('setDeviceField — platform (sign-off r108: a platform chosen for a configuration read)', () => {
+  it('sets Device.platform as the platform id', () => {
+    const { doc, deviceId } = docWithChassis();
+    const next = setDeviceField(doc, deviceId, 'platform', 'junos-srx', { now: NOW });
+    expect(findNode(next, deviceId)!.fields['Device.platform']).toMatchObject({ presence: 'set', value: 'junos-srx' });
+  });
+
+  it('refuses words that are not a platform id', () => {
+    const { doc, deviceId } = docWithChassis();
+    expect(() => setDeviceField(doc, deviceId, 'platform', 'Juniper SRX', { now: NOW })).toThrow(FieldValueError);
+  });
+});

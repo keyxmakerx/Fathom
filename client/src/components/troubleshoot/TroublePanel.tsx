@@ -54,7 +54,7 @@ function WhyCard({ step, onClose }: { step: { why: readonly string[]; question: 
 
 function AnswerButtons({ step, index, controller }: { step: DraftStepState; index: number; controller: TroubleController }) {
   const group = useRef<HTMLDivElement>(null);
-  const locked = !controller.canEdit || controller.draft?.savedId != null;
+  const locked = !controller.canEdit;
   // Left and Right move between the three; Enter or Space answers (a button's own keys).
   const onKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
@@ -89,7 +89,7 @@ function Note({ step, index, controller }: { step: DraftStepState; index: number
   const paste = usePasteMark();
   const area = useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = useState(step.note !== '');
-  const locked = !controller.canEdit || controller.draft?.savedId != null;
+  const locked = !controller.canEdit;
   if (locked && step.note === '') return null;
   if (!open) {
     return (
@@ -123,6 +123,9 @@ function Note({ step, index, controller }: { step: DraftStepState; index: number
         onPaste={(e) => {
           paste.onPaste(e);
           controller.setNote(index, step.note, true);
+        }}
+        onBlur={() => {
+          if (controller.draft?.savedId != null) void controller.saveNote(index);
         }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
@@ -266,7 +269,7 @@ function Footer({ draft, controller }: { draft: Draft; controller: TroubleContro
       )}
       {draft.savedId !== null ? (
         <p className="trouble-note-line" data-testid="trouble-saved">
-          Saved to {draft.deviceName}'s history.{' '}
+          Saved to {draft.deviceName}'s history. Each answer now saves to it as you give it.{' '}
           <button type="button" className="trouble-link" onClick={() => void controller.markClosed().then((ok) => ok && controller.close(true))}>
             Mark closed
           </button>
@@ -348,6 +351,7 @@ function SavedBody({ issue, controller }: { issue: Issue; controller: TroubleCon
       <p className="trouble-hint" data-testid="trouble-saved-head">
         Saved {whenText(issue.openedAt)}
         {issue.author !== '' ? ` by ${issue.author}` : ''} · {issue.stage}
+        {issue.stage === 'open' && ` · ${answered(issue.steps)} of ${issue.steps.length} answered`}
       </p>
       <ol className="trouble-steps trouble-steps--saved">
         {issue.steps.map((s) => (
@@ -370,6 +374,9 @@ function SavedBody({ issue, controller }: { issue: Issue; controller: TroubleCon
       )}
       {issue.stage === 'open' && controller.canEdit && (
         <p className="trouble-footer">
+          <button type="button" className="trouble-btn btn-main" onClick={() => controller.continueIssue(issue.id)} data-testid="trouble-continue">
+            {issue.steps.some((s) => s.answer === 'unanswered') ? 'Pick up where it stopped' : 'Change an answer'}
+          </button>
           <button type="button" className="trouble-btn" onClick={() => void controller.markClosed()} data-testid="trouble-close-issue">
             Mark closed
           </button>
@@ -402,6 +409,17 @@ export function TroublePanel({
       target?.focus({ preventScroll: true });
     }
   }, []);
+  // A saved issue picked up in a panel already open: the button that did it is gone, so the open step takes focus.
+  const session = draft?.openedAt ?? null;
+  const lastSession = useRef(session);
+  useEffect(() => {
+    if (session === lastSession.current) return;
+    lastSession.current = session;
+    const at = document.activeElement;
+    if (session != null && (at == null || at === document.body || !at.isConnected)) {
+      (body.current?.querySelector<HTMLElement>('[aria-current="step"]') ?? body.current)?.focus({ preventScroll: true });
+    }
+  }, [session]);
   // Folded with focus inside (Esc): the bar's Open button takes it, so focus is never left on the body.
   const openBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -413,7 +431,7 @@ export function TroublePanel({
   }, [controller.focus, controller.panelOpen]);
   // 1, 2, 3 answer the open step, anywhere in the panel but a typing field.
   const onKeyDown = (e: ReactKeyboardEvent<HTMLElement>) => {
-    if (draft == null || !controller.canEdit || draft.savedId !== null || controller.focus < 0) return;
+    if (draft == null || !controller.canEdit || controller.focus < 0) return;
     if (e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target as HTMLElement)) return;
     // A key on a later row is not an answer to the open step.
     const row = (e.target as HTMLElement).closest('li');

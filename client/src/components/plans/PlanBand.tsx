@@ -10,22 +10,6 @@ import type { PlansController } from './usePlansController';
 import '../drawing/plans-canvas.css';
 import './plans.css';
 
-/** The bar's "Plans": shows or hides the band. */
-export function PlansBarChip({ controller }: { controller: PlansController }) {
-  return (
-    <button
-      type="button"
-      className="shell-chip shell-chip--ink plans-bar-chip"
-      aria-pressed={controller.bandOpen}
-      title={controller.bandOpen ? 'Close the plans band' : 'Open a maintenance plan'}
-      onClick={() => controller.setBandOpen(!controller.bandOpen)}
-      data-testid="plans-chip"
-    >
-      Plans
-    </button>
-  );
-}
-
 /** Makes a plan; given `editing`, changes that plan's title and window instead (it is still being planned). */
 function NewPlanForm({ controller, onDone, editing }: { controller: PlansController; onDone: () => void; editing?: Plan }) {
   const id = useId();

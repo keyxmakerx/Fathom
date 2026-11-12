@@ -78,3 +78,26 @@ table.macs tr.hit td { background: var(--caution-wash); }
 .engines td.m { font-family: var(--mono); font-size: var(--t-mono); }
 .engines__foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; }
 .engines .chg { color: var(--danger); }
+
+/* The configuration read over SSH (ADR-0082 §4.1). */
+.reading-tab .config-out { display: flex; flex-direction: column; gap: 4px; }
+.reading-tab .config-out__cmd { font-size: var(--t-small); }
+.reading-tab .m { font-family: var(--mono); font-size: var(--t-mono); }
+.reading-tab .config-text {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  line-height: 1.45;
+  /* Long lines wrap, so a <REDACTED:...> marker at the end of one is never cut off. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.reading-tab .config-platform { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: var(--t-small); }
+.reading-tab .config-platform .lbl { color: var(--ink); }
+.reading-tab .opt-inline { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }

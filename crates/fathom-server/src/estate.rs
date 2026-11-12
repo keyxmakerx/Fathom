@@ -718,6 +718,28 @@ pub async fn replace_design(
     rows: &[Row],
 ) -> Result<(), String> {
     let db = |e: tokio_postgres::Error| e.to_string();
+    // One rebuild of a design at a time across every server: the scheduler that coalesces
+    // rebuilds is per process, and behind a load balancer two servers can rebuild one design
+    // at once. Held to the end of the caller's transaction.
+    tx.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        &[&format!("fathom estate index|{organisation}|{design}")],
+    )
+    .await
+    .map_err(db)?;
+    // A rebuild that read an older version than the one already indexed has nothing to add,
+    // and replacing would put the older rows back.
+    let built = tx
+        .query_opt(
+            "SELECT design_version FROM estate_built WHERE organisation_id = $1 AND design_id = $2",
+            &[&organisation, &design],
+        )
+        .await
+        .map_err(db)?
+        .map(|r| r.get::<_, i64>(0));
+    if built.is_some_and(|b| b > version) {
+        return Ok(());
+    }
     tx.execute(
         "DELETE FROM estate_rows WHERE organisation_id = $1 AND design_id = $2",
         &[&organisation, &design],
@@ -946,8 +968,18 @@ async fn open_rows(
     Ok(out)
 }
 
+/// How many of a term's entries [`search`] counts when choosing which word to start from. Enough to
+/// tell a rare word from a common one; counting further would cost what the choice saves.
+const RARITY_CAP: i64 = 10_000;
+
 /// Things matching every word of `query`, in the `designs` given, at most
 /// `limit`, ordered by design and then element.
+///
+/// Measured at 1,000,000 devices (ADR-0089 §8.4, `docs/SCALE.md`): the rarest word drives and
+/// stops at `limit`, each other word is one probe of the primary key, and `kind` is read from
+/// `estate_rows`, where it is in the clear. Grouping every entry of every word, as this did
+/// before, cost up to 15 s when a serial was asked for with the device filter, because every
+/// device carries the `kind:device` term.
 pub async fn search(
     tx: &Transaction<'_>,
     keys: &IndexKeys,
@@ -957,29 +989,53 @@ pub async fn search(
     kind: Option<&str>,
     limit: i64,
 ) -> Result<Vec<Hit>, String> {
-    let mut terms = query_terms(query);
-    if let Some(kind) = kind {
-        terms.push(format!("kind:{kind}"));
-    }
-    if terms.is_empty() || designs.is_empty() {
+    let limit = limit.clamp(1, 500);
+    let terms = query_terms(query);
+    if designs.is_empty() || (terms.is_empty() && kind.is_none()) {
         return Ok(Vec::new());
     }
-    let hashes: Vec<Vec<u8>> = terms.iter().map(|t| keys.term_hash(t)).collect();
+    if terms.is_empty() {
+        // A kind alone: the first page of that kind, in the same order.
+        return page(tx, keys, organisation, designs, kind, None, limit).await;
+    }
+    let mut hashes: Vec<Vec<u8>> = terms.iter().map(|t| keys.term_hash(t)).collect();
+    if hashes.len() > 1 {
+        let mut counted = Vec::with_capacity(hashes.len());
+        for hash in hashes.drain(..) {
+            let n: i64 = tx
+                .query_one(
+                    "SELECT count(*) FROM (SELECT 1 FROM estate_terms \
+                     WHERE organisation_id = $1 AND term = $2 LIMIT $3) AS s",
+                    &[&organisation, &hash, &RARITY_CAP],
+                )
+                .await
+                .map_err(|e| e.to_string())?
+                .get(0);
+            if n == 0 {
+                return Ok(Vec::new());
+            }
+            counted.push((n, hash));
+        }
+        counted.sort_by_key(|(n, _)| *n);
+        hashes = counted.into_iter().map(|(_, h)| h).collect();
+    }
+    let driver = hashes.remove(0);
     let rows = tx
         .query(
-            "SELECT design_id, element_id FROM estate_terms \
-             WHERE organisation_id = $1 AND term = ANY($2) AND design_id = ANY($3) \
-             GROUP BY design_id, element_id \
-             HAVING count(*) = $4 \
-             ORDER BY design_id, element_id \
-             LIMIT $5",
-            &[
-                &organisation,
-                &hashes,
-                &designs,
-                &(hashes.len() as i64),
-                &limit.clamp(1, 500),
-            ],
+            "SELECT t.design_id, t.element_id FROM estate_terms t \
+             WHERE t.organisation_id = $1 AND t.term = $2 AND t.design_id = ANY($3) \
+               AND ($4::text IS NULL OR EXISTS ( \
+                   SELECT 1 FROM estate_rows r WHERE r.organisation_id = t.organisation_id \
+                      AND r.design_id = t.design_id AND r.element_id = t.element_id \
+                      AND r.kind = $4)) \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM unnest($5::bytea[]) AS o(term) WHERE NOT EXISTS ( \
+                       SELECT 1 FROM estate_terms u WHERE u.organisation_id = t.organisation_id \
+                          AND u.term = o.term AND u.design_id = t.design_id \
+                          AND u.element_id = t.element_id)) \
+             ORDER BY t.design_id, t.element_id \
+             LIMIT $6",
+            &[&organisation, &driver, &designs, &kind, &hashes, &limit],
         )
         .await
         .map_err(|e| e.to_string())?;

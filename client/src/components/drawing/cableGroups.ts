@@ -124,7 +124,7 @@ function isStoredCableGroup(v: unknown): v is StoredCableGroup {
   return typeof r.on === 'boolean' && isCableGroupRef(r.ref);
 }
 
-function isStoredCableGroupsState(v: unknown): v is StoredCableGroupsState {
+export function isStoredCableGroupsState(v: unknown): v is StoredCableGroupsState {
   if (v == null || typeof v !== 'object') return false;
   const r = v as Record<string, unknown>;
   if (typeof r.none !== 'boolean') return false;

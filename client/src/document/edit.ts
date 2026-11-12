@@ -22,6 +22,7 @@ import {
   edgesIn,
   findNode,
   identifier,
+  isCanonicalIpv4,
   macAddress,
   replaceNode,
   requireFieldName,
@@ -85,13 +86,13 @@ export function isDeviceRole(s: string): s is DeviceRole {
 // address, the same shape `crates/fathom-ir/src/scalar.rs`'s `IpAddr` parses
 // via Rust's own `std::net::IpAddr::from_str`. Reimplemented here only as far
 // as refusing an obviously malformed address before it is ever written — the
-// canonical check is the engine's, not this browser's.
-const IPV4_RE = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+// canonical check is the engine's, not this browser's. IPv4 uses model.ts's
+// reader, which refuses leading zeros ("01.0.0.1") exactly as Rust does.
 const IPV6_RE =
   /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|::(ffff(:0{1,4})?:)?((25[0-5]|(2[0-4]|1?\d)?\d)\.){3}(25[0-5]|(2[0-4]|1?\d)?\d)|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1?\d)?\d)\.){3}(25[0-5]|(2[0-4]|1?\d)?\d))$/;
 
 export function isIpAddr(s: string): boolean {
-  return IPV4_RE.test(s) || IPV6_RE.test(s);
+  return isCanonicalIpv4(s) || IPV6_RE.test(s);
 }
 
 function identifierOrRefuse(field: string, value: string): FieldEntry['value'] {
@@ -143,12 +144,13 @@ function commitField(
   return withBatch(working, batch);
 }
 
-export type DeviceFieldKey = 'hostname' | 'role' | 'management_address' | 'os_version';
+export type DeviceFieldKey = 'hostname' | 'role' | 'management_address' | 'os_version' | 'platform';
 export type ChassisFieldKey = 'serial';
 
 /**
  * `Device.hostname` (`Identifier`), `Device.role` (the enum above) or
- * `Device.management_address` (`IpAddr`) or `Device.os_version` (`OsVersion`) on one `Device` node — pure, one
+ * `Device.management_address` (`IpAddr`), `Device.os_version` (`OsVersion`) or `Device.platform`
+ * (`PlatformId`, a key of `schema/platforms.yaml` such as `junos-srx`) on one `Device` node — pure, one
  * `Origin::Hand` batch, `value: null` clears the field (UI-SPEC "Absent is
  * drawn as absent": a cleared field is `presence: 'absent'`, never `""`).
  */
@@ -187,6 +189,13 @@ export function setDeviceField(
           throw new FieldValueError(wireKey, value, 'is not a version (write it as the device prints it, like 21.4R3-S5)');
         }
         encoded = text(value.trim());
+        break;
+      case 'platform':
+        // `PlatformId`: a lower-case key of schema/platforms.yaml, the same text a paste stamps.
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(value)) {
+          throw new FieldValueError(wireKey, value, 'is not a platform id (like junos-srx)');
+        }
+        encoded = text(value);
         break;
     }
   }

@@ -44,8 +44,8 @@
 # is documentation; the SHA is the pin. Every input used below was confirmed to
 # exist in that commit's action.yml rather than assumed from memory (ADR-0034).
 #
-# ci.yml still pins actions/checkout by tag. That is an inconsistency worth
-# closing, but it is a separate change to a separate gate and is not made here.
+# ci.yml pinned actions/checkout and upload-artifact by tag until 2026-11-02;
+# it now pins them by commit too, so every workflow in the repository does.
 #
 # ---------------------------------------------------------------------------
 # WHAT IS DELIBERATELY ABSENT

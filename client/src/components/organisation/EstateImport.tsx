@@ -19,6 +19,12 @@ export interface EstateImportProps {
   onClose: () => void;
 }
 
+/** Designs made but not named: they are untitled in Home, in the right folder. */
+const unnamedWords = (names: readonly string[]): string =>
+  names.length === 1
+    ? `“${names[0]}” was made but could not be named, so it is untitled in its folder. Rename it from Home.`
+    : `${names.length} designs were made but could not be named, so they are untitled in their folders: ${names.map((n) => `“${n}”`).join(', ')}. Rename them from Home.`;
+
 let engine: Promise<Engine> | null = null;
 const redact = async (text: string) => {
   engine ??= Engine.init();
@@ -63,6 +69,7 @@ export function EstateImport({ organisationId, scopes, designScopeIds, onImporte
   async function accept(p: EstatePlan) {
     setError(null);
     const made: { scopes: Scope[]; designs: DesignSummary[] } = { scopes: [], designs: [] };
+    const unnamed: string[] = [];
     const actor = getSession()?.accountId ?? '';
     try {
       for (const site of p.sites) {
@@ -83,15 +90,24 @@ export function EstateImport({ organisationId, scopes, designScopeIds, onImporte
           const doc = buildRacksDocument(where, loc.racks, { actor, now: Date.now() });
           const design = await createDesign(organisationId, folder.scopeId, writePlain(doc));
           const name = `${where} racks`;
-          await renameDesign(organisationId, design.designId, name).catch(() => undefined);
-          made.designs.push({ ...design, name });
+          try {
+            await renameDesign(organisationId, design.designId, name);
+            made.designs.push({ ...design, name });
+          } catch {
+            // The design is made either way; list it untitled and say so below, not under the name.
+            made.designs.push(design);
+            unnamed.push(name);
+          }
         }
       }
       const c = { sites: made.scopes.filter((s) => s.kind === 'network').length, buildings: made.scopes.filter((s) => s.kind === 'building').length };
       setDone(`Made ${plural(c.sites, 'site', 'sites')}, ${plural(c.buildings, 'building', 'buildings')} and ${plural(made.designs.length, 'design', 'designs')}. Open a design and use its Import to place the devices in these racks.`);
+      if (unnamed.length > 0) setError(unnamedWords(unnamed));
       setPlan(null);
     } catch (e) {
-      setError(`Stopped part way: ${e instanceof Error ? e.message : 'the server refused'}. What was made is kept and listed; importing the file again skips it.`);
+      setError(
+        `Stopped part way: ${e instanceof Error ? e.message : 'the server refused'}. What was made is kept and listed; importing the file again skips it.${unnamed.length > 0 ? ` ${unnamedWords(unnamed)}` : ''}`,
+      );
     }
     onImported(made);
     setBusy(null);

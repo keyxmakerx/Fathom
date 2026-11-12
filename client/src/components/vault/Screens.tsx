@@ -38,25 +38,38 @@ function useVaultActs(vault: Vault, organisationName: string, place: VaultPlace 
   const overview = vault.load.status === 'ready' ? vault.load.value : null;
 
   const afterUnlock = (o: VaultOverview) => {
-    // Keep the recovery sheet and replaced keys covering everything this person holds.
-    void coverWithCurrentKeys(vault.organisation, o)
-      .then((n) => {
-        if (n > 0) setNotice(`${n === 1 ? 'One login was' : `${n} logins were`} shared again so the recovery sheet and current keys cover ${n === 1 ? 'it' : 'them'}.`);
-        if (n > 0) vault.reload();
-      })
-      .catch(() => undefined)
+    // Each step's failure is said, not swallowed: a login the recovery sheet does not cover, or a
+    // breach check that did not run, is something the person needs to know.
+    void (async () => {
+      const said: string[] = [];
+      let changed = false;
+      // Keep the recovery sheet and replaced keys covering everything this person holds.
+      try {
+        const n = await coverWithCurrentKeys(vault.organisation, o);
+        if (n > 0) {
+          said.push(`${n === 1 ? 'One login was' : `${n} logins were`} shared again so the recovery sheet and current keys cover ${n === 1 ? 'it' : 'them'}.`);
+          changed = true;
+        }
+      } catch (e) {
+        said.push(`Could not share logins again so the recovery sheet and current keys cover them; lock and unlock to try again. ${describeError(e)}`);
+      }
       // Then the breach checks that are due, for the logins this person holds.
-      .then(() => runDueChecks(vault.organisation, o))
-      .then((r) => {
-        if (!r || r.checked === 0) return;
-        setNotice(
-          r.found.length > 0
-            ? `Checked ${r.checked} against the breach list. Found in a breach: ${r.found.join(', ')}. Change ${r.found.length === 1 ? 'it' : 'them'} on the device.`
-            : `Checked ${r.checked} against the breach list. None found.`,
-        );
-        vault.reload();
-      })
-      .catch(() => undefined);
+      try {
+        const r = await runDueChecks(vault.organisation, o);
+        if (r && r.checked > 0) {
+          said.push(
+            r.found.length > 0
+              ? `Checked ${r.checked} against the breach list. Found in a breach: ${r.found.join(', ')}. Change ${r.found.length === 1 ? 'it' : 'them'} on the device.`
+              : `Checked ${r.checked} against the breach list. None found.`,
+          );
+          changed = true;
+        }
+      } catch (e) {
+        said.push(`The breach checks that are due did not run. ${describeError(e)}`);
+      }
+      if (said.length > 0) setNotice(said.join(' '));
+      if (changed) vault.reload();
+    })();
   };
 
   /** Run `act` unlocked: asks for the passphrase first when locked. */

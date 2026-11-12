@@ -40,9 +40,10 @@ function chassisOf(doc: Document, device: string): string {
 function panel(over: Partial<ReadingPanel> = {}): ReadingPanel {
   return {
     readings: [
-      { id: 'r2', readBy: 'a', readByName: 'Key Maker', readAt: Date.now(), durationMs: 4200, incomplete: [], failed: [], macLeftOut: null, withheld: 0, reading },
-      { id: 'r1', readBy: 'b', readByName: 'Sam Ortiz', readAt: 1_790_000_000_000, durationMs: 3000, incomplete: [], failed: [], macLeftOut: null, withheld: 0, reading: null },
+      { id: 'r2', readBy: 'a', readByName: 'Key Maker', readAt: Date.now(), durationMs: 4200, incomplete: [], failed: [], macLeftOut: null, withheld: 0, hostKey: null, platform: null, reading },
+      { id: 'r1', readBy: 'b', readByName: 'Sam Ortiz', readAt: 1_790_000_000_000, durationMs: 3000, incomplete: [], failed: [], macLeftOut: null, withheld: 0, hostKey: null, platform: null, reading: null },
     ],
+    configs: [],
     macArp: null,
     macArpChanges: null,
     dismissed: [],
@@ -121,13 +122,121 @@ describe('device reading in the device panel (sign-off r100)', () => {
 
   it('says a refusal once, in words, with what to do', () => {
     const { doc, device } = estate();
-    const halt = { kind: 'failed' as const, code: 'engine_changed', message: 'x', engineId: '800000090300AAAA91A2B3C4', previous: '8000000903001C2B3D4E5F60', read: 'device' as const };
+    const halt = { kind: 'failed' as const, code: 'engine_changed', message: 'x', identity: { protocol: 'snmp' as const, value: '800000090300AAAA91A2B3C4', keyType: null }, previous: '8000000903001C2B3D4E5F60', read: 'device' as const };
     seedReading(DESIGN, device, { panel: { status: 'ready', value: panel() }, halt }, ORG, on);
     const place: ReadingPlace = { organisation: ORG, design: DESIGN, doc, canDraw: true, onEdit: () => undefined };
     const tab = render(place, createElement(ReadingsTab, { deviceId: device }));
     expect(tab).toContain("this isn&#x27;t the device Fathom read before");
     expect(tab).toContain('from …3D4E5F60 to …91A2B3C4');
     expect(tab).toContain('Confirm the new one');
+  });
+});
+
+describe('the configuration, read over SSH (ADR-0082 §4.1)', () => {
+  const FP = 'SHA256:/d1tvcieVX3qdA57VhyjGjMJOESBaYv/AxSs54GFg+0';
+  const config = {
+    id: 'c1',
+    readBy: 'a',
+    readByName: 'Key Maker',
+    readAt: Date.now(),
+    durationMs: 900,
+    incomplete: [],
+    failed: [],
+    macLeftOut: null,
+    withheld: 0,
+    hostKey: FP,
+    platform: 'junos-srx',
+    reading: {
+      outputs: [
+        {
+          command: 'show configuration | display set',
+          text: 'set system host-name srx-lab\nset system root-authentication encrypted-password <REDACTED:password>\n',
+          drops: 2,
+          incomplete: false,
+          exit: 0,
+        },
+      ],
+    },
+  };
+
+  // A device drawn by hand says no platform; the person chose Juniper SRX for this read.
+  const srx = estate;
+  const chosen = { sshPlatform: 'junos-srx' };
+
+  it('shows what was read, under which host key, with what the gate removed', () => {
+    const { doc, device } = srx();
+    seedReading(DESIGN, device, { ...chosen, panel: { status: 'ready', value: panel({ configs: [config, { ...config, id: 'c0', readAt: 1_790_000_000_000, reading: null }] }) } }, ORG, on);
+    const place: ReadingPlace = { organisation: ORG, design: DESIGN, doc, canDraw: true, onEdit: () => undefined };
+    const tab = render(place, createElement(ReadingsTab, { deviceId: device }));
+    expect(tab).toContain('over SSH <span class="read-ro">(read-only)</span>');
+    expect(tab).toContain('host key <span class="m">…s54GFg+0</span>');
+    expect(tab).toContain('2 passwords removed before it left the reader.');
+    expect(tab).toContain('show configuration | display set');
+    expect(tab).toContain('set system host-name srx-lab');
+    expect(tab).toContain('Compare with the drawing');
+    expect(tab).toContain('Read before');
+  });
+
+  it('counts a configuration read in the head and the tab, when the details were never read', () => {
+    const { doc, device } = srx();
+    seedReading(DESIGN, device, { panel: { status: 'ready', value: panel({ readings: [], configs: [config] }) } }, ORG, on);
+    const place: ReadingPlace = { organisation: ORG, design: DESIGN, doc, canDraw: true, onEdit: () => undefined };
+    const line = render(place, createElement(ReadLine, { deviceId: device }));
+    expect(line).not.toContain('Never read');
+    expect(line).toContain('by <b>Key Maker</b>');
+    const tab = render(place, createElement(ReadingsTab, { deviceId: device }));
+    expect(tab).not.toContain('Never read');
+    expect(tab).toContain('Its details haven&#x27;t been read yet.');
+  });
+
+  it('asks what a hand-drawn device is, then says which command runs before the first read', () => {
+    const { doc, device } = srx();
+    seedReading(DESIGN, device, { panel: { status: 'ready', value: panel() } }, ORG, on);
+    const place: ReadingPlace = { organisation: ORG, design: DESIGN, doc, canDraw: true, onEdit: () => undefined };
+    const ask = render(place, createElement(ReadingsTab, { deviceId: device }));
+    expect(ask).toContain('What is it?');
+    expect(ask).toContain('Juniper SRX');
+    expect(ask).toContain('Arista EOS');
+    expect(ask).not.toContain('data-testid="read-config"');
+
+    resetReadingStore();
+    seedReading(DESIGN, device, { ...chosen, panel: { status: 'ready', value: panel() } }, ORG, on);
+    const tab = render(place, createElement(ReadingsTab, { deviceId: device }));
+    expect(tab).toContain('runs only “show configuration | display set”');
+    // Held until the logins have loaded.
+    expect(tab).toMatch(/<button[^>]*disabled=""[^>]*data-testid="read-config"/);
+
+    // Someone who can't draw is not asked.
+    resetReadingStore();
+    seedReading(DESIGN, device, { panel: { status: 'ready', value: panel() } }, ORG, on);
+    const reader = render({ ...place, canDraw: false }, createElement(ReadingsTab, { deviceId: device }));
+    expect(reader).not.toContain('What is it?');
+    expect(reader).toContain('doesn&#x27;t say which it is yet');
+  });
+
+  it('says a changed host key, in its own case, and offers to confirm it', () => {
+    const { doc, device } = srx();
+    const halt = {
+      kind: 'failed' as const,
+      code: 'host_key_changed',
+      message: 'x',
+      identity: { protocol: 'ssh' as const, value: 'SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbC9', keyType: 'ssh-ed25519' },
+      previous: FP,
+      read: 'config' as const,
+    };
+    seedReading(DESIGN, device, { ...chosen, panel: { status: 'ready', value: panel() }, halt }, ORG, on);
+    const place: ReadingPlace = { organisation: ORG, design: DESIGN, doc, canDraw: true, onEdit: () => undefined };
+    const tab = render(place, createElement(ReadingsTab, { deviceId: device }));
+    expect(tab).toContain('Its SSH host key changed from …s54GFg+0 to …AAAAAbC9');
+    expect(tab).toContain('Confirm the new one');
+  });
+
+  it('offers only read-only logins over SSH, never an SNMP one', () => {
+    const e = (over: Partial<VaultEntry>): VaultEntry =>
+      ({ id: 'L1', name: 'srx-ro', kind: 'login', readOnly: true, snmpAuth: null, fathom: { state: 'on' }, usedOn: [{ design: DESIGN, element: 'dev' }], ...over }) as VaultEntry;
+    const list = usableLogins([e({}), e({ id: 'L2', kind: 'snmp', snmpAuth: 'sha256' }), e({ id: 'L3', readOnly: false })], DESIGN, 'dev', null, 'ssh');
+    expect(list.map((l) => l.entry.id)).toEqual(['L1']);
+    expect(usableLogins([e({})], DESIGN, 'dev', null).length).toBe(0);
   });
 });
 
@@ -169,5 +278,19 @@ describe('when Read now can be pressed', () => {
     expect(when(new Date(2026, 10, 2, 20, 14).getTime(), now)).toBe('today at 20:14');
     expect(when(new Date(2026, 10, 1, 9, 2).getTime(), now)).toBe('yesterday at 09:02');
     expect(when(new Date(2026, 9, 28, 16, 40).getTime(), now)).toBe('28 Oct at 16:40');
+  });
+});
+
+describe('how an identity is shown for typing', () => {
+  it('ends a host key on two whole groups of four, the 8 a person types', async () => {
+    const { identityGroups, lastEight, typedEight } = await import('../../api/deviceRead');
+    const fp = { protocol: 'ssh' as const, value: 'SHA256:/d1tvcieVX3qdA57VhyjGjMJOESBaYv/AxSs54GFg+0', keyType: 'ssh-ed25519' };
+    const g = identityGroups(fp);
+    expect(g.slice(-2).join('')).toBe(lastEight('ssh', fp.value));
+    expect(g.slice(1).join('')).toBe(fp.value.slice(7));
+    expect(typedEight('ssh', 's54G Fg+0')).toBe('s54GFg+0');
+    expect(typedEight('snmp', '3d4e 5f60')).toBe('3D4E5F60');
+    const engine = identityGroups({ protocol: 'snmp', value: '8000000903001c2b3d4e5f60', keyType: null });
+    expect(engine.slice(-4).join('')).toBe('3D4E5F60');
   });
 });

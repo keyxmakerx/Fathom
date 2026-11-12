@@ -3,19 +3,23 @@
 //! so no database transaction is held open while a device answers.
 //!
 //! - `POST /organisations/{o}/designs/{d}/device-read`: body `{element, kind, login?,
-//!   confirm?}`, kind `device` or `macarp`. Answers one of:
-//!   `{"outcome": "confirm", engineId, state, previous}` — the agent at the device's address is
-//!   not confirmed yet, and nothing but "who are you" was sent to it; the person types the last 8
-//!   characters of `engineId` and sends them back as `confirm`.
+//!   confirm?, platform?}`, kind `device` or `macarp` (SNMPv3) or `config` (SSH, the platform's
+//!   fixed commands; `platform` only when the design names none, and only one the reader has a
+//!   list for). Answers one of:
+//!   `{"outcome": "confirm", protocol, engineId | hostKey and keyType, state, previous}` — what
+//!   answers at the device's address is not confirmed yet, and nothing but "who are you" was sent
+//!   to it; the person types the last 8 characters of the engine id or host key and sends them
+//!   back as `confirm`.
 //!   `{"outcome": "read", id, ...}` — read, through the gate, sealed and filed.
-//!   `{"outcome": "failed", failure: {code, message}, engineId?, previous?}` — the device or the
+//!   `{"outcome": "failed", failure: {code, message}, engineId? | hostKey?, previous?}` — the device or the
 //!   login refused; filed, nothing kept. Code `already_reading` when this server is reading the
 //!   same device now (r106): nothing sent, nothing filed.
 //! - `GET /organisations/{o}/designs/{d}/device-read/{element}`: what the Readings tab shows
 //!   ([`crate::device_reading::panel`]).
 //! - `POST /organisations/{o}/designs/{d}/device-read/dismiss`: body `{element, field, value}`.
 //! - `GET /organisations/{o}/device-read/engines`: a Steward's list of agents waiting.
-//! - `POST /organisations/{o}/device-read/engines/approve`: body `{addresses: [..]}`, one batch.
+//! - `POST /organisations/{o}/device-read/engines/approve`: body `{addresses: [..], protocol?}`,
+//!   one batch of SNMP agents (the default) or of SSH host keys.
 
 use std::collections::BTreeMap;
 use std::net::IpAddr;
@@ -29,7 +33,7 @@ use fathom_canon::Json;
 use super::{begin_org, json_response, object_body, str_field, DesignApiState, RouteError, Signed};
 use crate::chain::EntryType;
 use crate::chains;
-use crate::device_reading::{self as reading, ReadingKeys, Target};
+use crate::device_reading::{self as reading, Protocol, ReadingKeys, Target};
 use crate::grants::Authority;
 use crate::sessions::SessionError;
 use crate::vault::{entry_metadata, VaultError};
@@ -95,16 +99,52 @@ macro_rules! in_org {
 
 /// What the first transaction decided.
 enum Next {
-    /// Ask the agent who it is; nothing else is sent.
+    /// Ask what answers at the address who it is; nothing else is sent.
     Discover(Target),
-    /// Read with this engine id and login.
-    Read(
-        Target,
-        String,
-        crate::vault_fathom::UsedLogin,
-        String,
-        String,
-    ),
+    /// Read with this confirmed engine id or host key, and this login.
+    Read {
+        target: Target,
+        identity: String,
+        used: crate::vault_fathom::UsedLogin,
+        auth_name: Option<String>,
+        login: String,
+    },
+}
+
+/// The platform an SSH read runs the commands of, from the design; refused when the reader has
+/// no fixed list for it.
+fn ssh_platform(target: &Target) -> Result<&str, RouteError> {
+    match target.platform.as_deref() {
+        Some(p) if reading::SSH_PLATFORMS.contains(&p) => Ok(p),
+        Some(_) => Err(VaultError::NotAllowed(
+            "Fathom reads a configuration over SSH from Junos (SRX, EX) and Arista EOS so far; this device's platform has no fixed list of commands yet",
+        )
+        .into()),
+        None => Err(VaultError::NotAllowed(
+            "choose the device's platform first: it decides which read-only commands run",
+        )
+        .into()),
+    }
+}
+
+/// The engine id or host key, and key type, an answer names, when they are well formed.
+fn identity_in(protocol: Protocol, a: &BTreeMap<String, Json>) -> Option<(String, Option<String>)> {
+    match protocol {
+        Protocol::Snmp => match a.get("engineId") {
+            Some(Json::Str(id)) if reading::engine_id_ok(id) => Some((id.clone(), None)),
+            _ => None,
+        },
+        Protocol::Ssh => match (a.get("hostKey"), a.get("keyType")) {
+            (Some(Json::Str(fp)), t) if reading::host_key_ok(fp) => Some((
+                fp.clone(),
+                match t {
+                    Some(Json::Str(t)) if reading::key_type_ok(t) => Some(t.clone()),
+                    _ => None,
+                },
+            )),
+            _ => None,
+        },
+    }
 }
 
 async fn read_handler(
@@ -112,14 +152,22 @@ async fn read_handler(
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
-    let mut m = object_body(&signed.body, &["element", "kind", "login", "confirm"])?;
+    let mut m = object_body(
+        &signed.body,
+        &["element", "kind", "login", "confirm", "platform"],
+    )?;
     let element = need(&mut m, "element")?;
     let kind = need(&mut m, "kind")?;
+    // Only for a configuration read of a device the design names no platform for (a device drawn
+    // by hand; a pasted one carries its own).
+    let asked_platform = str_field(&mut m, "platform")?;
     let purposes: &[&str] = match kind.as_str() {
         "device" => &reading::DEVICE_PURPOSES,
         "macarp" => &reading::MACARP_PURPOSES,
+        "config" => &[],
         _ => return Err(malformed("kind")),
     };
+    let protocol = Protocol::of_kind(&kind);
     let login = str_field(&mut m, "login")?;
     let confirm = str_field(&mut m, "confirm")?;
     let Some(transport) = state.device_reader.clone() else {
@@ -130,12 +178,26 @@ async fn read_handler(
     };
     let fk = state.fathom_key.clone();
 
-    // 1. Who, where, which agent, which login.
+    // 1. Who, where, what answers there, which login.
     let (next, _claim) = in_org!(state, signed, organisation, |tx, auth, keys| {
         let settings = crate::device_read::load(&tx, &auth.ctx.tenant().to_string())
             .await
             .map_err(SessionError::Db)?;
-        let target = reading::target(&tx, &auth, &settings, true, &design, &element).await?;
+        let mut target = reading::target(&tx, &auth, &settings, true, &design, &element).await?;
+        match (&asked_platform, &target.platform) {
+            (None, _) => {}
+            (Some(_), _) if protocol != Protocol::Ssh => return Err(malformed("platform")),
+            (Some(asked), Some(drawn)) if asked != drawn => {
+                return Err(VaultError::NotAllowed(
+                    "the design already says this device's platform; it is read as that one",
+                )
+                .into())
+            }
+            (Some(asked), _) => target.platform = Some(asked.clone()),
+        }
+        if protocol == Protocol::Ssh {
+            ssh_platform(&target)?;
+        }
         // One read per device at a time (r106), claimed before any login is opened, so a read
         // turned away files nothing; the claim is let go however this handler returns.
         let Some(claim) =
@@ -143,12 +205,32 @@ async fn read_handler(
         else {
             return Ok(json_response(already_reading()));
         };
-        let mut engine =
-            reading::engine_at(&tx, &keys, &auth.ctx.tenant().to_string(), target.address).await?;
+        let tenant = auth.ctx.tenant().to_string();
+        let mut known = reading::identity_at(&tx, &keys, &tenant, protocol, target.address).await?;
+        // A range's login goes over SSH only to a host key a Steward confirmed.
+        let by_range = login.is_some() && target.range.login == login;
+        let steward =
+            protocol == Protocol::Ssh && by_range && reading::is_steward(&tx, &auth).await?;
         if let Some(typed) = &confirm {
-            engine = Some(reading::approve_typed(&tx, &auth, &keys, &target, typed).await?);
+            if reading::range_login_waits_for_a_steward(protocol, by_range, None) && !steward {
+                return Err(VaultError::NotAllowed(reading::RANGE_LOGIN_NEEDS_A_STEWARD).into());
+            }
+            known =
+                Some(reading::approve_typed(&tx, &auth, &keys, &target, protocol, typed).await?);
         }
-        match engine {
+        match known {
+            Some(e)
+                if e.state == "approved"
+                    && reading::range_login_waits_for_a_steward(protocol, by_range, Some(&e)) =>
+            {
+                if !steward {
+                    return Err(VaultError::NotAllowed(reading::RANGE_LOGIN_NEEDS_A_STEWARD).into());
+                }
+                // A member confirmed it; the Steward is shown it to confirm in turn.
+                let mut again = e;
+                again.state = "seen".to_string();
+                return Ok(json_response(confirm_answer(&again)));
+            }
             Some(e) if e.state == "approved" => {
                 let Some(login) = login.clone() else {
                     return Err(VaultError::NotAllowed(
@@ -158,9 +240,15 @@ async fn read_handler(
                 };
                 let fk = fk.as_ref().ok_or(VaultError::NoServerKey)?;
                 let (used, auth_name) =
-                    reading::open_login(&tx, &auth, fk, &target, &login).await?;
+                    reading::open_login(&tx, &auth, fk, &target, protocol, &login).await?;
                 (
-                    Next::Read(target, e.engine_id, used, auth_name, login),
+                    Next::Read {
+                        target,
+                        identity: e.value,
+                        used,
+                        auth_name,
+                        login,
+                    },
                     claim,
                 )
             }
@@ -171,31 +259,62 @@ async fn read_handler(
     // 2. The reader, outside any transaction.
     match next {
         Next::Discover(target) => {
-            let answer = reading::ask(
-                transport.as_ref(),
-                reading::request(reading::job(&target, purposes, None), None),
-            )
-            .await?;
-            let engine_id = match &answer {
-                Json::Obj(a) if matches!(a.get("outcome"), Some(Json::Str(o)) if o == "engine") => {
-                    match a.get("engineId") {
-                        Some(Json::Str(id)) if reading::engine_id_ok(id) => id.clone(),
-                        _ => return Err(VaultError::Corrupt("the reader's engine id").into()),
-                    }
+            let request = match protocol {
+                Protocol::Snmp => reading::request(reading::job(&target, purposes, None), None),
+                Protocol::Ssh => reading::ssh_request(
+                    reading::ssh_job(&target, ssh_platform(&target)?, None),
+                    None,
+                ),
+            };
+            let answer = reading::ask(transport.as_ref(), request).await?;
+            let expected = match protocol {
+                Protocol::Snmp => "engine",
+                Protocol::Ssh => "host_key",
+            };
+            let (value, key_type) = match &answer {
+                Json::Obj(a) if matches!(a.get("outcome"), Some(Json::Str(o)) if o == expected) => {
+                    identity_in(protocol, a)
+                        .ok_or(VaultError::Corrupt("the reader's engine id or host key"))?
                 }
                 Json::Obj(a) => return Ok(json_response(failed_answer(a))),
                 _ => return Err(VaultError::Corrupt("the device reader's answer").into()),
             };
-            let engine = in_org!(state, signed, organisation, |tx, auth, keys| {
-                reading::record_seen(&tx, &auth, &keys, &target, &engine_id).await?
+            let seen = in_org!(state, signed, organisation, |tx, auth, keys| {
+                reading::record_seen(
+                    &tx,
+                    &auth,
+                    &keys,
+                    &target,
+                    protocol,
+                    &value,
+                    key_type.as_deref(),
+                )
+                .await?
             });
-            Ok(json_response(confirm_answer(&engine)))
+            Ok(json_response(confirm_answer(&seen)))
         }
-        Next::Read(target, engine_id, used, auth_name, login) => {
-            let request = reading::request(
-                reading::job(&target, purposes, Some(&engine_id)),
-                Some((&used, &auth_name)),
-            );
+        Next::Read {
+            target,
+            identity,
+            used,
+            auth_name,
+            login,
+        } => {
+            let request = match protocol {
+                Protocol::Snmp => {
+                    let auth_name = auth_name
+                        .as_deref()
+                        .ok_or(VaultError::Corrupt("an SNMP login's authentication"))?;
+                    reading::request(
+                        reading::job(&target, purposes, Some(&identity)),
+                        Some((&used, auth_name)),
+                    )
+                }
+                Protocol::Ssh => reading::ssh_request(
+                    reading::ssh_job(&target, ssh_platform(&target)?, Some(&identity)),
+                    Some(&used),
+                ),
+            };
             drop(used);
             let answer = reading::ask(transport.as_ref(), request).await?;
             let Json::Obj(a) = &answer else {
@@ -217,17 +336,19 @@ async fn read_handler(
                 out.insert("id".into(), s(&id));
                 return Ok(json_response(Json::Obj(out)));
             }
-            // A failure is filed, and an agent that changed is recorded for confirming.
-            let changed = match (a.get("failure"), a.get("engineId")) {
-                (Some(Json::Obj(f)), Some(Json::Str(id)))
-                    if matches!(f.get("code"), Some(Json::Str(c)) if c == "engine_changed")
-                        && reading::engine_id_ok(id) =>
-                {
-                    Some(id.clone())
+            // A failure is filed, and an agent or host key that changed is recorded for
+            // confirming.
+            let changed_code = match protocol {
+                Protocol::Snmp => "engine_changed",
+                Protocol::Ssh => "host_key_changed",
+            };
+            let changed = match a.get("failure") {
+                Some(Json::Obj(f)) if matches!(f.get("code"), Some(Json::Str(c)) if c == changed_code) => {
+                    identity_in(protocol, a)
                 }
                 _ => None,
             };
-            let engine = in_org!(state, signed, organisation, |tx, auth, keys| {
+            let seen = in_org!(state, signed, organisation, |tx, auth, keys| {
                 let actor = auth.ctx.actor().to_string();
                 chains::append_org(
                     &tx,
@@ -259,33 +380,65 @@ async fn read_handler(
                 .await
                 .map_err(VaultError::from)?;
                 match &changed {
-                    Some(id) => Some(reading::record_seen(&tx, &auth, &keys, &target, id).await?),
+                    Some((value, key_type)) => Some(
+                        reading::record_seen(
+                            &tx,
+                            &auth,
+                            &keys,
+                            &target,
+                            protocol,
+                            value,
+                            key_type.as_deref(),
+                        )
+                        .await?,
+                    ),
                     None => None,
                 }
             });
             let mut out = failed_answer(a);
-            if let (Json::Obj(o), Some(e)) = (&mut out, engine) {
-                o.insert("engineId".into(), s(&e.engine_id));
-                o.insert(
-                    "previous".into(),
-                    e.previous.as_deref().map_or(Json::Null, s),
-                );
+            if let (Json::Obj(o), Some(e)) = (&mut out, seen) {
+                if let Json::Obj(identity) = identity_fields(&e) {
+                    o.extend(identity);
+                }
             }
             Ok(json_response(out))
         }
     }
 }
 
-fn confirm_answer(e: &reading::Engine) -> Json {
-    Json::Obj(BTreeMap::from([
-        ("outcome".to_string(), s("confirm")),
-        ("engineId".to_string(), s(&e.engine_id)),
-        ("state".to_string(), s(&e.state)),
+/// What the person confirms: the protocol, the engine id or the host key and its type, and the
+/// value approved before when it changed.
+fn identity_fields(e: &reading::Identity) -> Json {
+    let mut m = BTreeMap::from([
+        ("protocol".to_string(), s(e.protocol.as_str())),
         (
             "previous".to_string(),
             e.previous.as_deref().map_or(Json::Null, s),
         ),
-    ]))
+    ]);
+    match e.protocol {
+        Protocol::Snmp => {
+            m.insert("engineId".to_string(), s(&e.value));
+        }
+        Protocol::Ssh => {
+            m.insert("hostKey".to_string(), s(&e.value));
+            m.insert(
+                "keyType".to_string(),
+                e.key_type.as_deref().map_or(Json::Null, s),
+            );
+        }
+    }
+    Json::Obj(m)
+}
+
+fn confirm_answer(e: &reading::Identity) -> Json {
+    let mut m = match identity_fields(e) {
+        Json::Obj(m) => m,
+        _ => BTreeMap::new(),
+    };
+    m.insert("outcome".to_string(), s("confirm"));
+    m.insert("state".to_string(), s(&e.state));
+    Json::Obj(m)
 }
 
 /// A refusal as the person sees it: the reader's code and words, which never carry a password.
@@ -355,7 +508,7 @@ async fn engines_handler(
     });
     Ok(json_response(Json::Obj(BTreeMap::from([(
         "engines".to_string(),
-        Json::Arr(list.iter().map(reading::Engine::to_json).collect()),
+        Json::Arr(list.iter().map(reading::Identity::to_json).collect()),
     )]))))
 }
 
@@ -364,7 +517,11 @@ async fn approve_handler(
     PathExtractor(organisation): PathExtractor<String>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
-    let mut m = object_body(&signed.body, &["addresses"])?;
+    let mut m = object_body(&signed.body, &["addresses", "protocol"])?;
+    let protocol = match str_field(&mut m, "protocol")? {
+        None => Protocol::Snmp,
+        Some(p) => Protocol::parse(&p).ok_or_else(|| malformed("protocol"))?,
+    };
     let Some(Json::Arr(items)) = m.remove("addresses") else {
         return Err(malformed("addresses"));
     };
@@ -376,7 +533,7 @@ async fn approve_handler(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let count = in_org!(state, signed, organisation, |tx, auth, keys| {
-        reading::approve_batch(&tx, &auth, &keys, &addresses).await?
+        reading::approve_batch(&tx, &auth, &keys, protocol, &addresses).await?
     });
     Ok(json_response(Json::Obj(BTreeMap::from([(
         "approved".to_string(),

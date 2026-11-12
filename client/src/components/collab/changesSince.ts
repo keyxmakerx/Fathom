@@ -192,7 +192,9 @@ export function saveSeen(accountId: string | null, designId: string | undefined,
 
 // People heard on this design, by account, so a later visit can name someone who is not online now.
 
-const namesKey = (accountId: string | null, designId: string | undefined) => `fathom.names.${accountId ?? 'anon'}.${designId ?? 'unsaved'}`;
+/** Every key the names cache writes starts with this; sign-out forgets them all (`api/auth.ts`). */
+export const NAMES_PREFIX = 'fathom.names.';
+const namesKey = (accountId: string | null, designId: string | undefined) => `${NAMES_PREFIX}${accountId ?? 'anon'}.${designId ?? 'unsaved'}`;
 
 export function loadNames(accountId: string | null, designId: string | undefined): Map<string, string> {
   try {

@@ -998,6 +998,54 @@ export function seedRoutingScene(catalogue: CatalogueModel[], me: string): Docum
   return working;
 }
 
+/** The Links lens drive (sign-off r109): the core-sw to acc-sw1 uplink carries VLANs 10 and 20 at 10G, so it
+ * draws as a trunk; srv-01 and nas-01 are in VLAN 20 (Servers) at 10G and 1G; edge-fw's uplink is in VLAN 10
+ * (Users) at 1G; VLAN 30 (Wi-Fi) is on an uncabled port, so it shows only in the key. Speeds are set on the
+ * interfaces, as a paste or an engineer would. A tagged trunk can't be made through document/networks.ts. */
+export function seedLinksScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me, 20);
+  const find = (model: string) => catalogue.find((c) => c.model === model)!;
+  let working = place(doc, catalogue, rackId, find('SRX300'), 1, 'edge-fw', me);
+  working = place(working, catalogue, rackId, find('EX4300-48P'), 3, 'core-sw', me);
+  working = place(working, catalogue, rackId, find('USW-24-PoE'), 5, 'acc-sw1', me);
+  working = place(working, catalogue, rackId, find('R740xd'), 8, 'srv-01', me);
+  working = place(working, catalogue, rackId, find('RS822+'), 11, 'nas-01', me);
+  const ch = (host: string) => firstRack(working, catalogue).chassis.find((c) => c.hostname === host)!;
+  const rj = (host: string) =>
+    ch(host).ports.filter((p) => p.connector.toLowerCase() === 'rj45').sort((x, y) => naturalLabelCompare(x.label, y.label));
+  const fw = rj('edge-fw');
+  const core = rj('core-sw');
+  const acc = rj('acc-sw1');
+  const srv = rj('srv-01');
+  const nas = rj('nas-01');
+  const link = (a: string, b: string, sheath: Sheath) => {
+    working = connectPorts(working, a, b, { sheath }, { actor: me });
+  };
+  link(fw[1]!.id, core[0]!.id, 'green');
+  link(core[1]!.id, acc[0]!.id, 'blue');
+  link(acc[1]!.id, srv[0]!.id, 'blue');
+  link(acc[2]!.id, nas[0]!.id, 'blue');
+  const at = (port: { id: string; label: string }) => ({ target: { kind: 'port' as const, portId: port.id, interfaceName: port.label } });
+  working = addVlan(working, { vlanId: 10, name: 'Users', attach: [at(fw[1]!), at(core[0]!), at(core[1]!)] }, { actor: me });
+  working = addVlan(working, { vlanId: 20, name: 'Servers', attach: [at(acc[0]!), at(acc[1]!), at(acc[2]!)] }, { actor: me });
+  working = addVlan(working, { vlanId: 30, name: 'Wi-Fi', attach: [at(acc[3]!)] }, { actor: me });
+  const speeds: [string, { label: string }, number][] = [
+    ['edge-fw', fw[1]!, 1e9],
+    ['core-sw', core[0]!, 1e9],
+    ['core-sw', core[1]!, 10e9],
+    ['acc-sw1', acc[0]!, 10e9],
+    ['acc-sw1', acc[1]!, 10e9],
+    ['srv-01', srv[0]!, 10e9],
+    ['acc-sw1', acc[2]!, 1e9],
+  ];
+  const b = begin(working, { actor: me });
+  for (const [host, port, bps] of speeds) {
+    const iface = edgesOut(b.doc, ch(host).deviceId, 'HasInterface').map((e) => findNode(b.doc, e.to)!).find((n) => n.fields['Interface.name']?.value === port.label);
+    if (iface != null) setNodeField(b, iface.id, 'Interface.speed', bps);
+  }
+  return finish(b, 'Interface speeds');
+}
+
 /** Successive versions of one design, for the History drive: two devices, a colleague's second device,
  * a cable, then a rename. Each document extends the one before it. */
 export function seedHistoryVersions(catalogue: CatalogueModel[], me: string, colleague: string): Document[] {

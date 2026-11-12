@@ -35,6 +35,8 @@ export interface BarProps {
   onPrint?: () => void;
   /** The Share button; present only for someone who may share (a steward). */
   onShare?: () => void;
+  /** The round "?" just before the account square: opens the keyboard shortcuts sheet. */
+  onShortcuts?: () => void;
   account: AccountInfo;
   /** ADR-0052 §5 — the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s `canDraw`, negated). Renders the "view only" chip
@@ -78,6 +80,7 @@ export function Bar({
   onRedo,
   onPrint,
   onShare,
+  onShortcuts,
   account,
   viewOnly,
   barExtra,
@@ -339,6 +342,19 @@ export function Bar({
               Admin
             </span>
           ))}
+        {onShortcuts && (
+          <button
+            type="button"
+            className="shell-shortcuts-btn"
+            aria-label="Keyboard shortcuts"
+            aria-keyshortcuts="Shift+?"
+            title={`Keyboard shortcuts (${shortcutText('shortcuts')})`}
+            data-testid="shell-shortcuts"
+            onClick={onShortcuts}
+          >
+            ?
+          </button>
+        )}
         <Popover
           align="right"
           className="shell-popover--frosted"

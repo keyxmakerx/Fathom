@@ -396,12 +396,20 @@ export interface TagSummary {
 /** Every live tag in the design, its own name and how many DISTINCT objects
  * carry it — a duplicate-name group (decision 5) reads as one row, the
  * canonical (lowest id) node's name, an object counted once even if it
- * somehow holds edges to more than one node in the group. */
-export function listTags(doc: Document): TagSummary[] {
+ * somehow holds edges to more than one node in the group.
+ *
+ * A tag nothing carries is left out unless `includeEmpty` (sign-offs r111,
+ * amending decision 7): the node stays, so tagging something with the same
+ * name again reuses it and a cable group that names it keeps resolving, but
+ * suggestions and the cable filter stop offering it. Inventory's Tags list
+ * asks for empty ones too, so they can be deleted there. */
+export function listTags(doc: Document, opts?: { includeEmpty?: boolean }): TagSummary[] {
   const idx = tagIndex(doc);
   const out: TagSummary[] = [];
   for (const g of idx.groups.values()) {
-    out.push({ id: g.canonicalId, name: g.name, count: idx.objectsOfGroup.get(g.key)?.size ?? 0 });
+    const count = idx.objectsOfGroup.get(g.key)?.size ?? 0;
+    if (count === 0 && !opts?.includeEmpty) continue;
+    out.push({ id: g.canonicalId, name: g.name, count });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }

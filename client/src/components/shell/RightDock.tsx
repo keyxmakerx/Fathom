@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { DockSlot, DockTab } from './Dock';
 import { Editor, type EditorProps } from './Editor';
@@ -40,6 +40,13 @@ export interface RightDockProps {
   slotRef?: (id: string) => (el: HTMLElement | null) => void;
 }
 
+/** A side tab gave the panel up while focus was inside it (Esc, a fold link): which tab's button takes focus, so it
+ * is never left on the page's body. Null when nothing was lost, the tab went away, or another tab took the panel. */
+export function refocusAfterFold(before: string | null, now: string | null, tabs: readonly Pick<SideTab, 'id'>[], focusLost: boolean): string | null {
+  if (!focusLost || before == null || now != null) return null;
+  return tabs.some((t) => t.id === before) ? before : null;
+}
+
 /**
  * The right-hand edge: one slot whose tabs are Equipment, the selection's Details and History (the Trail is a
  * second tab inside it), and (r30-panels) whatever side tabs the place adds: Checks, Docs, a plan, "It's down",
@@ -76,6 +83,17 @@ export function RightDock({
   const [menuHost, setMenuHost] = useState<HTMLElement | null>(null);
   const inHistory = shown === 'history' || shown === 'trail';
   const activeTab = side.find((t) => t.id === active) ?? null;
+  // Folded with focus inside (Esc in "It's down" or a plan): the tab's own button takes focus.
+  const strip = useRef<HTMLDivElement>(null);
+  const wasActive = useRef<string | null>(active);
+  useEffect(() => {
+    const before = wasActive.current;
+    wasActive.current = active;
+    const el = document.activeElement;
+    const lost = el == null || el === document.body || (before != null && el.closest(`.dock-side[data-side="${CSS.escape(before)}"]`) != null);
+    const id = refocusAfterFold(before, active, side, lost);
+    if (id != null) strip.current?.querySelector<HTMLElement>(`[data-side-tab="${CSS.escape(id)}"]`)?.focus();
+  }, [active, side]);
   // A side tab holding the panel gives it back to whichever of the four is pressed.
   const press = (t: RightTab) => {
     if (activeTab != null) {
@@ -163,7 +181,7 @@ export function RightDock({
       >
         {content}
       </DockSlot>
-      <div className="dock-strip dock-strip--right" role="group" aria-label="Side panels">
+      <div ref={strip} className="dock-strip dock-strip--right" role="group" aria-label="Side panels">
         {hasEquipment && (
           <DockTab
             label="Equipment"
@@ -194,6 +212,7 @@ export function RightDock({
               open={active === t.id}
               marked={t.open && active !== t.id}
               testId={`dock-${t.id}`}
+              sideId={t.id}
               onClick={() => pressSide(t)}
             />
           );
