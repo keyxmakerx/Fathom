@@ -198,6 +198,42 @@ try {
   check('the Sheet comes back on the tab it was left on', (await page.locator('[data-testid="sheet-tab-ports"]').getAttribute('aria-current')) === 'page', await hashOf());
   check('and at its scroll, even left straight after scrolling', sheetBefore.top > 0 && Math.abs((await scrollOf()) - sheetBefore.top) < 40, `before=${sheetBefore.top} after=${await scrollOf()}`);
 
+  // 5 — r127: the Sheet stays a spreadsheet. A click selects a cell, a double-click edits it, and only
+  // the row's small open button (or Ctrl Enter) opens its page.
+  await page.locator('[data-testid="sheet-tab-devices"]').click();
+  await page.waitForSelector('.inv-table__row', { timeout: 10_000 });
+  await page.waitForTimeout(300);
+  await page.locator('.inv-table__scroll').evaluate((el) => { el.scrollTop = 0; });
+  await page.waitForTimeout(200);
+  // The list is virtualised, so name the row rather than take the first in the DOM.
+  const firstName = ((await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).innerText()) || '').replace('↗', '').trim();
+  const firstRow = page.locator('.inv-table__row', { has: page.getByLabel(`Select ${firstName}`, { exact: true }) });
+  const nameCell = firstRow.locator('[role=gridcell]').nth(1);
+  await nameCell.click();
+  await page.waitForTimeout(300);
+  await shot('sheet-01-click-selects.png');
+  check('a click on a Sheet row\'s name selects the cell and opens no page', (await page.locator('.inv-page').count()) === 0 && (await nameCell.getAttribute('aria-selected')) === 'true');
+  await firstRow.locator('[role=gridcell]').nth(3).click();
+  await page.waitForTimeout(200);
+  check('nor does a click in any other cell', (await page.locator('.inv-page').count()) === 0);
+  await nameCell.dblclick();
+  await page.waitForTimeout(200);
+  await shot('sheet-02-dblclick-edits.png');
+  check('a double-click on the name edits it in the cell', (await nameCell.locator('input').count()) === 1 && (await page.locator('.inv-page').count()) === 0);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  check('Enter on the name edits it too, as a spreadsheet does', (await nameCell.locator('input').count()) === 1);
+  await page.keyboard.press('Escape');
+  await nameCell.hover();
+  await page.waitForTimeout(150);
+  await shot('sheet-03-open-button.png');
+  await firstRow.locator('.inv-table__open').click();
+  await page.waitForSelector('.inv-page', { timeout: 5_000 }).catch(() => {});
+  await shot('sheet-04-opened.png');
+  check('the row\'s open button is the way to its page', (await page.locator('.inv-page').count()) === 1);
+
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
   await browser.close();
   browser = null;

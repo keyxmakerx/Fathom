@@ -1165,6 +1165,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                   onFilterTag={(tag) => go({ q: joinUnits([...units(q), `tags:${quoteValue(tag)}`]) })}
                   onOpen={openPage}
                   rowMenu={(row) => deviceMenuOf(row.selection) ?? []}
+                  sheet={sheet}
                   onToggleChecked={toggleChecked}
                   onToggleAll={(all) => setChecked(all ? new Set(rows.map((r) => r.key)) : new Set())}
                   onSort={(key, additive) => go({ sorts: nextSorts(sorts, key, additive) })}
