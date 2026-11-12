@@ -162,6 +162,15 @@ export const RACK_HEADER_PX = 16;
  */
 export const CAMERA_STOPS = { closet: 87.5, rack: 100, faceplate: 200, inside: 300 } as const;
 export type CameraStop = keyof typeof CAMERA_STOPS;
+
+/** Below this zoom a device's name is a few pixels tall and cannot be read. */
+export const READABLE_ZOOM = 0.6;
+
+/** What the sample opens on: the whole closet when that is still readable, else the racks alone. Walls and
+ * desks are drawn to scale and can be several times a rack's size, which once left the first screen at 32%. */
+export function openingFit(wholeZoom: number): 'whole' | 'racks' {
+  return wholeZoom >= READABLE_ZOOM ? 'whole' : 'racks';
+}
 const STOP_ORDER: CameraStop[] = ['closet', 'rack', 'faceplate', 'inside'];
 
 /**
