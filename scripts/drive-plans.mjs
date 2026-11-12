@@ -414,7 +414,7 @@ try {
     await settle(page, 800);
     check('[keys] Enter in the form adds the step', (await T(page, 'plans-step').count()) === 1);
     // Tab through the panel: always an element, in DOM order, never the body.
-    await T(page, 'plans-panel').getByRole('button', { name: 'Fold the plan panel' }).focus();
+    await T(page, 'plans-panel').locator('[data-testid=panel-fold]').focus();
     const order = [];
     let fellToBody = 0;
     for (let i = 0; i < 40; i += 1) {
@@ -432,7 +432,7 @@ try {
     const wrapAt = order.indexOf('(BODY)');
     check('[keys] Tab never drops focus to the body except at the document wrap', fellToBody <= 1 && (wrapAt === -1 || /Fathom$/.test(order[wrapAt + 1] ?? '') || wrapAt === order.length - 1), `${fellToBody} at ${wrapAt}`);
     check('[keys] Tab reaches the Start the maintenance button', order.includes('Start the maintenance'));
-    check('[keys] the panel header comes before its body in the tab order', order.indexOf('Fold the plan panel') === -1 || order.indexOf('Start the maintenance') > -1);
+    check('[keys] the panel header comes before its body in the tab order', order.findIndex((t) => t.startsWith('Fold ')) === -1 || order.indexOf('Start the maintenance') > -1);
     // Reorder and remove: the button that was pressed may go or turn off; focus must stay in the panel.
     await chooseKind(form(page), 'move');
     await pick(labelled(page, 'Device'), /sw-02/);
@@ -451,7 +451,7 @@ try {
     check('[keys] after Remove focus is not on the body', await focusNotBody(page), await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
     check('[keys] Remove took one step off', (await T(page, 'plans-step').count()) === 1);
     // Fold and reopen.
-    await T(page, 'plans-panel').getByRole('button', { name: 'Fold the plan panel' }).click();
+    await T(page, 'plans-panel').locator('[data-testid=panel-fold]').click();
     await settle(page, 300);
     check('[keys] Fold hides the panel and leaves an Open panel button', (await T(page, 'plans-panel').count()) === 0 && (await page.getByRole('button', { name: 'Open panel' }).count()) === 1);
     check('[keys] focus is not lost to the body after Fold', await focusNotBody(page));

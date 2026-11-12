@@ -227,28 +227,31 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     check('dragging port to port makes a cable', (await page.locator('[data-testid=jot-cable]').count()) === 1);
     await shot(page, 'S8-05-cabled');
 
-    // Inside, Config, and out.
-    await page.getByRole('button', { name: 'Inside' }).click();
+    // Inside, Config, and out. r116: Inside and Config are the Details panel's foot buttons, and Esc with the
+    // focus inside the panel folds the panel, so the focus leaves it before each Esc here.
+    if ((await page.locator('[data-testid=device-open-inside]').count()) === 0) await page.locator('[data-testid=dock-details]').click();
+    await page.locator('[data-testid=device-open-inside]').click();
     await page.waitForTimeout(500);
     check('Inside shows the device\'s insides', (await page.locator('.inside-stop').count()) >= 1);
     await shot(page, 'S8-06-inside');
-    await page.keyboard.press('Escape');
+    await page.evaluate(() => document.activeElement?.blur()); await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     check('Esc from Inside returns to the device', (await page.locator('[data-testid=jot]').count()) === 1 && (await page.locator('.inside-stop').count()) === 0);
-    await page.getByRole('button', { name: 'Config', exact: true }).click();
+    if ((await page.locator('[data-testid=device-config]').count()) === 0) await page.locator('[data-testid=dock-details]').click();
+    await page.locator('[data-testid=device-config]').click();
     await page.waitForTimeout(500);
     check('Config opens the drawer under the device', (await page.locator('.config-drawer').count()) === 1);
     await shot(page, 'S8-07-config');
-    await page.getByRole('button', { name: 'Config', exact: true }).click();
+    await page.locator('[data-testid=device-config]').click();
 
     // A paste while inside a device still reads through the card.
     await pasteText(page, CONFIG('srx-in-room'));
     await page.waitForSelector('[data-testid=paste-destroyed]', { timeout: 15_000 });
-    await page.keyboard.press('Escape');
+    await page.evaluate(() => document.activeElement?.blur()); await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
     check('the first Esc closes the card and leaves the device open', (await page.locator('[data-testid=jot]').count()) === 1);
 
-    await page.keyboard.press('Escape');
+    await page.evaluate(() => document.activeElement?.blur()); await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
     check('Esc leads back out', (await page.locator('[data-testid=jot]').count()) === 0);
     check('the equipment is on the full canvas as free boxes', (await boxes(page).count()) === 2);

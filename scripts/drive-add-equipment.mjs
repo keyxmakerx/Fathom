@@ -265,7 +265,7 @@ async function main() {
   await tab.waitForSelector('.console__section', { timeout: 25000 });
   await tab.click('[data-testid="console-tab-organisations"]');
   await tab.fill('#console-org-name', 'Owner Networks');
-  await tab.getByRole('button', { name: 'Create the shell and its claim' }).click();
+  await tab.getByRole('button', { name: 'Create the organisation and its setup link' }).click();
   await tab.waitForSelector('li.console__minted-row', { timeout: 15000 });
   await tab.getByRole('button', { name: 'Claim it now' }).click();
   await tab.waitForSelector('#claim-token', { timeout: 15000 });

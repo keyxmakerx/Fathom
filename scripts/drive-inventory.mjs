@@ -138,7 +138,7 @@ try {
   await page.waitForSelector('.inv-page', { timeout: 5_000 });
   check('adding by name opens its page', (await page.locator('.inv-page').innerText()).includes('edge-fw'));
   check('the page replaces the list', (await page.locator('.inv-table__row').count()) === 0);
-  await page.getByRole('button', { name: /^← Back to Devices/ }).click();
+  await page.locator('[data-testid=inv-back]').click();
   await page.waitForSelector('.inv-table__row', { timeout: 5_000 });
   check('Back returns to the list', (await page.locator('.inv-table__row').count()) > 10);
 
@@ -179,7 +179,7 @@ try {
   }
   check('the History tab lists the changes made', (await page.locator('.inv-page__body').innerText()).length > 0);
   await shot('inventory-04-history.png');
-  await page.getByRole('button', { name: /^← Back to Devices/ }).click();
+  await page.locator('[data-testid=inv-back]').click();
   await page.waitForSelector('.inv-table__row', { timeout: 5_000 });
   await page.getByRole('button', { name: 'Columns' }).click();
   await page.getByRole('checkbox', { name: 'Warranty ends' }).check();

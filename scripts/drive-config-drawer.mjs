@@ -379,9 +379,10 @@ try {
     await page.waitForTimeout(400);
   }
   await page.waitForSelector('[data-testid=jot]', { state: 'detached', timeout: 10_000 });
-  // The inside view opens from the device's right-click menu, not from zoom.
-  await page.locator('.react-flow__node-chassis').first().click({ button: 'right', position: { x: 6, y: 8 } });
-  await page.getByRole('menuitem', { name: 'Open inside' }).click();
+  // The inside view opens from the Details panel's Inside button (r116: no longer in the short right-click menu).
+  await page.locator('.react-flow__node-chassis').first().click({ position: { x: 6, y: 8 } });
+  if ((await page.locator('[data-testid=device-open-inside]').count()) === 0) await page.locator('[data-testid=dock-details]').click();
+  await page.locator('[data-testid=device-open-inside]').click();
   await page.waitForSelector('.drawing-inside-stop, .inside-stop', { timeout: 10_000 });
   check('the inside stop opened for the same device', (await page.locator('.drawing-inside-stop, .inside-stop').count()) === 1);
   const insideText = await page.locator('.drawing-inside-stop, .inside-stop').innerText();
@@ -390,17 +391,19 @@ try {
   await page.screenshot({ path: SHOTS + 's6g-inside.png' });
   console.log('    wrote ' + SHOTS + 's6g-inside.png');
 
-  // Back to the config drawer for the second paste attempt.
+  // Back to the config drawer for the second paste attempt. Esc with the focus in the panel folds the panel
+  // (ADR-0091), so the focus leaves it first.
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await page.waitForSelector('.drawing-inside-stop, .inside-stop', { state: 'detached', timeout: 10_000 });
   // Esc from Inside returns to the device open large, not to the canvas, so open it only if it is not open.
   if ((await page.locator('[data-testid=jot]').count()) === 0) await page.locator('.react-flow__node-chassis').first().dblclick();
   // A double-click opens the device large (jot mode), or its card's Open does; Config shows the drawer.
   await page.waitForTimeout(500);
-  if ((await page.getByRole('button', { name: 'Config', exact: true }).count()) === 0) {
-    await page.getByRole('button', { name: 'Open', exact: true }).click();
+  if ((await page.locator('.config-drawer').count()) === 0) {
+    if ((await page.locator('[data-testid=device-config]').count()) === 0) await page.locator('[data-testid=dock-details]').click();
+    await page.locator('[data-testid=device-config]').click();
   }
-  if ((await page.locator('.config-drawer').count()) === 0) await page.getByRole('button', { name: 'Config', exact: true }).click();
   await page.waitForSelector('.config-drawer', { timeout: 10_000 });
 
   // -------------------------------------------------------------------------

@@ -261,11 +261,11 @@ async function runDrive(tab) {
   await tab.click('[data-testid="console-tab-organisations"]');
   const orgName = 'Owner Networks';
   await tab.fill('#console-org-name', orgName);
-  await tab.getByRole('button', { name: 'Create the shell and its claim' }).click();
+  await tab.getByRole('button', { name: 'Create the organisation and its setup link' }).click();
   await tab.waitForSelector('li.console__minted-row', { timeout: 15000 });
   check(
-    '3. Site: the new organisation shell and its claim are listed',
-    (await tab.getByText(`Claim for the organisation shell "${orgName}"`).count()) === 1,
+    '3. Site: the new organisation and its setup link are listed',
+    (await tab.getByText(`Setup link for the new organisation "${orgName}"`).count()) === 1,
   );
   const claimNow = tab.getByRole('button', { name: 'Claim it now' });
   check('3. Site: "Claim it now" is offered beside the freshly minted claim', (await claimNow.count()) === 1);

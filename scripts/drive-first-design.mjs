@@ -58,6 +58,7 @@ import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
 import { check, fails } from './drive-lib/kit.mjs';
+import { openTheTrail } from './drive-lib/trail.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -577,15 +578,6 @@ async function signIn(page, address, password) {
   await page.getByRole('button', { name: 'Sign in' }).click();
   // Home, or straight into the design when it is the only one (ADR-0046 §3).
   await page.getByText('Your organisations').or(page.locator('.racks-place__loading, .drawing-chassis')).first().waitFor({ timeout: 15000 });
-}
-
-/** The trail is folded to a strip on the right edge — open it before
- * reading a `.racks-trail__row`. */
-async function openTheTrail(page) {
-  const handle = page.locator('button[aria-label="Open the trail"]');
-  if ((await handle.count()) > 0) {
-    await handle.click();
-  }
 }
 
 /** Simulates the palette's real native HTML5 drag onto the real drop
