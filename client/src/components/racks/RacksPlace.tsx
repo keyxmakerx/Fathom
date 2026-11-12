@@ -2504,7 +2504,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} />
         </InSideSlot>
       ) : null}
-      {doc != null && jot == null && !trace.open ? <ReadyQuestions questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
+      {doc != null && jot == null && !trace.open ? <ReadyQuestions folded={look === 'diagram'} questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
       {doc != null && jot == null && !trace.open && !checks.open && planted > 0 ? <PracticeNote count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
       {doc != null && jot == null ? (
         <InSideSlot id="trace">

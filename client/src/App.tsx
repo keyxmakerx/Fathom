@@ -53,6 +53,7 @@ import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
 import { generateKeyPair, listKeySlots } from './crypto/keys';
 import { initialsFromAddress } from './initials';
+import { selfMark } from './selfMark';
 import { installExpiryTimers } from './state/expiryTimers';
 import { takeSignedOutNotice } from './state/signedOutNotice';
 import {
@@ -901,7 +902,7 @@ export default function App() {
   const account =
     session.kind === 'operator' && accountSession === null
       ? { initials: 'OP', address: session.address }
-      : { initials: initialsFromAddress((accountSession ?? session).address), address: (accountSession ?? session).address };
+      : { initials: selfMark((accountSession ?? session).address) ?? initialsFromAddress((accountSession ?? session).address), address: (accountSession ?? session).address };
   const backToHome = (tab: HomeTab = 'designs') => {
     setHomeTab(tab);
     setView({ kind: 'home' });
