@@ -25,8 +25,9 @@ export const WorkPlaceContext = createContext<WorkPlace | null>(null);
 
 /** A design's numbers and who may be assigned there, asked once per open and again while the item
  * has no number yet (the server gives one a few seconds after the save that made it). */
-function useDesignWork(place: WorkPlace | null, id: string): DesignWork | null {
+function useDesignWork(place: WorkPlace | null, id: string): { work: DesignWork | null; error: string | null } {
   const [got, setGot] = useState<DesignWork | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const organisationId = place?.organisationId;
   const designId = place?.designId;
   useEffect(() => {
@@ -39,10 +40,13 @@ function useDesignWork(place: WorkPlace | null, id: string): DesignWork | null {
         .then((w) => {
           if (cancelled) return;
           setGot(w);
+          setError(null);
           tries += 1;
           if (w.numbers[id] == null && tries < 4) timer = window.setTimeout(ask, 6000);
         })
-        .catch(() => undefined);
+        .catch((e: unknown) => {
+          if (!cancelled) setError(`Could not get the Fathom number and the people who can be assigned: ${messageOf(e)}`);
+        });
     };
     ask();
     return () => {
@@ -50,26 +54,36 @@ function useDesignWork(place: WorkPlace | null, id: string): DesignWork | null {
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [organisationId, designId, id]);
-  return got;
+  return { work: got, error };
 }
+
+const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 const LABEL: Record<WorkField, string> = { assigned_to: 'Assigned to', due: 'Due', ticket: 'Outside ticket', team: 'Team' };
 
 /** The teams this person can see, to name a plan's team from (schema 0.38). Empty until asked, or
- * when the list cannot be had: the row then shows the team's id as "a team you cannot see". */
-function useTeamNames(organisationId: string | undefined, wanted: boolean): { id: string; name: string }[] {
+ * when the list cannot be had: then `error` says why, so the row does not claim the team is one
+ * this person cannot see. */
+function useTeamNames(organisationId: string | undefined, wanted: boolean): { teams: { id: string; name: string }[]; error: string | null } {
   const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!wanted || organisationId == null) return undefined;
     let cancelled = false;
     fetchTeams(organisationId)
-      .then((t) => !cancelled && setTeams(t.teams.map((x) => ({ id: x.id, name: x.name }))))
-      .catch(() => undefined);
+      .then((t) => {
+        if (cancelled) return;
+        setTeams(t.teams.map((x) => ({ id: x.id, name: x.name })));
+        setError(null);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(`Could not get the list of teams: ${messageOf(e)}`);
+      });
     return () => {
       cancelled = true;
     };
   }, [organisationId, wanted]);
-  return teams;
+  return { teams, error };
 }
 
 /**
@@ -79,8 +93,8 @@ function useTeamNames(organisationId: string | undefined, wanted: boolean): { id
  */
 export function WorkFields({ id }: { id: string }) {
   const place = useContext(WorkPlaceContext);
-  const work = useDesignWork(place, id);
-  const teams = useTeamNames(place?.organisationId, workKindOf(id) === 'MaintenancePlan');
+  const { work, error: workError } = useDesignWork(place, id);
+  const { teams, error: teamsError } = useTeamNames(place?.organisationId, workKindOf(id) === 'MaintenancePlan');
   const [ticket, setTicket] = useState<{ value: string; pasted: boolean } | null>(null);
   const [comment, setComment] = useState<{ value: string; pasted: boolean }>({ value: '', pasted: false });
   const [error, setError] = useState<string | null>(null);
@@ -98,32 +112,43 @@ export function WorkFields({ id }: { id: string }) {
       setError(null);
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(messageOf(e));
       return false;
     }
   };
   const saveTicket = async () => {
     if (ticket == null) return;
-    const value = ticket.pasted ? await place.redact(ticket.value) : ticket.value;
-    if (value.trim() !== parts.ticket && apply('ticket', value)) setTicket(null);
-    else setTicket(null);
+    let value: string;
+    try {
+      value = ticket.pasted ? await place.redact(ticket.value) : ticket.value;
+    } catch (e) {
+      // The gate could not run, so nothing pasted is saved; the typed text stays to try again.
+      setError(`The ticket was not saved: ${messageOf(e)}`);
+      return;
+    }
+    // A failed save keeps what was typed, beside the reason.
+    if (value.trim() === parts.ticket || apply('ticket', value)) setTicket(null);
   };
   const addComment = async () => {
     const typed = comment.value.trim();
     if (typed === '') return;
-    const text = comment.pasted ? (await place.redact(typed)).trim() : typed;
     try {
+      const text = comment.pasted ? (await place.redact(typed)).trim() : typed;
       place.applyDocChange(addNote(doc, id, { text, how: comment.pasted ? 'pasted' : 'typed', actor }));
       setComment({ value: '', pasted: false });
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(`The comment was not saved: ${messageOf(e)}`);
     }
   };
 
   const people = work?.people ?? {};
   const assignedName = parts.assignedTo ? (people[parts.assignedTo] ?? null) : null;
   const number = work?.numbers[id];
+  // Until the lists arrive, or when they could not be had, an unknown id is not evidence that the
+  // person left or the team is hidden.
+  const unknownPerson = work == null ? (workError ? 'Someone Fathom could not look up' : '…') : 'Someone who can no longer work here';
+  const unknownTeam = teamsError ? 'A team Fathom could not look up' : 'A team you cannot see';
   const comments = notesOf(doc, id);
   const href = ticketHref(parts.ticket);
 
@@ -131,7 +156,7 @@ export function WorkFields({ id }: { id: string }) {
     <section className="work-fields" aria-label="Work" data-testid="work-fields">
       <div className="work-fields__row">
         <span className="work-fields__label">Fathom number</span>
-        <span className="work-fields__number">{number != null ? numberWord(number) : work == null ? '…' : 'given a few seconds after it is saved'}</span>
+        <span className="work-fields__number">{number != null ? numberWord(number) : work == null ? (workError ? 'Not loaded' : '…') : 'given a few seconds after it is saved'}</span>
       </div>
       {fields.includes('assigned_to') && (
         <label className="work-fields__row">
@@ -139,7 +164,7 @@ export function WorkFields({ id }: { id: string }) {
           {canDraw ? (
             <select value={parts.assignedTo} onChange={(e) => apply('assigned_to', e.currentTarget.value)} aria-label={LABEL.assigned_to}>
               <option value="">Nobody yet</option>
-              {parts.assignedTo !== '' && assignedName == null && <option value={parts.assignedTo}>Someone who can no longer work here</option>}
+              {parts.assignedTo !== '' && assignedName == null && <option value={parts.assignedTo}>{unknownPerson}</option>}
               {Object.entries(people)
                 .sort((a, b) => a[1].localeCompare(b[1]))
                 .map(([account, name]) => (
@@ -149,7 +174,7 @@ export function WorkFields({ id }: { id: string }) {
                 ))}
             </select>
           ) : (
-            <span>{parts.assignedTo === '' ? 'Nobody yet' : (assignedName ?? 'Someone who can no longer work here')}</span>
+            <span>{parts.assignedTo === '' ? 'Nobody yet' : (assignedName ?? unknownPerson)}</span>
           )}
         </label>
       )}
@@ -159,7 +184,7 @@ export function WorkFields({ id }: { id: string }) {
           {canDraw ? (
             <select value={parts.team} onChange={(e) => apply('team', e.currentTarget.value)} aria-label={LABEL.team} data-testid="work-team">
               <option value="">No team</option>
-              {parts.team !== '' && !teams.some((t) => t.id === parts.team) && <option value={parts.team}>A team you cannot see</option>}
+              {parts.team !== '' && !teams.some((t) => t.id === parts.team) && <option value={parts.team}>{unknownTeam}</option>}
               {[...teams]
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((t) => (
@@ -169,7 +194,7 @@ export function WorkFields({ id }: { id: string }) {
                 ))}
             </select>
           ) : (
-            <span>{parts.team === '' ? 'No team' : (teams.find((t) => t.id === parts.team)?.name ?? 'A team you cannot see')}</span>
+            <span>{parts.team === '' ? 'No team' : (teams.find((t) => t.id === parts.team)?.name ?? unknownTeam)}</span>
           )}
         </label>
       )}
@@ -254,10 +279,13 @@ export function WorkFields({ id }: { id: string }) {
           </div>
         )}
       </div>
-      {error && (
-        <p className="work-fields__error" role="alert">
-          {error}
-        </p>
+      {[error, workError, teamsError].map(
+        (e) =>
+          e && (
+            <p key={e} className="work-fields__error" role="alert">
+              {e}
+            </p>
+          ),
       )}
     </section>
   );

@@ -144,20 +144,29 @@ export function BuildingPlan({ organisationId, building, closets, designs, onDes
     if (!at) return false;
     setBusy(words);
     setError(null);
+    let unnamed: string | null = null;
     try {
       let { designId: id, saver } = at;
       if (!id || !saver) {
         const made = await createDesign(organisationId, building.scopeId, writePlain(next));
         const name = `${building.displayName} floor plan`;
-        await renameDesign(organisationId, made.designId, name).catch(() => undefined);
+        let named = true;
+        try {
+          await renameDesign(organisationId, made.designId, name);
+        } catch (e) {
+          // The plan is saved either way; say it is untitled rather than claim the name.
+          named = false;
+          unnamed = `The floor plan is saved, but it could not be named “${name}”, so it is untitled in Home. ${describeError(e)}`;
+        }
         const opened = await openDesign(organisationId, made.designId);
         id = made.designId;
         saver = new ConditionalSave(opened.version);
-        onDesignMade({ ...made, name });
+        onDesignMade(named ? { ...made, name } : made);
       } else {
         await saver.save(organisationId, id, writePlain(next));
       }
       ready({ status: 'ready', designId: id, doc: next, saver });
+      if (unnamed) setError({ message: unnamed, reload: false });
       return true;
     } catch (e) {
       const conflict = e instanceof ApiRefusal && e.status === 409;

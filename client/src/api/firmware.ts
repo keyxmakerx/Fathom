@@ -349,6 +349,12 @@ export function sendImageBytes(
   signal?: AbortSignal,
 ): Promise<FirmwareImage | null> {
   return new Promise((resolve, reject) => {
+    // Stopped before it began: an abort event that already fired will not fire again for the
+    // listener below, so the upload would otherwise go ahead.
+    if (signal?.aborted) {
+      reject(new Error('The upload was stopped.'));
+      return;
+    }
     const xhr = new XMLHttpRequest();
     xhr.open('POST', declared.uploadPath);
     xhr.setRequestHeader(declared.tokenHeader, declared.uploadToken);
@@ -358,10 +364,20 @@ export function sendImageBytes(
     xhr.onload = () => {
       const text = (xhr.responseText ?? '').trim();
       if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          resolve(text === '' ? null : parseImage(JSON.parse(text)));
-        } catch {
+        if (text === '') {
           resolve(null);
+          return;
+        }
+        try {
+          resolve(parseImage(JSON.parse(text)));
+        } catch (e) {
+          // The server took the file, but what it said back is not an image record: say so rather
+          // than pass it off as a plain success.
+          reject(
+            new Error(
+              `The server took the file, but its answer could not be read (${e instanceof Error ? e.message : String(e)}). Check the list of images: if this one is there, it was staged.`,
+            ),
+          );
         }
         return;
       }
