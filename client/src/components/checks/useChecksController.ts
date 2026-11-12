@@ -1,5 +1,6 @@
 // Runs Checks for one open design: standing checks after the document settles, the gesture guard, and the
-// panel's own state. The engine and mirror are the ones the page already holds (RacksPlace); this boots nothing.
+// panel's own state. The engine and mirror are the design's one pair (`useDesignEngine`, held in DesignPlace);
+// this boots nothing of its own.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Document } from '../../document/model';
@@ -87,7 +88,7 @@ export interface ChecksController {
 
 interface Inputs {
   doc: Document | null;
-  /** Starts the engine once (RacksPlace's `ensureMirror`). */
+  /** Starts the engine once (`useDesignEngine`'s `ensureMirror`). */
   boot: () => Promise<Mirror>;
   /** The mirror; null before it has booted. Synced to `doc` first if stale (`Mirror.sync`), unless `load` is false. */
   mirrorNow: (load?: boolean) => Mirror | null;
@@ -95,11 +96,14 @@ interface Inputs {
   loadCostMs: () => number | null;
   /** Findings the engine cannot make because they need another design: links between sites. */
   extra?: readonly CheckFinding[];
+  /** Until the person chooses, the panel stays folded rather than opening for refusals and warnings: Inventory and
+   * Sheet, where it would cover the list or the page. */
+  foldedUntilChosen?: boolean;
 }
 
 const NO_EXTRA: readonly CheckFinding[] = [];
 
-export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = NO_EXTRA }: Inputs): ChecksController {
+export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = NO_EXTRA, foldedUntilChosen = false }: Inputs): ChecksController {
   const [store] = useState(createChecksStore);
   const [engineResult, setResult] = useState<ChecksResult | null>(null);
   const result = useMemo(() => withSiteLinkFindings(engineResult, extra), [engineResult, extra]);
@@ -253,7 +257,7 @@ export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = 
     });
   }, []);
 
-  const open = prefs.open ?? defaultOpen(result, canvasWidth);
+  const open = prefs.open ?? (foldedUntilChosen ? false : defaultOpen(result, canvasWidth));
 
   // A Show belongs to the open panel: folding it ends the Show.
   useEffect(() => {

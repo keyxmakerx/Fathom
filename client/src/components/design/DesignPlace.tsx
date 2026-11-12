@@ -49,6 +49,7 @@ import { EMPTY_STATE, carryInto, formatHash, parseHash } from '../inventory/list
 import { InventoryPlace } from '../inventory/InventoryPlace';
 import { PasteGateBoundary } from '../paste/PasteGateBoundary';
 import { RacksPlace } from '../racks/RacksPlace';
+import { useDesignEngine } from './useDesignEngine';
 import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
 import type { PaletteAction } from '../shell/palette';
@@ -148,6 +149,8 @@ const SEAL_SETTLE_MS = 1_500;
 export function DesignPlace(props: DesignPlaceProps) {
   const { organisationId, organisationName = '', designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, scanRequest, onOpenScan, ...shellProps } = props;
   const session = useDesignSession(organisationId, designId, capability);
+  // ADR-0091 as built: one checks engine for the design, shared by the Canvas and Inventory places so every view has Checks.
+  const designEngine = useDesignEngine();
   const [focus, setFocus] = useState<Selection | null>(null);
   // Selecting a thing from outside the drawing (stepping through what changed) without opening it.
   const [selectRequest, setSelectRequest] = useState<{ selection: Selection } | null>(null);
@@ -1122,6 +1125,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     props.place === 'racks' ? (
       <RacksPlace
         {...sharedShellProps}
+        engine={designEngine}
         sideTabs={designSideTabs.length > 0 ? designSideTabs : undefined}
         historyView={historyView}
         onPlaceChange={switchPlace}
@@ -1157,6 +1161,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : (
       <InventoryPlace
         {...sharedShellProps}
+        engine={designEngine}
         sideTabs={designSideTabs.length > 0 ? designSideTabs : undefined}
         aiTargets={aiIdeas.targets}
         onPlaceChange={switchPlace}

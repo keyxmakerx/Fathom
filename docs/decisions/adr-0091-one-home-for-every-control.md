@@ -70,8 +70,11 @@ tools, pill and edge tabs, now applied to Inventory and Sheet too.
 - Esc folds the open panel when the keyboard focus is inside it. Elsewhere Esc keeps its order: the
   card, then out of the device.
 - A rack fits the view up to the faceplate stop (200%), not beyond.
-- Inventory and Sheet show History and Docs on the edge. Checks is not there yet: the checks engine is
-  owned by the canvas place and has to be lifted out first.
+- Inventory and Sheet show Checks, History and Docs on the edge (Checks added after sign-off r120). The
+  checks engine and its mirror moved out of the canvas place into `design/useDesignEngine.ts`, held by
+  DesignPlace, so both places share one module. On Inventory and Sheet the Checks panel stays folded until
+  the person opens it (it would cover the list), has no Show (there is no canvas to show on), and a name
+  in it opens that item's page. Once opened or folded, the choice is the same on every view.
 - "Plan a firmware upgrade" left the device menu but is not yet a choice inside Plan a change. It is
   in the panel's Firmware section and in Ctrl K.
 - A portal tray's two rows are greyed unless the tray is a link to another site.
