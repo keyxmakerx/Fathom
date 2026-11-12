@@ -169,7 +169,7 @@ export interface DrawingActions {
  * `removeSupply`/`fitSupply` — and may still be refused (an unknown slot, a
  * slot already fitted, a fixed slot) the same way a field edit can. */
 export type EditorChange =
-  | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address' | 'os_version'; value: string | null }
+  | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address' | 'os_version' | 'platform'; value: string | null }
   | { kind: 'chassis'; id: string; field: 'serial'; value: string | null }
   | { kind: 'rack'; id: string; field: 'row' | 'bay' | 'label'; value: string | null }
   /** ADR-0060 decision 5: a rack's height in units, refused below anything mounted in it. */

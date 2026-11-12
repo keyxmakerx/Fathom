@@ -98,14 +98,49 @@ export function rangeProblem(cidr: string): string | null {
 
 const READ = 'device reading answer';
 
-/** What one read is for: the device itself, or its MAC and ARP tables (read only on request, r91). */
-export type ReadKind = 'device' | 'macarp';
+/**
+ * What one read is for: the device itself or its MAC and ARP tables (read only on request, r91), both
+ * over SNMPv3; or its configuration, over SSH with the platform's fixed read-only commands.
+ */
+export type ReadKind = 'device' | 'macarp' | 'config';
 
-/** What a read answered. `confirm`: the agent answered and a person must confirm it before any login is sent. */
+/** How a device is read. */
+export type ReadProtocol = 'snmp' | 'ssh';
+
+/**
+ * The platforms the reader has a fixed list of SSH commands for (`helpers/reader/src/commands.rs`, which
+ * cites each command). A device on another platform is not offered a configuration read.
+ */
+export const SSH_READ_PLATFORMS: Readonly<Record<string, { words: string; commands: readonly string[] }>> = {
+  'junos-srx': { words: 'Juniper SRX', commands: ['show configuration | display set'] },
+  'junos-ex': { words: 'Juniper EX', commands: ['show configuration | display set'] },
+  eos: { words: 'Arista EOS', commands: ['show running-config'] },
+};
+
+export function protocolOf(kind: ReadKind): ReadProtocol {
+  return kind === 'config' ? 'ssh' : 'snmp';
+}
+
+/** What answered at an address: an SNMPv3 agent's engine id, or an SSH server's host key fingerprint and its type. */
+export interface Identity {
+  protocol: ReadProtocol;
+  value: string;
+  keyType: string | null;
+}
+
+/** What a read answered. `confirm`: something answered and a person must confirm it before any login is sent. */
 export type ReadAnswer =
   | { outcome: 'read'; id: string }
-  | { outcome: 'confirm'; engineId: string; state: 'seen' | 'changed'; previous: string | null }
-  | { outcome: 'failed'; code: string; message: string; engineId: string | null; previous: string | null };
+  | { outcome: 'confirm'; identity: Identity; state: 'seen' | 'changed'; previous: string | null }
+  | { outcome: 'failed'; code: string; message: string; identity: Identity | null; previous: string | null };
+
+/** The engine id or host key an answer names, or null. */
+function identityIn(r: Record<string, unknown>): Identity | null {
+  const host = optStr(r, 'hostKey', READ);
+  if (host !== null) return { protocol: 'ssh', value: host, keyType: optStr(r, 'keyType', READ) };
+  const engine = optStr(r, 'engineId', READ);
+  return engine !== null ? { protocol: 'snmp', value: engine, keyType: null } : null;
+}
 
 export function parseReadAnswer(bytes: Uint8Array): ReadAnswer {
   const r = jsonObject(bytes, READ);
@@ -113,14 +148,16 @@ export function parseReadAnswer(bytes: Uint8Array): ReadAnswer {
   if (outcome === 'read') return { outcome, id: str(r, 'id', READ) };
   if (outcome === 'confirm') {
     const state = str(r, 'state', READ);
-    return { outcome, engineId: str(r, 'engineId', READ), state: state === 'changed' ? 'changed' : 'seen', previous: optStr(r, 'previous', READ) };
+    const identity = identityIn(r);
+    if (identity === null) throw new Error(`${READ}: confirm names no engine id or host key`);
+    return { outcome, identity, state: state === 'changed' ? 'changed' : 'seen', previous: optStr(r, 'previous', READ) };
   }
   const f = r.failure != null && typeof r.failure === 'object' ? asRec(r.failure, READ) : {};
   return {
     outcome: 'failed',
     code: typeof f.code === 'string' ? f.code : 'failed',
     message: typeof f.message === 'string' ? f.message : 'The device was not read.',
-    engineId: optStr(r, 'engineId', READ),
+    identity: identityIn(r),
     previous: optStr(r, 'previous', READ),
   };
 }
@@ -137,14 +174,21 @@ function canonicalBody(value: Record<string, unknown>): Uint8Array {
 
 /**
  * Reads one device. With no `login` and an agent not yet confirmed, the server only asks the device
- * who it is and answers `confirm`; `confirm` is the last 8 characters a person typed.
+ * who it is and answers `confirm`; `confirm` is the last 8 characters a person typed. `platform` is
+ * only for a configuration read of a device the design names no platform for.
  */
 export async function readDevice(
   organisation: string,
   design: string,
-  req: { element: string; kind: ReadKind; login?: string | null; confirm?: string | null },
+  req: { element: string; kind: ReadKind; login?: string | null; confirm?: string | null; platform?: string | null },
 ): Promise<ReadAnswer> {
-  const body = canonicalBody({ element: req.element, kind: req.kind, login: req.login ?? undefined, confirm: req.confirm ?? undefined });
+  const body = canonicalBody({
+    element: req.element,
+    kind: req.kind,
+    login: req.login ?? undefined,
+    confirm: req.confirm ?? undefined,
+    platform: req.platform ?? undefined,
+  });
   return parseReadAnswer(await signedFetch('POST', readPath(organisation, design), body));
 }
 
@@ -159,11 +203,39 @@ export interface KeptReading {
   failed: string[];
   macLeftOut: number | null;
   withheld: number | null;
+  /** A configuration read over SSH: the host key it was read under, and the platform whose commands ran. */
+  hostKey: string | null;
+  platform: string | null;
   reading: Record<string, unknown> | null;
+}
+
+/** One command's output in a configuration reading, as the gates left it. */
+export interface ConfigOutput {
+  command: string;
+  text: string;
+  /** How many secrets the reader's gate destroyed. */
+  drops: number;
+  /** Cut at a line because the device printed more than the reader keeps. */
+  incomplete: boolean;
+  exit: number | null;
+}
+
+/** The outputs of a configuration reading, in the order they ran. */
+export function configOutputs(reading: Record<string, unknown> | null): ConfigOutput[] {
+  const outputs = reading?.outputs;
+  if (!Array.isArray(outputs)) return [];
+  return outputs.flatMap((o) => {
+    if (o == null || typeof o !== 'object') return [];
+    const x = o as Record<string, unknown>;
+    if (typeof x.command !== 'string' || typeof x.text !== 'string') return [];
+    return [{ command: x.command, text: x.text, drops: num(x.drops) ?? 0, incomplete: x.incomplete === true, exit: num(x.exit) }];
+  });
 }
 
 export interface ReadingPanel {
   readings: KeptReading[];
+  /** Configurations read over SSH, newest first; only the newest carries its text. */
+  configs: KeptReading[];
   macArp: KeptReading | null;
   macArpChanges: { mac: { new: number; gone: number }; arp: { new: number; gone: number } } | null;
   dismissed: { field: string; value: string }[];
@@ -191,6 +263,8 @@ function kept(item: unknown): KeptReading {
     failed: x.failed != null && typeof x.failed === 'object' && !Array.isArray(x.failed) ? Object.keys(x.failed) : [],
     macLeftOut: num(x.macLeftOut),
     withheld: num(x.withheld),
+    hostKey: optStr(x, 'hostKey', READ),
+    platform: optStr(x, 'platform', READ),
     reading,
   };
 }
@@ -206,6 +280,8 @@ export function parseReadingPanel(bytes: Uint8Array): ReadingPanel {
   const ch = r.macArpChanges != null && typeof r.macArpChanges === 'object' ? (r.macArpChanges as Record<string, unknown>) : null;
   return {
     readings: arrayOf(r, 'readings', READ).map(kept),
+    // A server from before SSH reads sends no `configs`.
+    configs: Array.isArray(r.configs) ? arrayOf(r, 'configs', READ).map(kept) : [],
     macArp: macArp[0] ?? null,
     macArpChanges: ch ? { mac: counts(ch.mac), arp: counts(ch.arp) } : null,
     dismissed: arrayOf(r, 'dismissed', READ).map((item) => {
@@ -225,12 +301,12 @@ export async function dismissDifference(organisation: string, design: string, el
   await signedFetch('POST', `${readPath(organisation, design)}/dismiss`, canonicalBody({ element, field, value }));
 }
 
-/** An agent (an SNMP engine) a device answered with, by address. */
+/** What a device answered with, by address and protocol: an SNMP agent's engine id or an SSH host key. */
 export interface ReadEngine {
   address: string;
   design: string;
   element: string;
-  engineId: string;
+  identity: Identity;
   previous: string | null;
   state: 'seen' | 'approved' | 'changed';
   seenAt: number;
@@ -246,7 +322,7 @@ export function parseEngines(bytes: Uint8Array): ReadEngine[] {
       address: str(x, 'address', READ),
       design: str(x, 'design', READ),
       element: str(x, 'element', READ),
-      engineId: str(x, 'engineId', READ),
+      identity: identityIn(x) ?? { protocol: 'snmp', value: str(x, 'engineId', READ), keyType: null },
       previous: optStr(x, 'previous', READ),
       state: state === 'approved' || state === 'changed' ? state : 'seen',
       seenAt: num(x.seenAt) ?? 0,
@@ -260,22 +336,39 @@ export async function fetchEngines(organisation: string): Promise<ReadEngine[]> 
   return parseEngines(await signedFetch('GET', `/organisations/${encodeURIComponent(organisation)}/device-read/engines`));
 }
 
-/** Approves agents by address, as one batch with one log entry (r90). A changed one goes alone. */
-export async function approveEngines(organisation: string, addresses: readonly string[]): Promise<number> {
+/** Approves agents or host keys by address, as one batch with one log entry (r90). A changed one goes alone. */
+export async function approveEngines(organisation: string, protocol: ReadProtocol, addresses: readonly string[]): Promise<number> {
   const bytes = await signedFetch(
     'POST',
     `/organisations/${encodeURIComponent(organisation)}/device-read/engines/approve`,
-    canonicalBody({ addresses: [...addresses] }),
+    canonicalBody({ addresses: [...addresses], protocol }),
   );
   return num((JSON.parse(new TextDecoder().decode(bytes)) as { approved?: unknown }).approved) ?? 0;
 }
 
-/** The last 8 characters of an engine id, which a person types to confirm it. */
-export function lastEight(engineId: string): string {
-  return engineId.slice(-8).toUpperCase();
+/**
+ * The last 8 characters of an engine id or host key, which a person types to confirm it. An engine id is
+ * hex and shown in capitals; a host key is base64, where case is part of the key, so it is shown as it is.
+ */
+export function lastEight(protocol: ReadProtocol, value: string): string {
+  const end = value.slice(-8);
+  return protocol === 'snmp' ? end.toUpperCase() : end;
 }
 
-/** An engine id in pairs, the way a device prints it: "80 00 00 09 …". */
-export function enginePairs(engineId: string): string[] {
-  return (engineId.toUpperCase().match(/.{1,2}/g) ?? []);
+/** What a person typed, as it is compared with {@link lastEight}: spaces gone, and capitals only for an engine id. */
+export function typedEight(protocol: ReadProtocol, typed: string): string {
+  const t = typed.replace(/\s+/g, '');
+  return protocol === 'snmp' ? t.toUpperCase() : t;
+}
+
+/**
+ * How an identity is shown, in groups: an engine id in pairs the way a device prints it ("80 00 00 09 …"),
+ * a host key as `SHA256:` and groups of four, the way it is easiest to read aloud.
+ */
+export function identityGroups(identity: Identity): string[] {
+  if (identity.protocol === 'snmp') return identity.value.toUpperCase().match(/.{1,2}/g) ?? [];
+  const body = identity.value.startsWith('SHA256:') ? identity.value.slice(7) : identity.value;
+  // Grouped from the end, so the last two groups are exactly the 8 characters a person types.
+  const head = body.length % 4;
+  return ['SHA256:', ...(head ? [body.slice(0, head)] : []), ...(body.slice(head).match(/.{4}/g) ?? [])];
 }

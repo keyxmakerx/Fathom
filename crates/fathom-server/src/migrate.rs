@@ -471,6 +471,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0076_templates_and_cable_views.sql",
         sql: include_str!("../migrations/0076_templates_and_cable_views.sql"),
     },
+    // Reading a device over SSH: host keys beside engine ids, and a `config` reading (ADR-0082).
+    // Written as 0076; renumbered 0077 when combined, as 0076 went to templates and Cables lists.
+    Migration {
+        version: 77,
+        name: "0077_device_read_ssh.sql",
+        sql: include_str!("../migrations/0077_device_read_ssh.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

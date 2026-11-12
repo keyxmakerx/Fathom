@@ -107,7 +107,7 @@ describe('a login per range, and agents waiting (sign-off r100)', () => {
       address,
       design: 'd',
       element: 'e',
-      engineId: '8000000903001C2B3D4E5F60',
+      identity: { protocol: 'snmp' as const, value: '8000000903001C2B3D4E5F60', keyType: null },
       previous: state === 'changed' ? '800000090300AAAA91A2B3C4' : null,
       state,
       seenAt: 0,
@@ -127,5 +127,39 @@ describe('a login per range, and agents waiting (sign-off r100)', () => {
     expect(out).toContain('Approve this one');
     expect(out).not.toContain('10.20.0.4<');
     expect(out).toContain('…3D4E5F60');
+  });
+
+  it('lists SSH host keys apart from SNMP agents in the same range, in their own case', () => {
+    const host = (address: string) => ({
+      address,
+      design: 'd',
+      element: 'e',
+      identity: { protocol: 'ssh' as const, value: 'SHA256:/d1tvcieVX3qdA57VhyjGjMJOESBaYv/AxSs54GFg+0', keyType: 'ssh-ed25519' },
+      previous: null,
+      state: 'seen' as const,
+      seenAt: 0,
+      approvedBy: null,
+    });
+    const agent = {
+      ...host('10.20.0.14'),
+      identity: { protocol: 'snmp' as const, value: '8000000903001C2B3D4E5F60', keyType: null },
+    };
+    const approved: [string, string[]][] = [];
+    const out = renderToStaticMarkup(
+      createElement(EnginesView, {
+        engines: [host('10.20.0.21'), host('10.20.0.22'), agent],
+        ranges: [{ cidr: '10.20.0.0/24', snmpPort: 161, sshPort: 22 }],
+        busy: false,
+        error: null,
+        onApprove: (p, a) => approved.push([p, a]),
+      }),
+    );
+    expect(out).toContain('SSH host keys');
+    expect(out).toContain('SNMP agents');
+    expect(out).toContain('Host key');
+    expect(out).toContain('…s54GFg+0');
+    expect(out).toContain('ssh-ed25519');
+    expect(out).toContain('Approve 2 new');
+    expect(out).toContain('Approve 1 new');
   });
 });
