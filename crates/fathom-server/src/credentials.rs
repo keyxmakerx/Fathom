@@ -2227,7 +2227,9 @@ impl CredentialStore {
     /// found branch also appends a sealed entry and inserts two rows, which the
     /// other cannot mirror without writing rows for an address that belongs to
     /// nobody. [`CredentialStore::issue_reset_token`] carries the argument.
-    /// **Nothing in this file claims this route is constant time.**
+    /// **Nothing in this file claims this function is constant time.** The route
+    /// (`api.rs`, `request_reset_handler`) therefore answers before it calls this,
+    /// so a caller cannot time the difference.
     ///
     /// **The token is not returned.** There is no mail path yet (ADR-0055 decision
     /// 7's *"until SMTP is applied"*), so the only way to a token is the site chain
