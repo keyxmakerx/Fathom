@@ -257,3 +257,9 @@
   margin-bottom: var(--s2);
   color: var(--ink);
 }
+
+/* r116: the shared panel head sits on the panel's top edge, over its padding. */
+.trace-panel > .panel-head {
+  margin: calc(-1 * var(--s3)) calc(-1 * var(--s3)) var(--s2);
+  top: calc(-1 * var(--s3));
+}

@@ -53,8 +53,8 @@ describe('nextFoldLevel', () => {
     expect(nextFoldLevel({ level: 1, total: 1300, avail: 1400, needed: [1500, 1300] })).toBe(1);
   });
   it('folds the views into one menu last, so a tablet bar and a phone bar have somewhere left to go', () => {
-    expect(BAR_FOLD_MAX).toBe(6);
-    expect(nextFoldLevel({ level: 5, total: 800, avail: 768, needed: [] })).toBe(6);
+    expect(BAR_FOLD_MAX).toBe(5);
+    expect(nextFoldLevel({ level: 4, total: 800, avail: 768, needed: [] })).toBe(5);
   });
   it('stays put when it fits and nothing wider was measured', () => {
     expect(nextFoldLevel({ level: 0, total: 900, avail: 1400, needed: [] })).toBe(0);

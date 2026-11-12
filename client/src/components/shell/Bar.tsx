@@ -5,20 +5,13 @@ import { signOut } from '../../api/auth';
 import { UNTITLED_DESIGN } from '../../api/designs';
 import { useWindowWidth } from './Dock';
 import { nextFoldLevel } from './layout';
-import type { DiagramStyle } from '../drawing/diagramStyle';
-import type { CableColour, CableStyle } from '../drawing/cableStyle';
-import type { LayerId, LayerSet } from '../drawing/layers';
-import { LayersMenu, LensGroup } from './CanvasBar';
-import { LOOKS, LOOK_LABEL, type Look } from '../drawing/look';
-import { LENSES_IN, LENS_LABEL } from './lens';
-import type { Lens } from './lens';
 import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
 import type { PathItem, PathPart } from './path';
 import { SearchBox } from './SearchBox';
 import { shortcutText } from './shortcuts';
 import { ThemeMenu } from './ThemeMenu';
-import type { AccountInfo, MainView, Place, PresenceUser, ShellProps, ShellSearch, ShowAids } from './types';
+import type { AccountInfo, MainView, Place, PresenceUser, ShellProps, ShellSearch } from './types';
 import { VaultBadge, VaultMenuRows } from '../vault/VaultBadge';
 
 // The bar's own `gap` and side padding, counted when measuring its row.
@@ -33,34 +26,15 @@ export interface BarProps {
   onPlaceChange: (place: Place) => void;
   path: PathPart[];
   tree: ReactNode;
-  lens: Lens;
-  onLensChange: (lens: Lens) => void;
-  /** The Rack | Diagram switch; omitted where the look does not apply. */
-  look?: { value: Look; onChange: (look: Look) => void };
-  /** The Show ▾ menu of canvas layers; omitted where there is no canvas. */
-  views?: ReactNode;
-  /** The saved views as rows for the View ▾ menu, shown once the bar folds the views group away. */
-  viewsFolded?: ReactNode;
-  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void }; cables?: { value: CableStyle; onChange: (style: CableStyle) => void; colour?: { value: CableColour; onChange: (colour: CableColour) => void } }; aids?: ShowAids };
   presence: PresenceUser[];
-  zoom: number;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  /** Fits the drawing into view; the percentage is the button. */
-  onZoomFit?: () => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
-  /** The Print button beside Undo/Redo; absent with no design open. */
+  /** Print, in the design name's menu; absent with no design open. */
   onPrint?: () => void;
   /** The Share button; present only for someone who may share (a steward). */
   onShare?: () => void;
-  /** The Docs button: the design's docs list. */
-  onDocs?: () => void;
-  /** The History button: the design's saves beside the canvas. */
-  onHistory?: () => void;
-  historyOpen?: boolean;
   /** The round "?" just before the account square: opens the keyboard shortcuts sheet. */
   onShortcuts?: () => void;
   account: AccountInfo;
@@ -80,18 +54,6 @@ export interface BarProps {
   menu?: ReactNode;
   /** The amber Admin pill beside the account square (display only). */
   adminPill?: { current?: boolean; onSelect?: () => void };
-  /** The Cables list, hanging from the Cables lens: absent everywhere but
-   * the Racks place. The lens shows a ▾ while lit, and a click while it is
-   * ALREADY lit opens this as a popover; a click while some other lens is
-   * lit only switches to Cables, the same as every other lens button. */
-  cablesGroupsPopover?: ReactNode;
-  /** While anything is filtered, the lens reads "Cables · 5 of 38."
-   * `null`/absent leaves the lens reading plain "Cables". */
-  cablesGroupsSummary?: string | null;
-  /** The bar shows "3 hidden · show" in the Racks place while any cable in
-   * this closet is hidden one at a time. Zero or absent renders nothing. */
-  hiddenCablesCount?: number;
-  onShowAllHiddenCables?: () => void;
   /** r31-bar A: the four views as the bar's tabs. Without it the two places are the tabs. */
   mainView?: ShellProps['mainView'];
   work?: ShellProps['work'];
@@ -99,39 +61,25 @@ export interface BarProps {
   designExtra?: ReactNode;
   /** The Doing ▾ menu: what you can set about doing now. */
   doing?: ShellProps['doing'];
-  /** The lens, Layers, Undo, Redo, zoom, Docs, History and Print are on the drawing and the right panel, not here. */
-  toolsOnCanvas?: boolean;
   /** A job under way: it takes the bar. */
   task?: ShellProps['task'];
 }
 
-/** The bar — UI-SPEC "The bar": one row, 44px, a 3px ink rule beneath, and
- * nothing else above the drawing. */
+/** The bar — UI-SPEC "The bar" and r116: one row, 44px, a 3px ink rule beneath, and the same on Canvas, Diagram,
+ * Inventory and Sheet. Where you are, and what is about the whole design or about you. How a view is looked at
+ * (lens, Layers, Look, zoom) is on the view, not here. */
 export function Bar({
   place,
   onPlaceChange,
   path,
   tree,
-  lens,
-  onLensChange,
-  look,
-  layers,
-  views,
-  viewsFolded,
   presence,
-  zoom,
-  onZoomIn,
-  onZoomOut,
-  onZoomFit,
   canUndo,
   canRedo,
   onUndo,
   onRedo,
   onPrint,
   onShare,
-  onDocs,
-  onHistory,
-  historyOpen,
   onShortcuts,
   account,
   viewOnly,
@@ -140,29 +88,24 @@ export function Bar({
   menu,
   adminPill,
   search,
-  cablesGroupsPopover,
-  cablesGroupsSummary,
-  hiddenCablesCount,
-  onShowAllHiddenCables,
   mainView,
   work,
   designExtra,
   doing,
-  toolsOnCanvas = false,
   task = null,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
   const trailingRef = useRef<HTMLDivElement>(null);
 
-  // UI-SPEC "The bar": search folds to the magnifier before anything else
-  // gives; past that the action chips fold into More, the path to its last
-  // part, and the lenses into one View menu. Measured, never a breakpoint.
+  // UI-SPEC "The bar": search folds to the magnifier before anything else gives; past that Doing, Share and the
+  // Admin pill fold into More, the path to its last parts, and Undo and Redo into More too. Measured, never a
+  // breakpoint.
   const [fold, setFold] = useState(0);
   const foldRef = useRef(0);
   foldRef.current = fold;
   const neededRef = useRef<(number | undefined)[]>([]);
-  const contentKey = [place, path.map((p) => p.label).join('/'), lens, presence.length, account.initials, zoom, viewOnly, hiddenCablesCount, look?.value, onDocs != null, onHistory != null, onShare != null, onPrint != null].join('|');
+  const contentKey = [place, path.map((p) => p.label).join('/'), presence.length, account.initials, viewOnly, onShare != null, onPrint != null, doing?.length ?? 0].join('|');
   useLayoutEffect(() => {
     neededRef.current = [];
     setFold(0);
@@ -186,17 +129,16 @@ export function Bar({
     if (trailingRef.current) observer.observe(trailingRef.current);
     return () => observer.disconnect();
   }, [fold, contentKey]);
-  // r31-motion: on the drawing, search folds to its magnifier below 1440px (Ctrl K still opens it).
+  // r31-motion: below 1440px search folds to its magnifier (Ctrl K still opens it).
   const windowWidth = useWindowWidth();
-  const searchCollapsed = fold >= 1 || (toolsOnCanvas && windowWidth < 1440);
+  const searchCollapsed = fold >= 1 || windowWidth < 1440;
   const actionsFolded = fold >= 2;
   const pathFolded = fold >= 3;
-  const lensesFolded = fold >= 4;
-  const editsFolded = fold >= 5;
+  const editsFolded = fold >= 4;
   // Last to give: the four views (and Work) become one menu naming the view you are on (a tablet, a phone).
-  const viewsMenu = fold >= 6;
-  const canvasFolded = toolsOnCanvas && actionsFolded;
-  const canvasDoing = doing != null && doing.length > 0 && task == null;
+  const viewsMenu = fold >= 5;
+  const hasDoing = doing != null && doing.length > 0 && task == null;
+  const hasEdits = place !== null;
 
   async function handleSignOut() {
     await signOut();
@@ -218,12 +160,10 @@ export function Bar({
           <span className="shell-bar__brand">Fathom</span>
         )}
         <Sep />
-        {/* The same four views everywhere. With no design open (Home, Admin)
-            none is marked and they go back to the design last open; before
-            any has been, they are named but are not controls: a view needs a
-            design, and Home is where you pick one. */}
+        {/* The same four views everywhere. On Home (and Admin) they show only once a design has been opened this
+            session, and lead back to it; Work stays. */}
         {mainView != null || place === null ? (
-          <ViewTabs view={work?.on ? null : (mainView?.value ?? null)} onChange={mainView?.onChange} backTo={mainView?.backTo} folded={task != null} work={work} menu={viewsMenu} />
+          <ViewTabs view={work?.on ? null : (mainView?.value ?? null)} onChange={mainView?.onChange} backTo={mainView?.backTo} showViews={mainView != null || place !== null} folded={task != null} work={work} menu={viewsMenu} />
         ) : (
         <div className="shell-bar__tabs">
           <button
@@ -244,7 +184,7 @@ export function Bar({
         )}
         <Sep />
         {/* Earlier crumbs go somewhere; the design's own crumb opens the
-            list of places to switch to. */}
+            list of places to switch to, and holds Rename and Print. */}
         <div className="shell-bar__path">
           {pathItems.length === 0 && <span className="shell-bar__path-empty">Home</span>}
           {pathItems.map((item, index) => (
@@ -254,7 +194,7 @@ export function Bar({
                   &rsaquo;
                 </span>
               )}
-              <PathCrumb item={item} tree={tree} onPrint={toolsOnCanvas ? onPrint : undefined} />
+              <PathCrumb item={item} tree={tree} onPrint={onPrint} />
             </span>
           ))}
         </div>
@@ -306,94 +246,6 @@ export function Bar({
             )}
           </div>
         )}
-        {/* A lens is what is drawn on top of the drawing's boxes, so it
-            belongs to the camera and not to every screen. On Home
-            (`place === null`) there is nothing for a lens to act on, and
-            the approved Home board carries no lens row — the same reason
-            the People and Site boards carry no zoom. ADR-0047 §1. */}
-        {place !== null && !toolsOnCanvas && (
-          <>
-            <Sep />
-            {lensesFolded ? (
-              <Popover
-                align="left"
-                renderTrigger={({ open, triggerProps, triggerRef }) => (
-                  <button
-                    type="button"
-                    className={open ? 'shell-lens shell-lens--on shell-bar__fold' : 'shell-lens shell-bar__fold'}
-                    data-testid="shell-view-menu"
-                    ref={(el) => {
-                      triggerRef.current = el;
-                    }}
-                    {...triggerProps}
-                  >
-                    {LENS_LABEL[lens]}
-                    {look != null ? ` · ${LOOK_LABEL[look.value]}` : ''} ▾
-                  </button>
-                )}
-              >
-                <div className="shell-show" role="group" aria-label="View">
-                  <div className="shell-show__head">Lens</div>
-                  {LENSES_IN[place].map((candidate) => (
-                    <PopoverRow key={candidate} current={candidate === lens} onSelect={() => onLensChange(candidate)}>
-                      {LENS_LABEL[candidate]}
-                      {candidate === 'cables' && cablesGroupsSummary != null ? ` · ${cablesGroupsSummary}` : ''}
-                    </PopoverRow>
-                  ))}
-                  {/* Folded, the Cables lens's own list of groups sits here. */}
-                  {lens === 'cables' && cablesGroupsPopover != null && (
-                    <div className="shell-bar__fold-groups">{cablesGroupsPopover}</div>
-                  )}
-                  {look != null && (
-                    <>
-                      <div className="shell-show__head">Look</div>
-                      {LOOKS.map((candidate) => (
-                        <PopoverRow key={candidate} current={candidate === look.value} onSelect={() => look.onChange(candidate)}>
-                          {LOOK_LABEL[candidate]}
-                        </PopoverRow>
-                      ))}
-                    </>
-                  )}
-                  {layers != null && viewsFolded}
-                </div>
-              </Popover>
-            ) : (
-            <>
-            <LensGroup place={place} lens={lens} onLensChange={onLensChange} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} />
-            {look != null && <Sep />}
-            {look != null && (
-              <div className="shell-bar__lenses" role="group" aria-label="Look">
-                {LOOKS.map((candidate) => (
-                  <button
-                    key={candidate}
-                    type="button"
-                    aria-pressed={candidate === look.value}
-                    className={candidate === look.value ? 'shell-lens shell-lens--on' : 'shell-lens'}
-                    onClick={() => look.onChange(candidate)}
-                  >
-                    {LOOK_LABEL[candidate]}
-                  </button>
-                ))}
-              </div>
-            )}
-            </>
-            )}
-            {hiddenCablesCount != null && hiddenCablesCount > 0 && (
-              <>
-                <Sep />
-                <span className="shell-chip shell-bar__hidden-chip" data-testid="shell-hidden-cables-chip">
-                  {hiddenCablesCount} hidden ·{' '}
-                  <button type="button" className="shell-chip__link" onClick={onShowAllHiddenCables}>
-                    show
-                  </button>
-                </span>
-              </>
-            )}
-            {layers != null && <Sep />}
-            {layers != null && <LayersMenu layers={layers} look={look} extra={actionsFolded ? viewsFolded : undefined} />}
-            {layers != null && !actionsFolded && views}
-          </>
-        )}
       </div>
 
       <div className="shell-bar__spacer" />
@@ -422,11 +274,23 @@ export function Bar({
           </>
         )}
 
-        {/* Undo and Redo act on an open design; zoom acts on the drawing,
-            so it is Racks only (Inventory is lists). */}
-        {/* On the drawing nothing else in this group folds, so a narrow bar (a phone) folds Doing, Share and
-            Admin into menus (Admin into the account menu) rather than clipping them off the right-hand edge. */}
-        {canvasFolded && (canvasDoing || onShare) && (
+        {/* Undo and Redo act on an open design, so they are on every view of one (r116). */}
+        {hasEdits && !editsFolded && (
+          <>
+            <div className="shell-bar__undoredo">
+              <button type="button" className="shell-chip shell-chip--ink" title={`Undo (${shortcutText('undo')})`} disabled={!canUndo} onClick={onUndo} data-testid="bar-undo">
+                Undo
+              </button>
+              <button type="button" className="shell-chip shell-chip--ink" title={`Redo (${shortcutText('redo')})`} disabled={!canRedo} onClick={onRedo} data-testid="bar-redo">
+                Redo
+              </button>
+            </div>
+            <Sep />
+          </>
+        )}
+        {/* A narrow bar folds Undo and Redo, Doing and Share into one menu, and the Admin pill into the account menu,
+            rather than clipping them off the right-hand edge. */}
+        {((actionsFolded && (hasDoing || onShare)) || (editsFolded && hasEdits)) && (
           <Popover
             align="right"
             renderTrigger={({ open, triggerProps, triggerRef }) => (
@@ -443,135 +307,32 @@ export function Bar({
               </button>
             )}
           >
-            {canvasDoing &&
+            {editsFolded && hasEdits && (
+              <>
+                <PopoverRow onSelect={onUndo} disabled={!canUndo}>
+                  Undo
+                </PopoverRow>
+                <PopoverRow onSelect={onRedo} disabled={!canRedo}>
+                  Redo
+                </PopoverRow>
+              </>
+            )}
+            {actionsFolded &&
+              hasDoing &&
               doing.map((item) => (
                 <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`}>
                   {item.label}
                   {item.hint != null && <span className="shell-doing__hint">{item.hint}</span>}
                 </PopoverRow>
               ))}
-            {onShare && <PopoverRow onSelect={onShare} testId="shell-share">Share</PopoverRow>}
+            {actionsFolded && onShare && <PopoverRow onSelect={onShare} testId="shell-share">Share</PopoverRow>}
           </Popover>
         )}
-        {!canvasFolded && canvasDoing && <DoingMenu items={doing} />}
-        {!canvasFolded && toolsOnCanvas && onShare && (
+        {!actionsFolded && hasDoing && <DoingMenu items={doing} />}
+        {!actionsFolded && onShare && (
           <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
             Share
           </button>
-        )}
-        {place !== null && !toolsOnCanvas && !editsFolded && (
-          <>
-            <div className="shell-bar__undoredo">
-              <button type="button" className="shell-chip shell-chip--ink" title={`Undo (${shortcutText('undo')})`} disabled={!canUndo} onClick={onUndo}>
-                Undo
-              </button>
-              <button type="button" className="shell-chip shell-chip--ink" title={`Redo (${shortcutText('redo')})`} disabled={!canRedo} onClick={onRedo}>
-                Redo
-              </button>
-            </div>
-            <Sep />
-          </>
-        )}
-        {toolsOnCanvas ? null : actionsFolded && (onDocs || onHistory || onShare || onPrint || editsFolded) ? (
-          <>
-            <Popover
-              align="right"
-              renderTrigger={({ open, triggerProps, triggerRef }) => (
-                <button
-                  type="button"
-                  className={open ? 'shell-chip shell-chip--ink shell-chip--on' : 'shell-chip shell-chip--ink'}
-                  data-testid="shell-more"
-                  ref={(el) => {
-                    triggerRef.current = el;
-                  }}
-                  {...triggerProps}
-                >
-                  More ▾
-                </button>
-              )}
-            >
-              {editsFolded && place !== null && (
-                <>
-                  <PopoverRow onSelect={onUndo} disabled={!canUndo}>
-                    Undo
-                  </PopoverRow>
-                  <PopoverRow onSelect={onRedo} disabled={!canRedo}>
-                    Redo
-                  </PopoverRow>
-                </>
-              )}
-              {editsFolded && place === 'racks' && (
-                <>
-                  <PopoverRow onSelect={onZoomIn}>Zoom in</PopoverRow>
-                  <PopoverRow onSelect={onZoomOut}>Zoom out</PopoverRow>
-                  {onZoomFit && <PopoverRow onSelect={onZoomFit}>Fit to view ({zoom}%)</PopoverRow>}
-                </>
-              )}
-              {onDocs && <PopoverRow onSelect={onDocs} testId="shell-docs">Docs</PopoverRow>}
-              {onHistory && (
-                <PopoverRow onSelect={onHistory} current={historyOpen ?? false} testId="shell-history">
-                  History
-                </PopoverRow>
-              )}
-              {onShare && <PopoverRow onSelect={onShare} testId="shell-share">Share</PopoverRow>}
-              {onPrint && <PopoverRow onSelect={onPrint} testId="shell-print">Print</PopoverRow>}
-            </Popover>
-            <Sep />
-          </>
-        ) : (
-          (onDocs || onHistory || onShare || onPrint) && (
-            <>
-              <div className="shell-bar__undoredo">
-                {onDocs && (
-                  <button type="button" className="shell-chip shell-chip--ink" onClick={onDocs} data-testid="shell-docs">
-                    Docs
-                  </button>
-                )}
-                {onHistory && (
-                  <button
-                    type="button"
-                    className="shell-chip shell-chip--ink"
-                    aria-pressed={historyOpen ?? false}
-                    onClick={onHistory}
-                    data-testid="shell-history"
-                  >
-                    History
-                  </button>
-                )}
-                {onShare && (
-                  <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
-                    Share
-                  </button>
-                )}
-                {onPrint && (
-                  <button type="button" className="shell-chip shell-chip--ink" onClick={onPrint} data-testid="shell-print">
-                    Print
-                  </button>
-                )}
-              </div>
-              <Sep />
-            </>
-          )
-        )}
-        {place === 'racks' && !toolsOnCanvas && !editsFolded && (
-          <>
-            <div className="shell-bar__zoom">
-              <button type="button" className="shell-zoom-btn" aria-label="Zoom out" title={`Zoom out (${shortcutText('zoom-out')})`} onClick={onZoomOut}>
-                &minus;
-              </button>
-              {onZoomFit ? (
-                <button type="button" className="shell-zoom-value" aria-label="Fit to view" title={`Fit to view (${shortcutText('zoom-fit')})`} onClick={onZoomFit}>
-                  {zoom}%
-                </button>
-              ) : (
-                <span className="shell-zoom-value">{zoom}%</span>
-              )}
-              <button type="button" className="shell-zoom-btn" aria-label="Zoom in" title={`Zoom in (${shortcutText('zoom-in')})`} onClick={onZoomIn}>
-                +
-              </button>
-            </div>
-            <Sep />
-          </>
         )}
         {adminPill && !actionsFolded &&
           (adminPill.onSelect && !adminPill.current ? (
@@ -798,6 +559,7 @@ function ViewTabs({
   view,
   onChange,
   backTo,
+  showViews = true,
   folded = false,
   work,
   menu = false,
@@ -805,6 +567,8 @@ function ViewTabs({
   view: MainView | null;
   onChange?: (view: MainView) => void;
   backTo?: string;
+  /** False on Home before any design has been opened this session: there is nothing for a view to show. */
+  showViews?: boolean;
   folded?: boolean;
   work?: ShellProps['work'];
   /** Narrow bar: one menu named for the current view instead of the row of tabs. */
@@ -874,7 +638,7 @@ function ViewTabs({
   }
   return (
     <div className={folded ? 'shell-bar__tabs shell-bar__tabs--views shell-bar__tabs--folded' : 'shell-bar__tabs shell-bar__tabs--views'} ref={rowRef} role="tablist" aria-label="Views">
-      {VIEWS.map((v) =>
+      {(showViews ? VIEWS : []).map((v) =>
         onChange == null ? (
           <span key={v} className="shell-bar__tab">
             {VIEW_LABEL[v]}

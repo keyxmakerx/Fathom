@@ -108,7 +108,9 @@ describe('a device with no known rack spot', () => {
     expect(free).toEqual(expect.arrayContaining([DEVICE_WORDS.planFirmware, DEVICE_WORDS.swapModel, DEVICE_WORDS.fitCard, DEVICE_WORDS.addPort]));
     expect(free).not.toContain(DEVICE_WORDS.takeOut);
     expect(free).not.toContain(DEVICE_WORDS.openInside);
-    const racked = deviceMenuItems('c1', actions).find((i) => i.label === DEVICE_WORDS.takeOut)!;
+    // r116: Take it out left the short menu (it sits beside Rack in the panel); Ctrl K still lists it.
+    expect(deviceMenuItems('c1', actions).map((i) => i.label)).not.toContain(DEVICE_WORDS.takeOut);
+    const racked = deviceMenuItems('c1', actions, { all: true }).find((i) => i.label === DEVICE_WORDS.takeOut)!;
     racked.onSelect();
     expect(actions.onTakeOut).toHaveBeenCalledWith('c1');
   });

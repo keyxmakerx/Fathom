@@ -19,12 +19,7 @@ const BASE: BarProps = {
   onPlaceChange: () => {},
   path: [],
   tree: null,
-  lens: 'cables',
-  onLensChange: () => {},
   presence: [],
-  zoom: 100,
-  onZoomIn: () => {},
-  onZoomOut: () => {},
   canUndo: false,
   canRedo: false,
   onUndo: () => {},
@@ -33,11 +28,25 @@ const BASE: BarProps = {
 };
 
 describe('Bar — what is present where', () => {
-  it('with a design open: the place tabs act, and Undo, Redo and zoom are there', () => {
+  it('with a design open: the place tabs act, and Undo and Redo are there', () => {
     const markup = renderToStaticMarkup(createElement(Bar, BASE));
     expect(markup).toContain('<button type="button" class="shell-bar__tab shell-bar__tab--on">Canvas</button>');
-    expect(markup).toContain('Undo');
-    expect(markup).toContain('aria-label="Zoom in"');
+    expect(markup).toContain('>Undo<');
+    expect(markup).toContain('>Redo<');
+  });
+
+  it('the bar holds no lens, no zoom and no Docs, History or Print chip: those are the view\'s, and the panel\'s', () => {
+    for (const place of ['racks', 'inventory'] as const) {
+      const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place, onPrint: () => {}, onShare: () => {} }));
+      expect(markup).not.toContain('>Routing<');
+      expect(markup).not.toContain('>Cables<');
+      expect(markup).not.toContain('>Power<');
+      expect(markup).not.toContain('aria-label="Zoom in"');
+      expect(markup).not.toContain('data-testid="shell-docs"');
+      expect(markup).not.toContain('data-testid="shell-history"');
+      expect(markup).not.toContain('data-testid="shell-print"');
+      expect(markup).not.toContain('>More ▾<');
+    }
   });
 
   it('the round "?" beside the account square opens the shortcuts sheet, only when it is offered', () => {
@@ -50,36 +59,15 @@ describe('Bar — what is present where', () => {
     expect(markup.indexOf('shell-shortcuts-btn')).toBeLessThan(markup.indexOf('class="shell-account"'));
   });
 
-  it('shows only the lenses that change the place: Canvas Cables, Links (r109) and Routing; Inventory also Power and Owner', () => {
-    const racks = renderToStaticMarkup(createElement(Bar, BASE));
-    expect(racks).toContain('>Routing<');
-    expect(racks).toContain('>Links<');
-    expect(racks).not.toContain('>Power<');
-    const inventory = renderToStaticMarkup(createElement(Bar, { ...BASE, place: 'inventory' }));
-    expect(inventory).toContain('>Power<');
-    expect(inventory).toContain('>Owner<');
-    expect(inventory).not.toContain('>Links<');
-  });
-
-  it('in Inventory: Undo and Redo, but no zoom (there is no drawing to zoom)', () => {
-    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: 'inventory' }));
-    expect(markup).toContain('Undo');
-    expect(markup).not.toContain('aria-label="Zoom in"');
-  });
-
-  it('the percentage fits the view only where a fit is offered', () => {
-    expect(renderToStaticMarkup(createElement(Bar, BASE))).toContain('<span class="shell-zoom-value">100%</span>');
-    expect(renderToStaticMarkup(createElement(Bar, { ...BASE, onZoomFit: () => {} }))).toContain('aria-label="Fit to view"');
-  });
-
-  it('with nothing open (Home, Admin): the four view names are not controls, and Undo, Redo and zoom are absent', () => {
-    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: null }));
-    for (const name of ['Diagram', 'Canvas', 'Inventory', 'Sheet']) expect(markup).toContain(`<span class="shell-bar__tab">${name}</span>`);
+  it('with nothing open (Home, Admin), and no design opened this session: no view names, no Undo, no Redo', () => {
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: null, work: { on: false, onOpen: () => {} } }));
+    for (const name of ['Diagram', 'Canvas', 'Inventory', 'Sheet']) expect(markup).not.toContain(`>${name}<`);
+    expect(markup).toContain('data-testid="view-work"');
     expect(markup).not.toContain('Undo');
-    expect(markup).not.toContain('aria-label="Zoom in"');
+    expect(markup).not.toContain('Redo');
   });
 
-  it('with nothing open but a design open before (Home, Admin): the same four views go back to it, none marked', () => {
+  it('with nothing open but a design open before (Home, Admin): the four views go back to it, none marked', () => {
     const markup = renderToStaticMarkup(
       createElement(Bar, { ...BASE, place: null, mainView: { value: null, backTo: 'Main closet', onChange: () => {} } }),
     );
@@ -148,37 +136,71 @@ describe('Bar — account menu rows', () => {
   });
 });
 
-describe('Bar — r31-bar A, on the drawing', () => {
-  const onCanvas = (over: Partial<BarProps> = {}) =>
+// r116: the same bar on Canvas, Diagram, Inventory and Sheet.
+describe('Bar — r116, identical on every view', () => {
+  const sample = createElement('span', { className: 'sample-chip-stand-in' }, 'Sample');
+  const on = (view: 'diagram' | 'canvas' | 'inventory' | 'sheet', over: Partial<BarProps> = {}) =>
     renderToStaticMarkup(
       createElement(Bar, {
         ...BASE,
-        toolsOnCanvas: true,
-        mainView: { value: 'canvas', onChange: () => {} },
+        place: view === 'diagram' || view === 'canvas' ? 'racks' : 'inventory',
+        mainView: { value: view, onChange: () => {} },
+        work: { on: false, onOpen: () => {} },
+        path: [{ label: 'Harbour Networks', onSelect: () => {} }, { label: 'Sample home lab', opensTree: true }],
+        designExtra: sample,
         doing: [
           { id: 'plan', label: 'Plan a change', onSelect: () => {} },
           { id: 'down', label: "It's down", hint: 'select a device first' },
         ],
         onShare: () => {},
         onPrint: () => {},
-        onDocs: () => {},
-        onHistory: () => {},
+        adminPill: { onSelect: () => {} },
+        search: { run: () => [], choose: () => {} },
         ...over,
       }),
     );
+  const VIEWS = ['diagram', 'canvas', 'inventory', 'sheet'] as const;
 
-  it('names the four views, Canvas current', () => {
-    const markup = onCanvas();
-    for (const v of ['diagram', 'canvas', 'inventory', 'sheet']) expect(markup).toContain(`data-testid="view-${v}"`);
+  it('names the four views and Work, the current view marked', () => {
+    const markup = on('canvas');
+    for (const v of VIEWS) expect(markup).toContain(`data-testid="view-${v}"`);
+    expect(markup).toContain('data-testid="view-work"');
     expect(markup).toMatch(/aria-current="page"[^>]*data-testid="view-canvas"/);
   });
 
-  it('keeps Doing and Share, and leaves the lens, Undo, zoom, Docs, History and Print to the drawing and the panel', () => {
-    const markup = onCanvas();
+  it('is the same bar on every view: the same controls, in the same order', () => {
+    // What differs is only which view is marked; everything else is the same markup.
+    const strip = (markup: string) => markup.replace(/ aria-current="page"/g, '').replace(/ aria-selected="(true|false)"/g, '').replace(/ shell-bar__tab--on/g, '').replace(/<span class="shell-bar__tabs-mark"[^>]*><\/span>/g, '');
+    const [first, ...rest] = VIEWS.map((v) => strip(on(v)));
+    for (const other of rest) expect(other).toBe(first);
+  });
+
+  it.each(VIEWS)('%s: the organisation, the design name, the Sample chip, Search, Undo, Redo, Doing, Share and the Admin pill', (view) => {
+    const markup = on(view);
+    expect(markup).toContain('>Harbour Networks<');
+    expect(markup).toContain('Sample home lab');
+    expect(markup).toContain('sample-chip-stand-in');
+    expect(markup).toContain('class="shell-search"');
+    expect(markup).toContain('>Undo<');
+    expect(markup).toContain('>Redo<');
     expect(markup).toContain('data-testid="shell-doing"');
     expect(markup).toContain('data-testid="shell-share"');
+    expect(markup).toContain('data-testid="shell-admin-pill"');
+    // Search is the one field, never an icon beside the others.
+    expect(markup).not.toContain('shell-search--collapsed');
+  });
+
+  it('puts Undo and Redo before Doing and Share, and Search before Undo', () => {
+    const markup = on('inventory');
+    expect(markup.indexOf('class="shell-search"')).toBeLessThan(markup.indexOf('>Undo<'));
+    expect(markup.indexOf('>Redo<')).toBeLessThan(markup.indexOf('data-testid="shell-doing"'));
+    expect(markup.indexOf('data-testid="shell-doing"')).toBeLessThan(markup.indexOf('data-testid="shell-share"'));
+    expect(markup.indexOf('data-testid="shell-share"')).toBeLessThan(markup.indexOf('data-testid="shell-admin-pill"'));
+  });
+
+  it('holds no lens, no zoom and no Docs, History or Print chip', () => {
+    const markup = on('canvas');
     expect(markup).not.toContain('>Routing<');
-    expect(markup).not.toContain('>Undo<');
     expect(markup).not.toContain('aria-label="Zoom in"');
     expect(markup).not.toContain('data-testid="shell-docs"');
     expect(markup).not.toContain('data-testid="shell-history"');

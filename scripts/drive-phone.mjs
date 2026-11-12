@@ -154,7 +154,15 @@ try {
   await page.waitForSelector('.drawing', { timeout: 60_000 });
   await page.waitForTimeout(800);
   check('canvas: the drawing tools are folded away', !(await shown('.shell-canvas-bar__group')));
-  check('canvas: the bar says View only and Undo is off', (await page.getByText('View only').count()) > 0 && (await page.locator('.shell-pill [aria-label="Undo"]').isDisabled()));
+  // r116: Undo is in the bar on every view (the bottom pill is the camera only); a narrow bar folds it into More.
+  const undoOff = async () => {
+    if ((await page.locator('[data-testid="bar-undo"]').count()) > 0) return page.locator('[data-testid="bar-undo"]').isDisabled();
+    await page.locator('[data-testid="shell-more"]').click();
+    const off = await page.locator('.shell-popover__row', { hasText: /^Undo$/ }).first().isDisabled();
+    await page.keyboard.press('Escape');
+    return off;
+  };
+  check('canvas: the bar says View only and Undo is off', (await page.getByText('View only').count()) > 0 && (await undoOff()));
   check('canvas: the minimap is folded away', !(await shown('.canvas-minimap')));
   await shot('phone-05-canvas.png');
   await context.close();

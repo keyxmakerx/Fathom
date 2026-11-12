@@ -975,7 +975,6 @@ export function DesignPlace(props: DesignPlaceProps) {
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,
-    onDocs: doc != null && pickedSave == null ? () => docs.setView({ kind: 'list' }) : undefined,
     onHistory: doc != null ? () => toggleHistory() : undefined,
     onShortcuts: () => setShortcutsOpen(true),
     historyOpen,
@@ -1044,7 +1043,6 @@ export function DesignPlace(props: DesignPlaceProps) {
             canDraw={session.canDraw}
             restoreText={pickedSave != null && doc != null ? describeRestore(doc, pickedSave.doc) : ''}
             onRestore={restorePicked}
-            onClose={() => setHistoryOpen(false)}
           />
         ),
         banner:
@@ -1065,16 +1063,9 @@ export function DesignPlace(props: DesignPlaceProps) {
           ? { ...session, canDraw: false, applyDocChange: () => {} }
           : session;
 
-  // r31-bar A: on the drawing, Docs is a tab of the right-hand panel holding the docs list, not an overlay. Leaving
-  // the drawing folds it, so it does not reappear as a page over the other view.
-  const docsPlace = useRef(props.place);
-  useEffect(() => {
-    if (docsPlace.current === 'racks' && props.place !== 'racks') docs.setView(null);
-    docsPlace.current = props.place;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of place folds it
-  }, [props.place]);
+  // r31-bar A and r116: Docs is a tab of the right-hand panel holding the docs list, on every view.
   const docsTab: SideTab | null =
-    sharedShellProps.onDocs != null || docs.view != null
+    (doc != null && pickedSave == null) || docs.view != null
       ? {
           id: 'docs',
           label: 'Docs',
@@ -1132,13 +1123,13 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : null;
   // On a phone the ideas are a bottom tab and a full-screen sheet instead (ADR-0075).
   const aiTab = phone ? null : aiIdeasTab(aiIdeas, aiIdeasOpen, setAiIdeasOpen, aiIdeasContent);
-  const racksSideTabs = [...(docsTab != null ? [docsTab] : []), ...(aiTab != null ? [aiTab] : [])];
+  const designSideTabs = [...(docsTab != null ? [docsTab] : []), ...(aiTab != null ? [aiTab] : [])];
 
   const place =
     props.place === 'racks' ? (
       <RacksPlace
         {...sharedShellProps}
-        sideTabs={racksSideTabs.length > 0 ? racksSideTabs : undefined}
+        sideTabs={designSideTabs.length > 0 ? designSideTabs : undefined}
         historyView={historyView}
         onPlaceChange={switchPlace}
         session={racksSession}
@@ -1173,7 +1164,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : (
       <InventoryPlace
         {...sharedShellProps}
-        sideTabs={aiTab != null ? [aiTab] : undefined}
+        sideTabs={designSideTabs.length > 0 ? designSideTabs : undefined}
         aiTargets={aiIdeas.targets}
         onPlaceChange={switchPlace}
         session={session}
@@ -1189,6 +1180,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         redact={redact}
         accountId={accountId}
         organisationId={organisationId}
+        loadFirstSave={loadFirstSave}
       />
     );
 
@@ -1202,7 +1194,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   return (
     <PasteGateBoundary redact={redact}>
     <AiPreviewContext.Provider value={aiPreview}>
-      <div className="print-hide-under-preview" inert={printMode === 'preview' || (docs.view != null && props.place !== 'racks') || learn.view != null}>
+      <div className="print-hide-under-preview" inert={printMode === 'preview' || learn.view != null}>
         <FirmwareContext.Provider value={firmwareApi}>
           <VaultPlaceContext.Provider value={vaultPlace}>
           <ReadingContext.Provider value={readingPlace}>
@@ -1247,11 +1239,6 @@ export function DesignPlace(props: DesignPlaceProps) {
           onClose={() => setBuilderOpen(false)}
           side={props.place === 'racks' ? 'left' : 'right'}
         />
-      )}
-      {docs.view != null && printMode === 'closed' && props.place !== 'racks' && (
-        <DocsContext.Provider value={docs.api}>
-          <DocsOverlay view={docs.view} onView={docs.setView} onClose={() => docs.setView(null)} />
-        </DocsContext.Provider>
       )}
       {printMode === 'panel' && printView && (
         <PrintPanel

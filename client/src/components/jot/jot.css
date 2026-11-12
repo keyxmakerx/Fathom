@@ -18,7 +18,8 @@
 .jot__bar {
   position: absolute;
   left: var(--s3);
-  top: var(--s3);
+  /* Under the tool row, which sits over this view (r116). */
+  top: calc(var(--s2) + 48px);
   right: var(--s3);
   z-index: 3;
   display: flex;
@@ -155,7 +156,7 @@
 .jot__hint {
   position: absolute;
   left: 50%;
-  top: calc(var(--s3) + 2rem);
+  top: calc(var(--s3) + 2rem + 48px);
   transform: translateX(-50%);
   margin: 0;
   color: var(--muted);

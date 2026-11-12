@@ -25,7 +25,11 @@ import type { FieldDefView } from '../../document/fields';
 import { ListToolbar, type KindFilter } from './ListToolbar';
 import { isKind, kindNoun } from './kinds';
 import { listIssues } from '../../document/issues';
-import { isNodeOfKind } from '../../document/model';
+import { isNodeOfKind, type Document } from '../../document/model';
+import { restoreTo } from '../../document/restore';
+import { SampleChip } from '../home/SampleChip';
+import { sampleOfDesign } from '../home/firstSteps';
+import { ToolRow } from './ToolRow';
 import { EverywherePanel } from './EverywherePanel';
 import { IssuesList } from '../troubleshoot/IssuesList';
 import { modelRows } from '../../document/firmware';
@@ -140,6 +144,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   organisationId: string;
   /** Ids an open AI idea names, marked in the list (ADR-0072 decision 7). */
   aiTargets?: ReadonlySet<string>;
+  /** The design as its first save made it, for the Sample chip's reset. */
+  loadFirstSave?: () => Promise<Document>;
 }
 
 /** Lets the page paint before the next step of a long job. */
@@ -193,7 +199,7 @@ function writeSession(key: string, value: string | null): void {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, onShowIssue, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, aiTargets, ...shellProps } = props;
+  const { session, onShowOnRack, onShowIssue, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, aiTargets, loadFirstSave, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
@@ -876,17 +882,50 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     },
   };
 
+  // r116: the same bar as the canvas. Doing here acts on the device whose page is open and hands it to the canvas, the
+  // way this place's device menu does (r58); the Sample chip is the design's, not the canvas's.
+  const pageChassis = pageSelection?.kind === 'chassis' ? pageSelection.id : null;
+  const needsDevice = pageChassis == null ? 'open a device first' : undefined;
+  const doing: NonNullable<ShellProps['doing']> = [
+    { id: 'plan', label: DEVICE_WORDS.planChange, onSelect: canDraw && pageChassis != null ? () => onCanvas(DEVICE_WORDS.planChange)(pageChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
+    { id: 'down', label: DEVICE_WORDS.itsDown, onSelect: canDraw && pageChassis != null ? () => onCanvas(DEVICE_WORDS.itsDown)(pageChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
+    { id: 'trace', label: DEVICE_WORDS.trace, onSelect: pageChassis != null ? () => onCanvas(DEVICE_WORDS.trace)(pageChassis) : undefined, hint: needsDevice },
+  ];
+  const isSample = session.designId != null && sampleOfDesign(accountId, session.designId) != null;
+  const resetSample = async () => {
+    if (loadFirstSave == null || accountId == null || doc == null) return;
+    const first = await loadFirstSave();
+    applyDocChange(restoreTo(doc, first, 'Reset the sample', { actor: accountId, now: Date.now() }));
+  };
+  // Back is the tool row's, first in it, only while there is a page to go back from.
+  const framed = Boolean(adding || (openKey && (ipamPage || page || (kind === 'addresses' && openRow))));
+  const backWord = adding || backLabel === undefined || backLabel === '' ? kindLabel : backLabel;
+
   return (
-    <Shell {...shellProps} lens={lens} editor={null} viewOnly={!canDraw} mainView={mainView}>
+    <Shell
+      {...shellProps}
+      lens={lens}
+      editor={null}
+      viewOnly={!canDraw}
+      mainView={mainView}
+      designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined}
+      doing={doc != null ? doing : undefined}
+    >
       {labels ? <LabelsPreview items={labels.items} note={labels.note} cables={labels.cables} onClose={() => setLabels(null)} /> : null}
       {doc == null ? (
         <div className="inventory-place__loading">{loadError ?? <SkeletonRows label="Opening the design…" rows={9} />}</div>
       ) : (
         <PasteGateBoundary redact={redact}>
         <div className={sheet ? 'inventory-place inventory-place--sheet' : 'inventory-place'}>
+          {/* r116: this view's tool row: Back (only from a page), Find, and the lens beside it. */}
+          <ToolRow
+            back={framed ? { word: backWord, onBack: closePage } : undefined}
+            find={sheet ? undefined : <FindBox index={searchIndex} arm={() => setFindArmed(true)} value={ls.find} onValue={(v) => go({ find: v })} where={where} onOpen={openHit} onClearWhere={() => go({ where: NO_WHERE })} slot={findSlot} />}
+            lens={lens}
+            onLensChange={shellProps.onLensChange}
+          />
           {sheet ? null : (
           <>
-          <FindBox index={searchIndex} arm={() => setFindArmed(true)} value={ls.find} onValue={(v) => go({ find: v })} where={where} onOpen={openHit} onClearWhere={() => go({ where: NO_WHERE })} slot={findSlot} />
           <WhereBar where={where} options={whereOpts} onChange={(w) => go({ where: w })} />
           <div className="inv-find-slot" ref={setFindSlot} />
           </>
@@ -976,12 +1015,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           ) : adding || (openKey && (ipamPage || page || (kind === 'addresses' && openRow))) ? (
             <div className="inv-pageframe">
               {refusal}
-              <div className="inv-pageframe__bar">
-                <button type="button" className="inv-pageframe__back" onClick={closePage}>
-                  ← Back to {adding || backLabel === undefined || backLabel === '' ? kindLabel : backLabel}
-                </button>
-                {adding ? <span className="inv-pageframe__crumb">{adding === 'prefix' ? 'New prefix' : adding === 'vlan' ? 'New VLAN' : adding === 'upload' ? 'Upload image' : 'Corrections waiting'}</span> : null}
-              </div>
+              {adding ? (
+                <div className="inv-pageframe__bar">
+                  <span className="inv-pageframe__crumb">{adding === 'prefix' ? 'New prefix' : adding === 'vlan' ? 'New VLAN' : adding === 'upload' ? 'Upload image' : 'Corrections waiting'}</span>
+                </div>
+              ) : null}
               <div className="inv-pageframe__body">{kind === 'addresses' ? <AddressNote row={openRow} onOpenDevice={() => switchKind('devices')} /> : (ipamPage ?? page)}</div>
             </div>
           ) : (

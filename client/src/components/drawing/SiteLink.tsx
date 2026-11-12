@@ -39,9 +39,19 @@ export function siteLinkOf(end: CableEnd | undefined): { design: string; element
   return end != null && 'outside' in end ? end.far : undefined;
 }
 
+/** A port menu's "Link to another site…" asks the panel's picker to open; `detail.portId` names the port (r116). */
+export const LINK_SITE_EVENT = 'fathom:link-site';
+
 /** The port panel's "Link to another site…": search, pick a device, pick its port. */
 export function SiteLinkPicker({ portId, actions }: { portId: string; actions: EditorActions }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const onAsk = (event: Event) => {
+      if ((event as CustomEvent<{ portId: string }>).detail.portId === portId) setOpen(true);
+    };
+    window.addEventListener(LINK_SITE_EVENT, onAsk);
+    return () => window.removeEventListener(LINK_SITE_EVENT, onAsk);
+  }, [portId]);
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<EstateHit[]>([]);
   const [chosen, setChosen] = useState<EstateHit | null>(null);

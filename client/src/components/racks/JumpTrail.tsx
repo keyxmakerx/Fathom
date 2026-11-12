@@ -1,7 +1,7 @@
-// The Back button over the canvas: "← BACK TO R1" says where Back goes, and a small ▾ beside it unfolds a
-// tree of where you are inside the design (design, rack, device, port...). It stays out of the way: nothing
-// shows until there is somewhere to go back to or something to show in the tree. There is no Forward
-// button; Alt+Right and the mouse's forward button still go forward (`useJumpBack.ts`).
+// The one Back, first in the tool row: "← BACK", with a small ▾ beside it that unfolds a tree of where you are
+// inside the design (design, rack, device, port...). Where it goes is in its tooltip. It stays out of the way:
+// nothing shows until there is somewhere to go back to. There is no Forward button; Alt+Right and the mouse's
+// forward button still go forward (`useJumpBack.ts`).
 
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 
@@ -100,7 +100,7 @@ export function JumpTrail({ trail, backLabel, onBack, levels, onGo, defaultOpen 
     if (expanded) listRef.current?.querySelectorAll<HTMLButtonElement>('button')[KEEP_TOP]?.focus();
   }, [expanded]);
 
-  if (!canBack && !hasTree) return null;
+  if (!canBack) return null;
 
   const lines = foldTrail(levels, expanded);
   const onListKey = (e: KeyboardEvent<HTMLOListElement>) => {
@@ -115,8 +115,8 @@ export function JumpTrail({ trail, backLabel, onBack, levels, onGo, defaultOpen 
     <nav className="jump-trail" aria-label="Back and where you are" data-print-omit="" ref={rootRef}>
       <div className="jump-trail__bar">
         {canBack && (
-          <button type="button" className="jump-trail__nav" onClick={onBack} title={`Go back (${shortcutText('go-back')})`} data-testid="jump-back">
-            <span aria-hidden="true">←</span> Back to {backLabel}
+          <button type="button" className="jump-trail__nav" onClick={onBack} title={`Back to ${backLabel} (${shortcutText('go-back')})`} data-testid="jump-back">
+            <span aria-hidden="true">←</span> Back
           </button>
         )}
         {hasTree && (

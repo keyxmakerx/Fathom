@@ -157,17 +157,24 @@ try {
     const after = await card.boundingBox();
     check('the card follows the device when the canvas pans', before != null && after != null && Math.abs(after.x - before.x - 60) < 4, JSON.stringify({ before, after }));
 
+    // ADR-0091: one answer. Details opens the panel and the card goes; with the panel open a click fills it.
     await card.getByRole('button', { name: 'Details' }).click();
-    await page.waitForTimeout(200);
-    check('Details leaves the card up', await card.isVisible());
+    await page.waitForTimeout(300);
+    check('Details opens the panel and puts the card away', (await card.count()) === 0 && (await page.locator('[data-testid=dock-head]').count()) === 1);
+    await sw.click();
+    await page.waitForTimeout(300);
+    check('with the panel open a click shows no card', (await card.count()) === 0);
 
+    await page.locator('[data-testid=dock-head] button[aria-label^="Fold"]').click();
+    await page.waitForTimeout(300);
+    await sw.click();
+    await page.waitForTimeout(300);
+    check('with the panel folded a click brings the card', await card.isVisible());
     await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
     check('Escape puts the card away', (await card.count()) === 0);
-
     await sw.click();
     await page.waitForTimeout(300);
-    check('a second click brings it back', await card.isVisible());
     await page.mouse.click(pb.x + 20, pb.y + 20);
     await page.waitForTimeout(300);
     check('a click on empty canvas puts it away', (await card.count()) === 0);
