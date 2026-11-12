@@ -8,7 +8,7 @@ import { ConsoleTabs, consoleSections } from './ConsoleTabs';
 // "i got lost"). Render-to-string, per `SignIn.render.test.ts`.
 
 describe('the console section tabs', () => {
-  it('offers Accounts first, and Issued only once something was minted', () => {
+  it('offers Accounts first, and Invitations only once something was minted', () => {
     expect(consoleSections(false)).toEqual(['accounts', 'organisations', 'operators', 'ai', 'firmware', 'activity', 'settings']);
     expect(consoleSections(true)).toEqual(['accounts', 'organisations', 'operators', 'ai', 'firmware', 'activity', 'settings', 'issued']);
   });
@@ -18,7 +18,7 @@ describe('the console section tabs', () => {
       createElement(ConsoleTabs, { sections: consoleSections(true), current: 'accounts', onSelect: () => {} }),
     );
     expect(html).toContain('Accounts');
-    expect(html).toContain('Issued');
+    expect(html).toContain('Invitations');
     expect((html.match(/aria-selected="true"/g) ?? []).length).toBe(1);
     expect(html).toMatch(/console__tab console__tab--on"[^>]*data-testid="console-tab-accounts"/);
   });

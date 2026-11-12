@@ -176,7 +176,7 @@ export function ClaimOrganisation({
           </div>
           <div className="signin__field">
             <label className="signin__label" htmlFor="claim-notice-address">
-              Notice address
+              Contact email
             </label>
             <input
               id="claim-notice-address"

@@ -89,10 +89,10 @@ function ServerForm({ s, busy, onSave }: { s: On; busy: boolean; onSave: (v: Sav
       <table className="console__table">
         <thead>
           <tr>
-            <th>setting</th>
-            <th>settings file</th>
-            <th>saved here</th>
-            <th>in use</th>
+            <th>Setting</th>
+            <th>Server’s file</th>
+            <th>Set here</th>
+            <th>In use</th>
           </tr>
         </thead>
         <tbody>
@@ -126,7 +126,7 @@ function ServerForm({ s, busy, onSave }: { s: On; busy: boolean; onSave: (v: Sav
           ))}
         </tbody>
       </table>
-      <p className="console__note">Sizes are in GB. An empty box uses the settings file’s value; Reset empties them all.</p>
+      <p className="console__note">Sizes are in GB. An empty box uses the server file’s value; Reset empties them all.</p>
       <div className="console__row">
         <button type="button" className="console__btn" data-testid="admin-firmware-save" disabled={busy || anyBad} onClick={() => onSave(values)}>
           Save
@@ -187,7 +187,7 @@ function OrganisationLine({
           inputMode="decimal"
           value={cap}
           placeholder={String(Number((fallback / GB).toFixed(1)))}
-          aria-label={`Ceiling for ${name}, in GB`}
+          aria-label={`Limit for ${name}, in GB`}
           aria-invalid={Number.isNaN(typed)}
           disabled={busy}
           onChange={(e) => setCap(e.target.value)}
@@ -286,10 +286,10 @@ export function FirmwareSectionView({
         <table className="console__table">
           <thead>
             <tr>
-              <th>organisation</th>
-              <th>its own</th>
-              <th>ceiling, GB</th>
-              <th>lock</th>
+              <th>Organisation</th>
+              <th>Its own limit</th>
+              <th>Most allowed, GB</th>
+              <th>Locked</th>
               <th />
             </tr>
           </thead>
