@@ -569,8 +569,8 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   10 rows, rack 7, empty canvas 8) and ports, cables and portal trays have their own; Ctrl K still finds
   every action. The entries above and below describe r58 and r66 as first built; where they differ, this
   one is current. **Not built:** a Checks tab on Inventory and Sheet (the checks engine is owned by the
-  canvas place), and firmware as a choice inside Plan a change (it stays in the panel's Firmware section
-  and Ctrl K). The browser drive scripts were edited for the new layout but not run.
+  canvas place). Firmware is a choice inside Plan a change (sign-off r120; see Maintenance plans) and stays
+  in the panel's Firmware section and Ctrl K. The browser drive scripts were edited for the new layout but not run.
 - **Quick card and peek** (sign-off r59, r66; `drawing/quickCard.ts`, `scripts/drive-quick-card.mjs`). A
   click on a device (or one of its ports), rack, shelf, cable or free box also puts a small card beside
   it on a dotted line: what it is, its name, the management address with Copy, model, place and ports,
@@ -660,8 +660,8 @@ a credential in issue text. Logic: `components/troubleshoot/`, `document/issues.
 **Firmware** (ADR-0045, ADR-0064; schema 0.19, field keys 405-411; migration 0038). Inventory › Firmware
 lists staged images (version, models, SHA-256, running, behind, plans) with upload; Inventory › Models sets
 a model's chosen version and holds devices back with a reason. Check `fw.device.behind-chosen-version`
-flags a device behind its model's version. "Plan a firmware upgrade" (right-click, device page, or for every
-behind device) makes a maintenance plan with the vendor's steps for Junos, IOS XE, NX-OS or EOS; the
+flags a device behind its model's version. "Plan a firmware upgrade" (Plan a change's Firmware upgrade
+choice, the device panel's Firmware section, Ctrl K, or for every behind device) makes a maintenance plan with the vendor's steps for Junos, IOS XE, NX-OS or EOS; the
 device fetches its image with a one-time link. The fetch step and the image page also offer **From Windows**
 and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
 from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
@@ -739,6 +739,13 @@ server, access point). Per browser and design, never saved.
 touches with Why? cards via `OP_PLAN_PREVIEW`), Do (teal checklist, one live step, Done or Went
 differently), Record (outcome, never edited again). Right-click "Plan a change". Steps apply through the
 ordinary edit path; plan text is gated like notes.
+The add-step form opens on **What kind of change?** (sign-off r120; `plans/AddStepForm.tsx`): one row per
+kind, then that kind's fields, with Change to go back. Plan a change on a device or its chassis opens on
+the question with the device filled in; on a port, cable or part it goes straight to the fields. With
+Draw or steward the list also has **Firmware upgrade** (main line only, not an If path): pick the
+device, it says the version it goes to, and Add firmware upgrade puts the same steps and three checks
+the Firmware section writes into this plan. A device with no chosen version says so and offers its
+model's Firmware page.
 A **LAG** step (schema 0.25) picks a device, ticks two or more of its member interfaces (so the
 config must be pasted first), names it (the next free ae, bond or Port-channel by platform) and sets
 LACP; Done builds the AggregateInterface and its member edges in one undo step. The far end is its own
