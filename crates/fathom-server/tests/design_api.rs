@@ -8711,6 +8711,7 @@ async fn a_cables_list_is_each_persons_own_and_needs_read_on_the_design() {
     assert_eq!(rows.len(), 1);
     let raw: String = rows[0].get(0);
     assert!(!raw.contains("fibre"), "{raw}");
+}
 
 /// The elements a search or page answered, in the order it answered them.
 fn hit_elements(hits: &[fathom_server::estate::Hit]) -> Vec<String> {
