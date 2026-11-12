@@ -848,7 +848,7 @@ read both expect it.
 Written 2026-10-25 for the Alpha host. A pinned host runs one image until you change `.env`, however
 many merges land on `main`. Compose only; from source you are already on the commit you built.
 
-**1. Pick the build.** A release tag (`v0.1.0-alpha.1`) is the usual pick: `.github/workflows/release.yml`
+**1. Pick the build.** A release tag (none is cut yet; the first planned is `v0.1.0-alpha.1`) will be the usual pick: `.github/workflows/release.yml`
 names an image `main` already published, without rebuilding it, after checking its provenance says
 `publish.yml` built it from that commit on `main`. The run's summary prints the two lines step 3
 needs. Any merged commit works too, as `sha-<the 40-hex commit>`. Either way, read the digest

@@ -1,1089 +1,297 @@
 # What is actually built
 
-**Last confirmed:** prose brought up to main (9fbbfd5) on 2026-11-09; the newest entries are from 2026-11-03. Test counts are not kept here: read them off a real run.
+**Last confirmed:** against main at b5db647 (PR #336, the combined drafts), 2026-11-12. Counts are not
+kept here: read them off a real run (`fathom-schema-check`, `ls crates/fathom-server/migrations`,
+`./scripts/gate-zero.sh`). Schema version: the `version:` line of `schema/schema.yaml` (priced in
+`docs/SCHEMA-HISTORY.md`).
 
-This page records what exists. It is not a changelog — history lives in `docs/archive/`.
+This page records what exists on main. It is not a changelog; history lives in `docs/archive/` and in
+`git log`. Each entry names where to look: the ADR that decided it, the code, and the drive script that
+proves it. Sign-off cards (`rNN`) are on the Sign-offs page, not in the repository.
 
----
-
-## Working and keeping
-
-**The Rust engine.** Schema toolchain, typed graph store, config ingest with the redaction gate, the
-fragment-to-store weld, the finder, emitters, layout. Zero external dependencies on the client side,
-deliberately. The schema is real and enforced; read counts off `fathom-schema-check`.
-
-**Paste, eight platforms (engine).** The wasm shell holds every dictionary at once, keyed by platform
-(Junos SRX, Junos EX, EdgeOS, OPNsense, and the four below with front ends of their own). The paste
-frame and the "Which device is this from?" picker name all ten (2026-11-09). A paste names its platform (frame flag byte, bits 1-4) or the
-engine detects it from lines only one dictionary binds; unsure is `ERR_PLATFORM_CHOICE` with the
-candidates, never a guess. `OP_REDACT_TEXT` runs every set-form dictionary. A paste into a device reads as that
-device's platform; otherwise, when the engine cannot tell, the card asks "Which device is this from?" once.
-
-**Paste: MikroTik RouterOS (engine, 2026-10-10).** A RouterOS `/export` (v6 or v7) has its own front end,
-`fathom-ingest/src/routeros.rs`, picked by an exact sniff; set-form detection never reads it. Secrets go by
-name in every menu, script bodies whole (`corpus/dict/README-routeros.md`). Naming `routeros` in the paste
-frame and the paste card's summary wait on the client.
-
-**Paste: pfSense (engine, 2026-10-10).** A `config.xml` backup has its own front end,
-`fathom-ingest/src/xml.rs`, picked when the root is `<pfsense>`. Its dictionary is an allowlist: every value
-no entry describes is destroyed, because pfSense stores keys and passwords base64-encoded
-(`corpus/dict/README-pfsense.md`).
-
-**Paste: OPNsense `config.xml` (engine, 2026-10-25, card r29-pull-devices).** The same XML front end reads a
-backup whose root is `<opnsense>`, with `corpus/dict/opnsense/config-xml.yaml` beside the rules CSV's entries;
-the root decides, even when the device already names `opnsense`. An allowlist like pfSense's: hostname,
-interface assignments and VLANs bind, everything else is destroyed (`corpus/dict/opnsense/README-config-xml.md`).
-An encrypted backup binds nothing and is refused.
-
-**Paste: Linux host (engine, 2026-10-16).** `ip addr` and `ip -d link` output (and their `-o` forms) has its
-own front end, `fathom-ingest/src/iproute.rs`, picked by an exact sniff of the first record header. It binds
-interfaces, admin-up, VLANs and addresses, and the host from a pasted shell prompt; only known attribute words
-are shaped and every line is swept (`corpus/dict/README-linux-host.md`). Routes and `bridge vlan show` are
-residue. Naming `linux-host` in the paste frame waits on the client.
-
-**Paste: TP-Link switch (engine, 2026-10-16).** A JetStream or Omada switch's config text (`show
-running-config` or Export Config) has its own front end, `fathom-ingest/src/blockcfg.rs`, picked by an exact
-sniff (`!<model>` first, a `#` separator later). It binds VLANs with their names, interfaces with
-description and `shutdown`, and the hostname. After a credential keyword the rest of the line is destroyed
-whatever any detector says, and every line is swept (`corpus/dict/README-omada-sw.md`). Addresses (dotted
-masks) and VLAN membership are residue. Naming `omada-sw` in the paste frame waits on the client.
-
-**Paste: UniFi switch (engine, 2026-10-25, unverified).** A UniFi switch's `show running-config` is read by
-the same front end in its `UNIFI` dialect, picked by the EdgeSwitch header with a UniFi model in it. It
-binds interfaces, VLAN names and the hostname, on the EdgeSwitch CLI's syntax: no complete real UniFi
-config was found (`corpus/dict/README-unifi-sw.md`). Naming `unifi-sw` in the paste frame waits on the
-client.
-
-**Paste: Arista EOS (engine, 2026-11-02, sign-off r96 round 1).** An EOS `show running-config` is read by
-the same front end in its `EOS` dialect, picked by `EthernetN` ports beside a `Port-ChannelN` or
-`ManagementN` and no `version` line. It binds the hostname, VLANs and names, interfaces with description,
-`shutdown`/`no shutdown` and IPv4 address, Port-Channel links (`channel-group`), access, trunk and native
-VLAN membership (ranges up to 256 VLANs; `1-4094` is not read), SVIs tied to their VLAN, and static routes
-in the default table (`Null0` as discard). VRFs (r96 round 2): `vrf instance`, an interface's `vrf` and
-`ip route vrf NAME …` bind, the route into that VRF's table. Indentation nests blocks (`router bgp` holds `vlan 11`); a paste that lost it reads by `!`.
-Built against configs Arista's AVD generates (`corpus/dict/README-eos.md`).
-
-**The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
-down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
-own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the
-organisation → network → building → rack tree), encrypted designs, and encrypted audit chains with a
-spool that ships sealed entries for external custody.
-
-**Encrypted design storage** (migration 0007). A master key (file, `command://` or `env://`;
-ADR-0043 §3) wraps a random per-tenant key, which wraps a random per-design key. The design key
-encrypts the payload whole with ChaCha20-Poly1305 and a fresh random 96-bit nonce. Per-design keys are
-mandatory: the birthday bound on a random nonce is the whole safety margin, and one key per design
-makes it irrelevant.
-- The master key's non-secret id is stamped into the database, so restoring beside the wrong key file
-  names both keys instead of an AEAD failure that reads like corruption.
-- Every version appends an HMAC-SHA-256 sealed chain entry binding plaintext and stored bytes.
-  Verification reports **verified**, **broken at entry N**, or **cannot verify under key epoch K**; a
-  links-only run says *content not re-bound*.
-- Rotation re-encrypts and writes `reencrypt` entries. Re-wrap is deployment-wide in one transaction
-  (0010); re-wrap of one tenant is not built (§12.6 needs a tenant-level chain that does not exist).
-  Re-wrap and rotation have separate columns and words. Custody switches by re-wrapping keys.
-
-**Migrations** (design: `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`, `docs/PHASE-2-STORAGE-DESIGN.md`):
-- **0003:** every RLS policy split by command, so the branch that lets an account see its own
-  memberships never serves a write.
-- **0004, 0005: two custodies.** Operators hold the machine; stewards hold the data. A composite key
-  onto `principals (id, kind)` makes an operator unrepresentable in an authority row, proved as
-  superuser. The operator role has `SELECT` on eleven tables (`OPERATOR_MAY_SELECT` in
-  `tests/planes.rs`), every policy for it `FOR SELECT`. The application's database password is
-  generated at first start into the key volume, in neither compose file nor environment.
-- **0006: roles.** The migration role owns the schema (`CREATEROLE`); the runtime role `fathom_app`
-  has data privileges only and serves every request. The server refuses to start if its role is a
-  superuser or bypasses row-level security (§15.0).
-- **0008:** verification checks everything checkable first and reports a coverage gap beside the
-  result (§12.6a); the storage pass is entry-driven both ways (a payload row no entry names is a
-  break). A design with a sealed history, stored version or key cannot be deleted by anyone, superuser
-  included. The chain master carries the stamped key id.
-- **0009: chains at site, organisation and design level** (`chains` module). The `audit` module (§9)
-  ships sealed entries as RFC 5424 syslog over TCP to an operator-configured destination, spooling in
-  PostgreSQL when it is down. The append-only fence is a trigger and binds a superuser
-  (`tests/append_only_fence.rs`). The `keys` module holds **organisation content keys**, wrapped under
-  the tenant key, encrypting organisation-chain metadata. Organisation names and scope paths are still
-  plaintext (storage §11.3 name encryption is not built).
-- **0010:** an entry's type must belong to its chain kind. The spool is bounded (admin §9): past it
-  design writes stop, reads continue. `tests/chain_vectors.rs` holds golden values from an
-  independent Python assembly.
-- **0011: the authority layer** (admin §3). Root-key identity, account signing keys, scope grants with
-  signature columns, seconding, suspension and revocation (append-only), the authority head.
-  `authority.rs` holds the signed-byte constructions, `grants.rs` the acts; ES256 software keys,
-  verified at every use, nothing cached (`p256`, `ecdsa`: records under `deps/decisions/`). Genesis is
-  real; Shamir shares, WebAuthn, the admin surface and groups are not built. Admin §3.2 lists eleven
-  departures from the design text. Vectors: `tests/authority_vectors.rs`.
-- **0012** (admin §3.8): the head's digest covers the whole authority state; every seconding is
-  verified at use; granting is propose-then-sign; suspension cannot manufacture a sole steward; expiry
-  is evaluated at use; the sole-steward flag is inside the signed grant bytes (`fathom/grant/v2`). It
-  refuses to apply over a pre-release database with enrolled keys: recreate it.
-- **0066: teams** (ADR-0081, `teams.rs`; attacked first in `docs/TEAMS-ATTACK-ROUND.md`). A team is a
-  third principal kind; every change to one is a signed, append-only row in `team_acts`
-  (`fathom/team/act/v1`) inside the authority head. A person's access is their own grants plus their
-  teams' Read or Draw, resolved in the same per-request walk. Staffing a team is a root steward's act;
-  a lead adds and removes others, never themselves. Routes under `/organisations/{o}/teams`. Screens
-  (`client/src/components/teams/`): Steward › Teams and a team's page, Home › Teams for anyone in,
-  leading or supervising one (a lead staffs it there), and "Through teams" on Steward › People › a
-  person. Each act is signed in the browser, its bytes rebuilt there first. No operator suspend,
-  approvals or work assignment yet.
-- **0071: team roles** (ADR-0081 later item 3, brought forward by card r102 version 2; `roles.rs`). A
-  role is a title and powers from a fixed list (assign, due dates, approve plans, members, history,
-  emergency start). Lead, Supervisor (`overseer`) and Maintenance tech (`tech`) come ready-made; a
-  root Steward renames them, changes their powers, adds roles or retires their own, each a signed,
-  append-only row in `team_role_defs` (`fathom/team/role/v1`) inside the authority head. A lead's
-  member acts now need a role with the members power at the act's chain position. No power reaches
-  a folder. Steward › Teams has a Roles tab; a team's page lists who holds which role.
-- **0072: plan approvals** (card r102 version 2; `plan_approval.rs`, schema 0.38 `MaintenancePlan.team`).
-  A folder's Steward signs whether plans there, and in the folders inside it, must be approved
-  before they start (`plan_rules`, `fathom/plan/rule/v1`, in the authority head). An approval is
-  signed over `plan_digest` (title, window, team and every step's words; not the stage or a step's
-  state), so any change to the plan leaves it behind. Approvers: a Steward of the folder, or a holder
-  of approve plans on the plan's team (any team with access when it names none); never its maker,
-  assignee or whoever asked. A holder of emergency start may start it with a reason; it stays flagged
-  until approved after. A change, or a whole-version save, that moves a plan to doing or recorded is
-  refused without one. Reasons and notes are sealed under the organisation content key. No email yet
-  (waits on ADR-0085); orders' stage approvals wait on ADR-0084.
-- **0013: sessions** (`sessions.rs`, `api.rs`; admin §4). A signed message on every request that
-  reaches design payload or vault ciphertext, single-use nonces, a browser-held session key, a MAC
-  under a site-scoped row key.
-
-**The server can read design data, and says so** (`docs/PHASE-2-STORAGE-DESIGN.md` §2a). Encryption
-protects the database, backups and disk, not the running process. `tests/no_key_protected_data.rs`
-requires every table to declare whether it holds key-protected material and under which key, and a
-marker written through the real write path must appear in no column of any table (a positive control
-proves the sweep can find one). It walks every non-system schema, and the schemas must be exactly
-`public` and `vault`.
-
-**The password vault, part one** (ADR-0071): device logins sealed in the browser (ADR-0042 Mode A),
-in the `vault` schema (`crates/fathom-server/src/vault.rs`, `client/src/vault/`,
-`client/src/components/vault/`). Emergency Kit and passphrase (Argon2id in the engine), a recovery
-sheet held by every login and logged on use, holder lists signed by the sharer, the Logins tab,
-Inventory › Passwords, Home or Steward › Passwords, and the lock badge on the avatar.
-`scripts/drive-vault.mjs` drives three people's own browsers against the real server and sweeps a
-superuser `pg_dump` for every password, note, name, passphrase and recovery code.
-
-**Part two, logins Fathom itself can use** (Mode B, migration `0043_vault_fathom.sql`,
-`crates/fathom-server/src/vault_fathom.rs`): the owner signs a consent over the login's fresh
-epoch, a second admin countersigns when it is shared, the server seals its copy under `vault.key`,
-and `vault_fathom::use_login` opens it only for a marked device, writing `vault_read` to the
-organisation's history first. The card and table say "Fathom can use it" or "Waiting for an
-admin" and how often Fathom used it. 
-
-**Part three, breach checks** (migration `0044_vault_breach.sql`, `src/vault_breach.rs`,
-`client/src/vault/breach.ts`): the policy at three levels (a login marked critical, a kind of
-login, the organisation), the check in a holder's browser against the Have I Been Pwned range API
-with five hash characters and padding, paced, at unlock and at save, and the "Breach list" column.
-**Part four, outside vaults** (migration `0045_vault_outside.sql`, `src/vault_outside/`,
-`client/src/vault/outside.ts`, `components/vault/OutsideVaults.tsx`): a member connects their own
-Vaultwarden with its personal API key; their browser opens the organisation key once; the server
-seals the key and the organisation key under `vault.key`, checks the account (role User, one
-collection, nothing personal) before every read, stops it on a failed check, and reads a pulled
-login only for a marked device after filing `vault_outside_read`. Admins see, check, disconnect and
-remove across everyone's. The server's one outbound HTTPS client is rustls over `ring`, C7's one
-exception. `tests/vault_outside.rs` runs it against a stand-in; `scripts/drive-vault-outside.mjs`
-drives it in browsers against a stand-in over HTTPS with a private CA. **Delinea Secret Server**
-(`0047_vault_delinea.sql`, `src/vault_outside/delinea.rs`) is the second provider: an application
-account's user name and password, one folder, two checks (exactly that folder; every secret it sees
-is in it), the same stop, pull and use; tested and driven against a stand-in of its documented
-shapes, not a real Secret Server. **Passbolt** (`0048_vault_passbolt.sql`,
-`src/vault_outside/passbolt.rs`, ADR-0071 25–30) is the third and optional one: OpenPGP runs in a
-separate helper (`helpers/passbolt/`, its own lockfile and gates, compose profile `passbolt`, no
-network, a Unix socket), Curve25519 only for every private-key step. Fathom takes an invitation,
-pins Passbolt's server key once the person confirms its fingerprint, makes its own key, waits until
-one folder and the metadata key are shared, then binds; four checks before every read. The helper
-is tested against GnuPG; the server against a stand-in helper; the drive with the real helper
-against a stand-in Passbolt. Not tried against a real Passbolt. **Not built yet:** the chain verifier's check that a
-`vault_read` names a login then in Mode B.
-
-**Tenant isolation holds at two layers:** an application filter in every repository function, and
-PostgreSQL row-level security driven by a transaction-local setting (never session-level: a pooled
-connection would carry it to the next request).
-
-**The engine seam.** The server depends on `fathom-schema`, `fathom-graph` and `fathom-id`, loads the
-`schema/` tree once at startup and serves `GET /schema/kinds` from it. `fathom-graph` and `fathom-id`
-have no caller yet.
-
-**The dependency gate.** Six layers: approval records per crate; licence and source allowlisting with
-duplicate-version bans; the RustSec check; lookalike-name detection; a publication cooldown; and
-`scripts/osv-gate.sh`, which sends every (name, version) in the lockfile to OSV.dev because two real
-advisories were missing from RustSec alone (storage §12.5). It fails closed when the API is
-unreachable, as it is from this environment. Read the crate count off `./scripts/gate-zero.sh`.
-
-**The operator plane (ADR-0055, amended by ADR-0057).**
-- The address is the identity: first start creates an account for `FATHOM_OPERATOR_NOTICE_ADDRESS` and
-  binds operator custody to it (`operator_account_bindings`). Sign-in is that address, a password
-  (argon2id, 15 to 128 characters) and a verification code from an authenticator app (RFC 6238 TOTP,
-  SHA-1, six digits), plus ten hashed recovery codes (`credentials.rs`, 0018).
-- The setup password in `.env` opens setup once for 30 minutes after start and is spent when the first
-  operator's password is set (0027).
-- `FATHOM_SINGLE_OPERATOR` is retired. Quorum is `min(2, live independent operators)`, counted at
-  every act, so a sole operator adds a colleague alone after the 24-hour delay (0019, `operators.rs`).
-  With one live operator the server warns at every start and the console banners it; work is not
-  blocked.
-- Break-glass is `fathom-server recover-operator <address>` on the host: no delay, a sealed
-  `operator_recovered_from_host` entry, a banner on every operator session for seven days.
-  `reissue-bootstrap-token` is a deprecated alias.
-- A deployment first started before ADR-0055 is adopted on first start (0026): the bootstrapped
-  operator is bound to the install address, old keys and sessions retired, one sealed
-  `operator_adopted` entry, same setup token file.
-- The console can place itself on its own host (confirm-or-revert, five-minute default window), or
-  from `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES`, which win when set (0020, `placement.rs`).
-  `fathom-server console-placement --reset` clears a placement that locked everyone out.
-- SMTP is a console setting with a form and no client behind it; every start says so when unset. CSP
-  and HSTS headers are on every response.
-- **Sessions and Site access (ADR-0057, 0027-0028).** An account session survives a reload and
-  expires after 1 hour idle or 12 hours at most. Site access needs the live account session and a
-  fresh verification code when the last is over 15 minutes old. An address change ends the Site
-  session, not the account session. The check (`FATHOM_SESSION_ADDRESS_CHECK`, default `site`)
-  applies per IPv4 address or IPv6 /64.
-- **The estate index (ADR-0079 decisions 2 to 4, 2026-10-27).** After each accepted save or live
-  change the server rebuilds that design's rows (devices, cards, optics, power supplies, spares) from its
-  own copy, five seconds after the design goes quiet (`estate.rs`, `design_api/estate_routes.rs`, migration
-  0058). Rows are sealed under a key derived from the tenant key; search terms are keyed hashes of words
-  and prefixes of three or more characters. `POST …/estate/search` and `…/estate/page` filter by the
-  caller's Read on each design at the time of asking. Ctrl+K shows an **Other sites** group and
-  Inventory has **Every site**; a hit opens its design the way a scanned label does.
-- **Links between sites (ADR-0079 decision 5, schema 0.32, 2026-10-27).** `ExternalPeer` gains
-  `far_design` and `far_element`. A free port's **Link to another site…** picks the far port from the
-  estate index (device rows carry their ports); the tray, port and cable panels open the far design at
-  that port; Trace offers **Continue in**. `POST …/estate/far` says whether each far port is there and
-  where its own link points, and Checks add a warning (gone) or an idea (one-sided) from it.
-- **Slimmer saves (ADR-0079 decision 6, sign-offs r53, 2026-10-28).** Each checkpoint keeps the
-  newest 500 changes and the provenance still in use (`fathom_workspace::compact`), and the head in
-  memory becomes it; Undo reaches those 500. `verify?deep=true` checks a slim checkpoint against one
-  compaction of the whole replay. History pages from the server, newest first
-  (`…/history?newest=N&before=SEQ`); the panel asks for 100 entries at a time.
-- **The Work tab (ADR-0087, sign-offs r74, schema 0.35, 2026-11-02).** Home and the bar gain **Work**:
-  maintenance plans, troubleshooting issues and spares on order, in repair or lent, from every design
-  the caller may read, in **Now** and **Coming up and waiting**, with kind chips, a site filter, **Mine**
-  and finished work behind a button (`components/work/`). The estate index gains plan and issue rows
-  and gives each work row a Fathom number, `W-42`, per organisation and never reused (migration 0064,
-  `work_numbers`). `POST …/work/page` answers the rows, account names and who is in each design now;
-  the tab asks again every five seconds while it is shown. Plans, issues and spares gain `assigned_to`
-  (an account id, picked from those holding Draw) and `ticket` (an outside link, only http and https
-  open); issues gain `due`. Comments are notes on the item. On a phone the rows become cards.
-- **Work that clashes, inside one design (sign-off r105 part 1, answered 2026-11-03 with every pick as
-  recommended).** A plan's panel lists **Also on these devices**: another plan still planned or under way,
-  or an open It's down issue, on a device the plan could touch (If paths too), when the windows overlap; a plan with
-  no window, or an unreadable one, overlaps anything, and an issue is open now. A port or cable both touch is named
-  in bold, with whose the other work is. Start the maintenance then asks once more, and **Start anyway** puts a note on
-  the plan naming each clash, in the same undo step. It warns and never blocks. From the owner's note on r105, each
-  side can manage its own part and offer the other a way out: **Move mine to …** (while planned) takes the first time,
-  the same length, that no other open plan there takes; **Let them know** leaves a note on the other plan or issue,
-  offering it a time after this one. It's down on a device with a plan under way puts the plan and its finished steps
-  there at the top. The engine decides all of it: `fathom_inventory::work` (`plan_clashes`, `running_on`), asked
-  through `OP_WORK_CLASHES` (faces 39 to 42), so the server's part 2 reads the same answer;
-  `components/plans/clashes.ts` only words it. Not built: across designs, one person on two things, work you can't
-  open (part 2, the server's work index), and orders (with ADR-0084 piece 2; r105 v2 picked orders B, so an
-  order type may name, as an optional key, the devices or ports a job holds while open). For part 2: `work.rs` compares
-  windows as wall time, so across sites compare them in each site's time zone; and an HA pair drawn as two devices is
-  missed by device-level matching. Later, per-folder opt-ins: a Steward's hard stop on a clash, and a change freeze.
-- **Order types, read and checked (ADR-0084 piece 1 and decisions 14 to 17, sign-offs r103,
-  2026-11-02).** `crates/fathom-orders` reads an order definition (`order-definition/1`) or a shared
-  field set (`field-set/1`) through the YAML subset and returns every problem with its line: unknown
-  keys, ids that resolve nowhere, a loop across stages, lanes and `needs`, `send_back` outside its
-  lane, `move_on` on a job that isn't optional or behind a sign-off, field kinds and conditions.
-  Starters in `corpus/orders/`: DIA, a new site build in two lanes and taking a service out (both
-  drafts), and the Customer details field set. No server records, engine or screens yet.
-- **The order engine (ADR-0084 piece 2 and decisions 18 and 19, sign-off r105, 2026-11-03).**
-  `fathom_orders::engine` runs one order from its installed definition and the actions taken on it,
-  and rebuilds it by replaying them: jobs move Waiting, Ready, Done, Cancelled or left out by `when`;
-  stages wait for a sign-off by the stage's power and never by the opener or a worker; a send-back
-  restarts its lane from the target stage; answers follow decision 16. A job's `holds` (a device or a
-  `port` field) counts as busy from when it is ready until the order closes. No screens yet.
-- **Faceplate templates and Cables lists on the server (migration 0076, sign-off r114; 2026-11-09,
-  draft).** `faceplate_templates.rs`: one shared list per organisation, name, role and ports sealed
-  under the organisation content key; anyone with `draw` saves, the maker or a Steward removes; at
-  most 200. `cable_views.rs`: each person's own Cables list per design, sealed, 64 KB at most, read
-  only by its owner. Neither is a design field or writes a chain entry. The browser sends up what it
-  kept before, once, and clears its copy; with no organisation it keeps them as before.
-- **Orders on the server (ADR-0084 piece 2's server half; migration 0075; 2026-11-03).**
-  `orders.rs` keeps order types (a Steward's, each save a new version, slugs matched to standing
-  teams) and orders (any member opens one; W- numbers from the shared work counter). An order's
-  history is its only record: one sealed row per action under the organisation content key, each
-  an `order_event` on the organisation chain with ids and the action word only, replayed by the
-  engine on every read. Who may act is the engine's answer from the caller's membership, roles and
-  powers on the order's teams (`teams::order_people`). Every text in a type, answer or reason goes
-  through the redaction gate's bare check. Routes under `/organisations/{o}/order-types` and
-  `/organisations/{o}/orders`. Not yet: the overdue clock, the screens, and `holds` in the clash check.
-- **The IP plan store, server half (ADR-0083 decisions 1, 3, 4 and 5; schema 0.36, field keys
-  562-636; migration 0065; 2026-11-02).** A fourth schema layer, `plan`, declares eleven kinds
-  (`IpamVrf`, `IpamRouteTarget`, `IpamAggregate`, `IpamPrefix`, `IpamRange`, `IpamAddress`,
-  `IpamReservation`, `IpamVlanGroup`, `IpamVlan`, `IpamAsnRange`, `IpamAsn`) that are records on the
-  server beside the designs; the plain face refuses a design holding one, in Rust and the browser.
-  `ipam.rs` keeps them per organisation, each sealed under a key derived from the tenant key
-  (`fathom/ip-plan/v1`), every change an organisation-chain entry with its fields, and checks every
-  value with the schema's own parsers. Read on a record's folder sees it; Draw plans in it, reserves
-  and releases what one holds; Steward makes aggregates, VRFs, route targets, VLAN groups and ASN
-  ranges and releases anyone's reservation. **Next free** (`POST …/ipam/next`) hands out the lowest
-  free prefix of a length, address, VLAN ID or ASN under a transaction-level advisory lock on the
-  parent, skipping what the plan holds, populated ranges and every address the estate index has
-  drawn; the same allocation key gives the same answer, and from another parent is refused. A keyed
-  hash of VRF and network, unique per organisation, refuses a duplicate in a VRF that enforces unique
-  space and anything handed out twice. A reservation is held by a person or a piece of work, ends
-  after 30 days unless told otherwise, and reads `lapsed` after its end. Routes: `…/ipam/list`,
-  `…/create`, `…/update` (with the version read), `…/delete`, `…/next`. **No screens yet**, no
-  difference checks and no NetBox files (ADR-0083 order steps 3, 4 and 6).
-- **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
-  request writes an `access` line with the client's address and the proxy it came through
-  (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).
-  Every site entry written during a request seals the same two addresses (`chains::append_site`).
-  Admin › Activity lists those entries newest first, each checked before it is shown
-  (`GET /admin/activity`, `ActivityPanel.tsx`).
-- **Not built:** sending mail (so no reset or notices by mail); a passkey as the phishing-resistant
-  second factor NIST asks for; the console UI for a second operator's own signature on a request that
-  needs one; a way for the console to hand a requested colleague their setup token (it is minted and
-  discarded; finish from the host with `recover-operator` once their account exists).
+**Status: not yet "usable".** That word is the owner's and means beta. For alpha, nothing is hidden: the
+parts below marked **server only** have no screens and are meant to carry a "Not finished" mark.
 
 ---
 
-## The browser client
+## Engine
 
-`client/`: React, Vite, React Flow, plain CSS. Typecheck, tests, build and `gate-npm` are green.
-Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
+Rust crates under `crates/`: schema toolchain (`fathom-schema`, `-schemagen`), typed graph (`-graph`,
+`-id`), config ingest and the redaction gate (`-ingest`), weld, finder, emitters, layout, rules
+(`-rules`), inventory and path trace (`-inventory`), workspace and compaction (`-workspace`), orders
+(`-orders`), and `fathom-wasm`, which runs the same engine and gate in the browser. The redaction gate is
+never reimplemented in JavaScript. A field that is not in `schema/` does not exist.
 
-**The look** (#139; UI-SPEC "Look"): Hairline with the Blueprint finish. Square flat buttons with
-spaced-capital labels, grouped buttons in one frame, frosted pop-overs, a selection as four corner
-ticks, every duration a token and off under reduced motion. The bar folds as the window narrows
-(search, then Docs/History/Share/Print into **More ▾**, then lenses and look into **View ▾**); each
-breadcrumb does one thing. The open design's name ends in an ellipsis past 32 characters (whole in its
-tooltip), and someone who may draw renames it in place: a pencil on hover, a double-click, or Rename… at
-the top of its menu (Enter or leaving the field saves, Esc cancels). The bar shows five people, then one
-**+N** that lists the rest; each name selects what that person has selected. Fathom's button, field and
-focus styles stay inside the app, so a password manager's own controls keep their look.
+**Paste.** Ten platforms, each with a dictionary or front end under `corpus/dict/` and a README that cites
+its sources: Junos SRX and EX, EdgeOS, OPNsense (rules CSV and `config.xml`), pfSense (`config.xml`),
+MikroTik RouterOS (`/export`), Linux host (`ip addr`, `ip -d link`), TP-Link switch, UniFi switch (built on
+EdgeSwitch syntax, unverified against a real UniFi config) and Arista EOS (including VRFs). A paste names
+its platform or the engine detects it from lines only one dictionary binds; unsure is
+`ERR_PLATFORM_CHOICE`, never a guess. XML dictionaries are allowlists: any value no entry describes is
+destroyed. A password inside a URL (`scheme://user:pass@host`) is destroyed too. The paste frame and the
+"Which device is this from?" picker name all ten.
+Known gaps: ADR-0044's redaction-unproven refusal is not built (the core floor is the only fence); a
+credential in the free-text description cell of the OPNsense CSV is not caught (pinned in
+`opnsense_csv.rs`); a dictionary cannot bind `lacp_mode`, an interface form or a `NextHop`; how EdgeOS
+quotes a value holding a space is not established from a source; the Junos ELS MAC table is not read.
+**Typed values are not redacted:** the gate runs on paste only, and a password typed by hand is stored as
+written, with a warning mark. A paste creates no cables or ports; ports are drawn or patterned and cables
+drawn or accepted from a neighbour-list suggestion.
 
-**Sign-in and the console**
-- **Enrolment and sign-in, both planes.** A token's prefix names its door (`op_` operator, `inv_`
-  invitation). Enrolment makes a non-extractable keypair before the request goes out. First run (ADR-0056)
-  takes the setup token, address, password, authenticator app and ten recovery codes shown once;
-  `SignIn.tsx` is address and password, then one code field when the account has an authenticator app (six
-  digits or a recovery code; ADR-0065). Identities are not offered as buttons, and the fields are named so
-  password managers find them. A browser key is evidence sent with a session, not the only way in. Opening
-  someone else's `/invite#inv_...` link while signed in shows `InviteWhileSignedIn.tsx` (go back, or sign out
-  and use it). Every server answer carries `Cache-Control: no-store`. CI redeems the first-operator token (`scripts/ci/first-operator-signin.mjs`).
-- **Operator console** (`components/console/`), tabbed Accounts · Organisations · Operators · Settings
-  (· Issued once this session has minted a token): account shells and invitations, organisation shells and
-  claims, operators, console placement and the SMTP setting. The organisation claim signs the genesis grant in the
-  browser, shows the recovery key once, then forgets it (ADR-0057). Not on the console: the two-person
-  verbs (no assertion by the enrolled key yet), the site trail, an account list. ADR-0068's Admin rework
-  (Health first, a left-hand section list, Engines) is decided, not built.
-- **Home** has tabs (ADR-0060 decision 7): Designs, Passwords, Steward (called Organisation until
-  2026-10-27; admins and folder stewards; a rail of People, Waiting for you (N), Folders, Passwords, AI
-  and AI rules), AI (someone named to connect AI apps who stewards nothing: the AI page alone), and
-  Admin (the console, only where it answers). Each shows only to someone who may use it.
-  **Folders say what kind of place they are** (ADR-0074 §1 and §2, migration 0050): a steward gives a site
-  or building a kind of place (central office, datacenter, hut, street cabinet, headend, customer premises,
-  other) and a role set by hand (Hub, Branch, Customer, Other; a hub has a double border), and a closet a
-  kind of room (closet, data hall, UPS room, meet-me room, other). Both are optional, set when the folder
-  is made or afterwards from its row (`POST …/scopes/{scope}/place`, steward only), plaintext beside
-  `display_name` (OPEN-QUESTIONS V2). **Above the closet** (`components/places/`, `Shell.tsx`): the zoom
-  stops start Every site, Site, Building, and zooming out past the closet goes up a stop. Each draws the
-  folders the person may read as boxes over the canvas (which stays mounted): a building's closets, a
-  site's buildings, every site, with counts, "You are here", a hub's double border, and more than eight
-  branch or customer sites of one role folded into a counted stack. A box opens one level in; a closet
-  opens its latest design. Boxes are laid out in a grid for now, not placed by hand (ADR-0047), and
-  rooms come from the building's floor plan (below). **A steward of both folders moves a design** into another
-  (Home's Move on a design row, `POST …/designs/{design}/folder`), filed on the organisation chain as
-  `design_moved` (design, from, to, actor; migration 0051). **Import from NetBox** on Folders (ADR-0074 §8,
-  `import/estate.ts`, `EstateImport.tsx`): a NetBox rack or device export passes the redaction gate, then
-  shows as a plan (sites to Sites, locations to Buildings, matched by name to folders already there); accepting
-  makes the missing folders and, per location with racks, one "`<location>` racks" design with them in a row.
-  A location that already has a design is skipped, so importing again makes nothing twice. Devices go in from
-  that design's own Import. Proven by `scripts/drive-folder-place.mjs` (N1, N2). **The building's floor
-  plan** (ADR-0051, ADR-0074 decision 4, schema 0.29, `components/places/BuildingPlan.tsx`,
-  `document/rooms.ts`): the building stop draws it under the closets. A picture of the plan (PNG, JPEG,
-  WebP, GIF; up to 25 MB, stored sealed as a doc file is and checked against its SHA-256) sits beneath at
-  the phantom opacity, scaled by two points a typed distance apart; rooms are traced over it with
-  right-angle snapping and snapping onto corners already drawn, closed on the first corner and named. A
-  room named as a closet folder opens it. The plan is a design in the building folder ("`<building>`
-  floor plan", made on the first save), so who sees or changes it follows the folder and every change
-  is in its history; a save that lost a race says so and reloads. The CSP's `img-src` gains `blob:` for
-  the picture. Not yet: a PDF page (needs a PDF reader argued through the dependency gate; export the
-  page as an image), suggested rooms (ADR-0051: only if a real plan shows they beat tracing), DXF, room
-  furniture and outlets, and door labels. Proven by the same drive (R1 to R4).
-  The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
-  shows beside the initials where the console answers. "New design" goes in the first Site the person may
-  draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename
-  needs `draw`. **People and access** (client, `components/organisation/`, `api/invitations.ts`,
-  `api/people.ts`): add a person (name, optional email, Read/Draw/Firmware/Steward, folder) and get a one-time link
-  and a sign-in name to send. A Read or Draw person is a member at once (ADR-0065, migration 0039: state
-  `added` until the link is used, no key-check code). A Steward is still invited: they open the link, get a
-  key and a key-check code to read out, and the steward confirms everyone waiting with one signature action
-  (up to 500, full list shown first, proposal checked against the rows before signing); steward requests one
-  at a time, second-steward approval in the same screen, per-person page with Remove and Give more access.
-  Not built: removing access given to the whole organisation (the server's revoke route needs a folder),
-  making an existing member a Steward, the contact email after confirmation.
-- **About Fathom** (You panel) lists every shipped library and licence; `scripts/licences-npm.mjs` fails
-  CI when a package's licence is off `deny.toml`'s list or the list and lockfile disagree (`--write` fixes).
-- **What a pasted Junos SRX config now records for the path trace** (ADR-0061 item 9, schema 0.17).
-  Each policy set holds its zone pair (`PolicyScope::ZonePair`, zones as node ids), policies keep
-  `then permit/deny/reject` and `match` any/names (address objects and sets from the global address
-  book, applications by name), and static routes (`next-hop` address, interface unit, `discard`) hang
-  off the one unnamed default routing instance. Not recorded: an OPNsense rule's interface and
-  direction (a design call), zone-scoped address books, `dns-name`/`range-address`, predefined
-  application ports, NAT. The five value types have shapes (`value.rs`); nothing builds NAT.
-- **Path trace** (ADR-0061 item 9, schema shapes in 0.17). `fathom-inventory/src/trace.rs` walks cables and
-  patch panels, VLANs at switches, a route lookup at each routed device (connected and static, longest
-  prefix) and the firewall (zones, then every policy in device order with "matches / doesn't match /
-  can't tell" and the reason). It stops at the first thing the design does not state. `OP_TRACE` (36) runs
-  in the page; right-click a device, "Trace a path from here", then an address or device and an optional
-  "TCP 445". Never a verdict. A pasted interface reaches a port only through a port tie (see Port ties); an
-  untied one stops the trace at "not tied to a port". Since the routing audit (2 November): a connected
-  route beats a static one of the same length; a static next hop leaves by the longest connected prefix on
-  an interface that is up; an address two devices hold is refused as a start or end; two paths through a
-  switch in one VLAN say "more than one path" instead of "none"; and VLANs are followed eight switches
-  deep. Round 1 (r96): an SVI or irb is a gateway that leaves through its device's ports in its VLAN, and a LAG's links to one device are one way (to two devices, as in MLAG, still "more than one path"). Downstream through a splitter, the branch whose device holds the next hop is followed (a PON splitter lights every branch; the ONT it is for takes it). Round 2 (r96), VRFs: a flow uses the table of the unit it arrived on, sees only that table's connected and static routes, and a next hop resolves only in it, so two VRFs may hold the same network. A static route whose next hop is another table (Junos `next-table`) hands the flow across and the hop says so; a table not in the design, or more than three hand-offs, ends in "could not establish". A start with no interface on a device with VRFs asks for one. Route-based IPsec (r96 round 2): a route out of a tunnel interface (st0) crosses, as a `tunnel` hop, to the far end of the IPsec VPN bound to it, found from a Tunnel drawn in the design or from the two IKE gateways (this one's peer address is held by the far device, whose gateway names an address held here, or takes a dynamic peer). The hop says whether the tunnel is up is not read; the path between the gateways is a trace of its own. A peer nobody holds (NAT in front), an ExternalPeer, a dynamic peer seen from the hub, two candidates, or a policy-based far end end in "could not establish". An unnumbered st0 is not read (`corpus/dict/junos-srx/README-routing.md` §5). VPNs entered by hand (r96 round 2): on a device that is a member of an `OverlayNetwork` (Tailscale, WireGuard and the rest, Inventory › VPNs), another member's VPN address, or a subnet a member offers, is reached through the VPN as a `tunnel` hop, longest offer first, when the device's own table holds nothing more specific than a default route; when it does, the trace says which one is used is not in the design. A Tailscale subnet hop quotes Tailscale's own rule that Linux needs `--accept-routes` (tailscale.com/kb/1019, read 2026-11-02). An address in a VPN's range that no member holds, or two members offering one subnet, ends in "could not establish"; a trace may start from a VPN address. Not read: exit nodes (the design does not say a member uses one). NAT (r104, schema 0.39): the SRX reader binds `security nat source`, `destination` and `static` rule sets, rules and pools (`corpus/dict/junos-srx/security-nat.yaml`, Juniper's own examples, read 2026-11-02), and a firewall hop applies them in Juniper's order: static, then destination NAT before the route lookup (so the route and the policies see the translated address), reverse static and source NAT after the policies, each a line on the hop naming the rule; the end hop says "holds X (sent to Y)". An interface-scoped rule set outranks a zone-scoped one; two equal rules that translate differently, a rule whose match the design cannot settle, or a destination pool of several addresses end in "could not establish". NAT on traffic the start device sends itself is not read. Not built: learned routes, port right-click, the
-  Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
-- **Sample home lab and the five first steps** (r15-start, round 10). Home's "Open the sample home lab" builds
-  `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves
-  it as the person's own design. A model the catalogue lacks is drawn as a sketch with the same port labels.
-  Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
-  cables do not count. Hidden, it lives under Help. Not built: tracing from a device on
-  a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
-- **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
-  `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
-  has a read-this-first explainer shows a Learn line in its Details tab (every Linux flavour goes to
-  `linux-host`); Read more and Ctrl+K "Open Learn" open the explainer and the library, each marked
-  Unreviewed while `reviewed_by` is a placeholder. `client/src/components/learn/context.ts`'s
-  `useLearn().openExplainer(id)` is the one way in. **Learn notes** (Show menu, off by default; the
-  r4-teach Learn switch) writes up to five dashed notes on the Diagram look, one per idea (the first
-  firewall, router and switch by role, the first trunk and access link with their VLANs), from the
-  `learn note` entries in `corpus/explainers/network-basics.yaml`; each opens its explainer. Like the other
-  Show layers it draws on the Diagram look only. Glossary words with a basics explainer (VLAN, trunk, access
-  port, zone) offer Learn more. Not built: faceplate brackets for port roles, explainers for Cisco and
-  MikroTik. `scripts/drive-learn.mjs` drives it.
-- **Guided lessons** (ADR-0066 item 1.3, round 10 lessons B). Home lists the lessons in `corpus/lessons/`
-  (VLANs, single points of failure, firewall policy order); Start builds a fresh copy of
-  `corpus/samples/small-office.json` (its SRX config pasted through the redaction gate) as the person's own
-  design and opens it with the lesson panel beside the canvas (on the right in Inventory). Steps are Read,
-  Click the answer, Trace (opens the trace on the canvas) and Change it and watch (Checks), each checked by
-  the page's own engine, never marked by hand; progress is per account in this browser, and Continue reopens
-  the copy. `client/src/engine/lessons.test.ts` holds every lesson to its sample; `scripts/drive-lessons.mjs`
-  drives two lessons through. Inventory's Add network now joins a port that already has an interface
-  through that interface, so a port can be moved from one VLAN to another by hand. Not built: the Run
-  Ansible step.
-- **Lesson builder** (ADR-0066 §2, schema 0.27). On a design of one's own, the search bar's Build a lesson
-  opens a panel that writes a `Lesson` with ordered `LessonStep`s into the design: Read, Click the answer
-  (from the canvas selection), Trace (ends from the selection, the expectation recorded from a trace run
-  now) and Change it and watch (a Checks rule that should fire or clear). Steps move, edit and go; each
-  says what it still needs. Publish writes a frozen copy named `Lesson: <title>` in the same folder; Home
-  lists it under Lessons as Written here, and Start copies it again as `Practice: <title>` with the runner
-  open. Lesson text is in the server's credential check. `client/src/engine/lessons.test.ts` runs a written
-  lesson in its published copy; `scripts/drive-lesson-builder.mjs` writes, publishes and finishes one.
-- **Cards and optics** (ADR-0073, schema 0.28). A `Card` sits in a slot of a chassis or of another card
-  (`HasCard`); its ports stay on the chassis and point at it (`OnCard`). An optic is the port's
-  `transceiver` value (type, vendor, part, serial, wavelength), Absent for an empty cage. The device's
-  Ports tab fits, edits and takes out cards (with the catalogue's `card_slots` offered where a model lists
-  them; none does yet) and each port panel fits, edits, takes out or moves its optic, by a drag onto a port
-  on the plate or from a list. The plate frames each card's ports. Inventory's Parts kind lists every
-  card, swappable supply and optic with where it sits and its serial. A pasted `show inventory` or `show
-  chassis hardware` offers the parts it reports (`document/facts.ts`). A plan's Swap a part step changes
-  a part's serial and model in place and backs out. Lesson `cards-and-optics` on sample `parts-lab`.
-  It's down's link step and the path trace name the card and optic; neither shows a serial, nor does the
-  AI reading. Spares are built since (ADR-0076, below).
-- **Spares and stores** (ADR-0076, schema 0.29). `Store`, `StockItem` and `StockLevel` hang off the root.
-  Inventory › Parts › On hand lists what is on hand, on order, away for repair, lent and retired, says
-  which models are below the level kept, and holds the stores (each with its own page, bin by bin) and the
-  levels. Add to stock takes one typed, a pasted list or `show inventory` (through the redaction gate), a
-  CSV, or parts out of a drawn device. A Swap a part step picks its spare from stock and keeps it; Done
-  fits it, and the old part goes into stock with where it came from (`document/stock.ts`). Custom fields
-  apply to `part` (migration 0049); a starter set offers Price, Supplier, Order number and Warranty end.
-  Check `stock.level.below-minimum`. It's down says whether a spare is on hand. The AI reading lists
-  spares without serials, their custom fields only at the notes tier. Parts-lab has a cupboard; the Cards
-  and optics lesson and the explainer `basics.spares` teach it. Bin labels and the phone's Scan
-  button came with ADR-0075 (below). Not built: the firmware check on spares.
-- **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
-- **IP and VLAN tables, file importer** (ADR-0067): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
-- **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.
-- **A folder of configs dropped on the canvas** (round 29, card r29-pull A: what a backup playbook saves). Every file goes through the same gate and reader as a paste and is matched to a drawn device by the hostname it names, or by its file name when it names none (`components/paste/configFolder.ts`, `FolderCard.tsx`). A drawn device with no config gets its first one, a hostname not drawn becomes a new device, both ticked; a device that already carries a config is only compared (new, gone and readdressed interfaces, running version), because a second capture is still refused; neighbour lists, MAC tables, binary and oversize files are left with a reason. Add writes the ticked rows as one change. One dropped file is an ordinary paste. Not built: replacing a capture, "last backed up" per device. `scripts/drive-folder.mjs` drives it.
-- **Cable corrections from the floor.** Anyone with Read on a design's place sends "Traced ✓", "Label wrong" or "Not here" about a cable (`cable:` and a ULID); someone with Draw accepts or dismisses it. Corrections are their own server store (`cable_corrections`, migration 0036), sealed under the organisation content key, never graph nodes. Text is refused when the redaction gate's bare credential check fires (`enable secret cisco123` form), so ordinary prose with key or secret in it can be refused too. Accepting is the Draw user's ordinary edit as one undoable batch ("accepted <name>'s correction"; a not-here report becomes a note without the name); if the edit or its save fails the client reopens the correction (`POST .../reopen`, accepted only). Dismissing re-seals the body as empty text, so what was typed is not kept; a dismissed one cannot be reopened. The database binds sender and decider to the session account. A Read sender sees only their own; caps of 5 open per sender per cable, 20 per sender and 200 per design. Orphaned corrections (cable removed) list on the Corrections waiting page with Dismiss only. Known limits: no chain entry for a correction or decision (L2), no retention clean-up of decided rows.
+**Catalogue and engines.** Equipment models are YAML in `corpus/catalogue/` (read by the server at start;
+`ls` is the list). Engines are files in the tree: ADR-0044's signed packs, install and pinning are not
+built. Every explainer's `reviewed_by` is a placeholder, so Learn says *Unreviewed* on each.
 
-**The canvas** (one canvas, detail by degrees; ADR-0060)
-- **Racks and devices.** Opening a design reads the plain face (ADR-0049) and draws racks with rails,
-  U numbers, hatched free runs, device boxes and ports that fade in toward the faceplate. Four camera
-  stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. Ctrl+wheel or pinch zooms (max 400%), the
-  wheel pans. Placing snaps to a unit and refuses an overlap with a shake. Every change saves: one in
-  flight, the latest queued, a refusal shown and never rolled back. A rack's height is 42U, 24U, 12U or
-  typed, refused below what is mounted.
-- **Rear elevation** (ADR-0050): every rack has front and rear; supplies are parts in slots with their own
-  serials; *single-fed* and *one fitted* are derived. Racks have a row and bay. A rack dragged by hand keeps its
-  place (its `LayoutPin`, saved as seen from the front, mirrored when the row shows the rear; undo returns it
-  to its bay slot; ADR-0074 decision 5, `scripts/drive-rack-place.mjs`). A read-only viewer's drag lasts the session.
-- **Shelves, surfaces, sketches** (ADR-0051): shelves take units and slots; devices fix to a wall, floor,
-  desk, ceiling or board. A device with no model carries ports typed by hand and says so. Outlet boxes and
-  panels get pass-through pairs and a lit path.
-- **Cables.** Bundles fan open on hover; a hovered or selected cable lights its whole path; a cable leaving
-  the closet ends in a dashed portal tray. PSU inlets on the rail. Ports sit at catalogue row and column;
-  cables leave a port's own edge. At 200%+ a bundle splits with port labels.
-- **Free boxes, lines, areas** (ADR-0060 step 7, schema 0.13). Small ink circles on a selected free box
-  draw a line or add a dashed box. Marquee select, copy, paste, duplicate, alignment guides, arrow-key
-  nudge, an Align / Spread / Group / Label menu, labels and areas that carry what sits inside. Shelf grips
-  set height and slots. Not built: line routing, a highlighted drop unit, touch marquee.
-  A device whose rack spot is not known is a free box with its whole self (2026-11-02): an import row
-  whose model is in the catalogue but whose rack or unit is missing, taken or too small keeps the model
-  and its ports ("No rack spot"); every device an import or Inventory adds without a place is pinned on
-  the canvas right of the racks (`racks/canvasSpots.ts`), so none is drawn nowhere; a racked device's
-  menu has "Take it out, spot not known"; and a free box's menu offers swap model, firmware, cards and
-  ports like a racked one. Not built: "in this rack, spot unknown" (`MountedIn.position_u` is required).
-- **Look switch** (ADR-0061): Rack (faceplates, dressed cables) or Diagram (plain labelled boxes, square
-  lines in sheath colour, view-and-select). Kept per browser, account and design (`drawing/look.ts`). A
-  cable whose far end is off screen draws as stubs ending in a tag that pans to it (`drawing/stubs.ts`).
-- **Back button** (ADR-0068 §2, `components/racks/JumpTrail.tsx`, `jumpTree.ts`): one "Back to ..." button over the
-  canvas, with a ▾ beside it that unfolds a tree of where you are inside the design (design, rack, shelf,
-  device, close-up or open, port; each line a name and a kind word, the current one marked "you are here";
-  past six levels the middle folds to "N more"). Containment, not history; no site or room line because
-  the client document has none. No Forward button: Alt+Right and the mouse's forward button still go forward.
-  Esc or a click outside folds the tree; a click on empty canvas only folds it and leaves the selection as it
-  was (the next such click clears it as usual).
-- **Equipment list** (the "Equipment" tab on the right edge; it opens by itself on a design with no
-  devices only until the person closes it once on that design (kept per browser, account and design,
-  `design/resume.ts`), after which opening that design leaves it shut; the empty canvas has an **Add
-  equipment** button that still opens it, ADR-0068 §3): search, headings Common / On a wall / Exact models; click
-  or Enter adds where there is room. Common devices arrive named (router-1) with a role.
-  **Not here? Describe it** (r15-f1, `components/describe/`): rows of ports (copper, SFP, SFP+, SFP28,
-  QSFP28, console, power; how many; which face), the faceplate drawn per face as you go. Faces are
-  front, rear, left, right and top (schema 0.22, `PhysicalPort.face`; the catalogue format reads the
-  same five). Use this model adds the device named from its description (nuc-13-1) with hand-typed
-  ports, one undo step, and keeps it in this browser under **Your models** at the top of the list.
-  A side or top port draws in neither rack elevation; the opened device shows every face, captioned.
-  Not built: PoE marking (no schema field), a model kept on the server for the whole organisation.
-- **Swap a device's model, keep its ports** (sign-off r28-swap, defaults pending the owner's pick).
-  "Swap model…" on a device's Details tab (`document/swapModel.ts`) keeps the device and every port the
-  new model has by name, same face first; a kept port keeps its cable, tie and notes. A port the new
-  model lacks goes and its cable stays as a loose end in Missing links. The serial is cleared; in a rack
-  the box keeps its bottom unit or refuses. Also gives a hand-typed box a catalogue model. One undo step.
-- **Right-click menus** (sign-off r58): a device has one grouped list (Look, Work on it, Copy, then Remove
-  apart), the same on right-click, in its panel's ⋯ menu, in Ctrl K and on Inventory rows; what cannot be
-  used yet stays, greyed, with the reason, and keys come from the shortcuts table (Cmd on a Mac). It
-  includes Show in Inventory, Swap model, Add a port, Open in Termix, Copy link and Print its label. A
-  device on a shelf or a wall gets the same panel and menu as a racked one. A rack, a shelf and a wall
-  always list Remove, greyed with what is still on them until they are empty (one undo step); Delete and
-  Ctrl K's Delete do the same on a selected one. A wall clicked on its face opens a small panel (name,
-  what is on it, cable runs). Empty canvas offers a 42U, 24U or 12U rack, or a wall. A reader gets Details.
-- **Quick card and peek** (sign-off r59, r66; `drawing/quickCard.ts`, `scripts/drive-quick-card.mjs`). A
-  click on a device (or one of its ports), rack, shelf, cable or free box also puts a small card beside
-  it on a dotted line: what it is, its name, the management address with Copy, model, place and ports,
-  and Details, which shows the panel even when it was folded. It follows the camera and goes on Esc, a
-  click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card.
-- **Shelves** (r56, `scripts/drive-shelf-room.mjs`). A shelf draws as a tray: hairline sides, an ink lip
-  the things stand on 2px clear of, its name as a caption, names whole, what does not fit folded into one
-  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens everything on it front-on,
-  slot by slot, empty slots hatched; the bar's path and Esc lead back out. Each rack line is drawn once
-  (a shared edge between stacked devices is one line) and a device's name sits level with its U number.
-- **The panel** (r57, r60, r65). Its foot sits on the bottom edge on every tab; inside an opened device
-  it says **Back** instead of Open inside. It ends with **Also in**: the plans that touch the device, its
-  open checks and AI ideas about it. Details' sections after Device and Location can be hidden and
-  reordered (kept in this browser; Management cannot be hidden). Connections lists six and Show all. A
-  design reopens on the place and panel tab it was left on; Esc closes only the top thing. Names of
-  devices, ports, racks and cables in Plans, Checks, History, It's down and Trace select the thing.
-- **Model suggestion** (`document/guessModel.ts`, `scripts/drive-model-guess.mjs`). A box typed by hand
-  is offered one catalogue model when its platform, notes, port names or cable labels name it, or a
-  vendor hint fits with every typed port kept ("Looks like the Arista DCS-7050S-52", with the reasons);
-  "See what changes" opens the swap preview, and nothing is written until the person swaps. The swap
-  pairs a typed `Et49`, `eth49` or `Port 49` with the model's port 49.
-- **Open a device, paste a config anywhere** (ADR-0060 step 8). Right-click Open or double-click enters
-  "jot mode" (`components/jot/`): the device large with its ports, equipment dragged in, cables dragged
-  port to port, Config and Inside buttons, Esc out. Ctrl+V or Paste config runs text through the wasm gate
-  (`components/paste/`) and shows a card: hostname, platform, interfaces, what the gate destroyed by kind
-  (never values), attach to the same-named device or add a new one. Nothing is stored until you choose.
-  Not built: replacing a device's capture; a cable to a free box on the full canvas.
-- **Config drawer and inside stop** (ADR-0052): the gate runs in the browser; a driven run proves seven
-  device-length credentials absent from every save body. The drawer shows the six rules, a black block
-  where a value was destroyed and a lit port per built line. Readers see text only. Inside shows a
-  firewall's zones, interfaces, policy rail, routes and tunnels, never a verdict.
+**Checks.** The engine checks the open design in the browser against the written rules in
+`corpus/rules/` (addresses on a link, VLAN access and trunk, cable media, link speed, one cable per port,
+power and single-cabled switches, stock below minimum, firmware behind). Every rule's reviewer is `pending: Key
+Maker`. The server runs no checks.
 
-**Inventory, notes, undo** (ADR-0053, 0058, 0059)
-- Two places over one document: Canvas and Inventory. Inventory has a rail of kinds, a device grid
-  grouped per rack, the Gaps section, one page as the editor, and Show on rack. Networks kind: VLANs,
-  subnets, Docker networks with containers and published ports.
-- **Coming back finds it as left** (owner, 2026-11-02). Leaving Inventory or the Sheet for the canvas and
-  returning keeps the list, filter, sort, Where, scroll, the open page and its tab, and Parts' On hand. Only
-  something newly picked on the canvas is carried back (r60), opened over the same list. The Work tab keeps
-  its filters for the session. `scripts/drive-keep-place.mjs` drives it.
-- **Notes** are nodes on a device, port or rack: pasted through the gate or stored as typed, and saying so.
-- **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
-  refuses by name. The trail shows sealed and pending, with a comment on the next change.
-- **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
-  containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
-  Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.
-  Inventory › Tags (r111) lists every tag with its count, empty ones last as Not used, and renames or
-  deletes one (one undoable change); suggestions and cable groups skip tags nothing carries.
+**Path trace** (ADR-0061 item 9; `fathom-inventory/src/trace.rs`, `OP_TRACE`, `scripts/drive-trace.mjs`).
+Walks cables, patch panels, VLANs at switches, routes (connected beats static of equal length, longest
+prefix, VRFs and `next-table` hand-offs), SVIs, LAGs, PON splitters, firewall zones and policies in order
+with "matches / doesn't / can't tell", route-based IPsec through `st0`, hand-entered mesh VPNs, and Junos
+SRX NAT (static, destination, source, in Juniper's order). Never a verdict; it stops at the first thing the
+design does not state ("could not establish"). Not read: learned routes (OSPF, BGP), exit nodes, NAT on
+traffic the start device itself sends, an unnumbered `st0`.
 
-**Saves, designs, scopes** (ADR-0054). A save names its base version; a stale base is refused naming both
-numbers and nothing is written (the wash offers Reload). Draw can create a design, a steward of the parent
-a scope. The server refuses credential-looking capture, note or doc text, re-checks the grant inside the
-acting transaction, and caps a body at 1 MiB until the signature is checked.
+**Work clashes** (`fathom_inventory::work`, `OP_WORK_CLASHES`; r105 part 1). A plan lists other plans and
+open issues on the devices it touches when windows overlap; it warns and never blocks. Across designs,
+one person on two things, and orders are not built.
 
-**Checks** (ADR-0061 §5-6, #97, #103). The Rust engine runs in the browser (wasm) and checks the open
-design against twelve written rules (`corpus/rules/`: addresses on a link, VLAN access and trunk,
-cable media, link speed, one cable per port, single-fed power, single-cabled switches).
-- A bar chip counts findings and opens a docked, draggable panel; severity is a word and a glyph, never a
-  colour. Each finding has a **Why?** card: the plain reason, the fix, when it is acceptable, and a source
-  note. A wrong drop is refused with a card naming the rule. Badges show for refuse and warn only.
-- Checks load incrementally: about 19 ms per edit at 1000 devices against about 4.5 s reloading whole.
-- Every rule's reviewer is `pending: Key Maker`, so Why? says "Source not yet checked by a person".
-- The server runs no checks.
+**Orders** (ADR-0084; `crates/fathom-orders`, `corpus/orders/`). Reads order and field-set definitions and
+runs one order by replaying its actions. **Server only:** `orders.rs`, migration 0075, routes under
+`/organisations/{o}/order-types` and `/orders`. No screens, no overdue clock, no `holds` in the clash check.
 
-**Docs** (ADR-0061 round 7, #109, schema 0.14). A doc has a title, Markdown text and links, and is about a
-device, port, cable, rack, catalogue model (shows on every unit) or the design. A "Docs" line in those
-panels and a Docs button in the bar open the list. Markdown is a safe subset (no HTML, images as words,
-http/https links with host). Pasted text goes through the gate; typed text is stored as typed; the server
-refuses a credential in doc text. Files (PDF, image, text, 25 MB) hang off a doc: text is gated in the
-browser and only the redacted copy uploaded; the server sniffs by content, refuses text still carrying a
-password, seals bytes under the design key and serves downloads only. Images and PDFs (no PDF text
-check yet) need a per-file confirm ("Add, it shows no passwords") and show "Not checked · image/PDF".
-"Remove" takes a file off the doc (undoable); "Delete for good" (Draw) erases the sealed bytes, keeps
-name, size and hash in the history, and fetch answers 410 (migration 0033). Not built: a Docs Inventory
-kind, docs on maintenance plans.
+---
 
-**"It's down"** (ADR-0061, troubleshooting; schema 0.18, field keys 390-404): right-click a device, or the button on its page,
-opens a side panel with the device's chain as a checklist (power, neighbours, link, port, address, gateway)
-answered OK / Not OK / Can't tell, with Why? cards, an optional typed note, where the answers point and Also
-affected. Plan a fix makes and opens a plan; Save as an issue puts it in the device's history and the
-Inventory's Issues list (an Issue page per record). A saved, open issue can be picked up where it stopped
-(r110): the checklist comes back with its answers, and each answer then saves to the issue as one undo step,
-moving its "where the answers point" sentence with it. A read holder sees saved issues only; the server refuses
-a credential in issue text. Logic: `components/troubleshoot/`, `document/issues.ts`,
-`drawing/troubleMarks.ts`. Checked by `scripts/drive-troubleshoot.mjs`.
+## Server
 
-**Firmware** (ADR-0045, ADR-0064; schema 0.19, field keys 405-411; migration 0038). Inventory › Firmware
-lists staged images (version, models, SHA-256, running, behind, plans) with upload; Inventory › Models sets
-a model's chosen version and holds devices back with a reason. Check `fw.device.behind-chosen-version`
-flags a device behind its model's version. "Plan a firmware upgrade" (right-click, device page, or for every
-behind device) makes a maintenance plan with the vendor's steps for Junos, IOS XE, NX-OS or EOS; the
-device fetches its image with a one-time link. The fetch step and the image page also offer **From Windows**
-and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
-from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
-with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose by default; the download address and limits are set on Admin › Firmware (2026-11-01).
-Upgrades Fathom has no image for (sign-off r55, schema 0.31, field key 542): the device page's Firmware
-section takes the running version typed by hand, a **Numbering** (OPNsense, pfSense, RouterOS, Linux and the
-image platforms) for a device no paste named, and for a device with no model target a version chosen for
-the device itself (`Device.firmware_target`; a model's target wins). "Behind" now reads OPNsense, pfSense
-(CE and Plus never ordered against each other), RouterOS and Linux (`version.rs`, each scheme with its
-source; Debian's form is unsourced and says so). Such a device's plan carries written steps, picked by
-platform or by **Steps for**: OPNsense, Debian, Ubuntu, TrueNAS, or Synology DSM (marked not checked:
-Synology's pages would not load) (`components/firmware/kits.ts`). **Add to an existing plan…** puts an
-upgrade into a plan still being planned; a plan is known as a firmware plan by its "Record <version> as
-running" steps, not its title, so one plan can hold several upgrades, each fetch step with its own image.
-Inventory › Firmware lists devices with their own chosen version under the images.
-Hardening (sign-off r62, r70, r71; migrations 0059, 0060): each upload works out SHA-256, SHA-512 and MD5
-in one pass (MD5 shown, never compared), and once an hour the server re-hashes any image not checked for
-seven days, marking one that changed or went missing. Every download re-hashes the file and refuses one
-that no longer matches. Uploads run one at a time per organisation and three per server (429 with
-Retry-After), an upload idle for two minutes is dropped, and a declared size past the organisation's or
-server's total is refused before any bytes arrive. Those limits start from the settings file; **Admin ›
-Firmware** (`#admin/firmware`) saves any of them, sets each organisation's ceiling and can lock it with a
-reason, and **Steward › Firmware** (`#steward/firmware`) sets the organisation's own total under the
-ceiling and its download address; every row is sealed and every change filed with before and after. Uploading,
-models, one-time links and retiring need the **Firmware** permission (sign-off r95, ADR-0064 amendment):
-a folder level between Draw and Steward that includes Draw, granted to a person or a team; activity and
-settings stay a Steward's. A file name with other characters is cleaned, not refused, and the original is sealed with the upload (migration 0070). A holder can **retire** an image: the file is deleted, links already given stop working, the act is
-sealed. Asking for a link first lists what looks wrong (the image's models, an older version, not the
-chosen one); "Get the link anyway" seals the warnings passed. The image page and the plan show the
-organisation's firmware activity, flagging a download from an address that is none of the plan's devices'.
-Plans compare IOS XE's `verify /sha512` with Fathom's own SHA-512, check Junos Veriexec after install,
-and check an EOS image's signature with `verify-swi` before upload.
+`crates/fathom-server`: Axum on PostgreSQL, one published plain-HTTP port behind the operator's TLS
+proxy, serving the web client itself (`client.rs`). It refuses to start on a broken schema (exit 7) or if
+its database role is a superuser or bypasses row-level security.
 
-**Type it yourself** (sign-off card r30-nocopy; migration 0041, `teaching.rs`, `components/typing/`). A
-teaching setting per person per organisation. While it is on, commands are shown to be typed: no copy
-button on them, the text not selectable, each command in labelled parts (command, word, option, path,
-file, value, link). Links and hashes still copy. A steward sets it either way on the person's page; a person
-turns it on for themselves under Your account, and only a steward turns it off. Read with `GET
-/organisations`, set with `POST /organisations/{o}/people/{account}/type-it-yourself`, each change sealed on
-the organisation chain as `type_it_yourself_set`. It covers the firmware link box, by-hand steps and plan
-step commands. It is a teaching aid, not a control: the page's text can still be read another way.
+**Storage and keys** (`docs/PHASE-2-STORAGE-DESIGN.md`, ADR-0043). A master key (file, `command://` or
+`env://`) wraps a per-tenant key, which wraps a per-design key; designs are ChaCha20-Poly1305 with random
+nonces. Every version appends an HMAC-sealed chain entry; verification reports verified, broken at N, or
+cannot verify under epoch K. Chains exist at site, organisation and design level; sealed entries ship as
+RFC 5424 syslog to an operator destination, spooled in PostgreSQL when it is down. Organisation names and
+scope paths are plaintext (storage §11.3 name encryption is not built). The server can read design data
+while running, and says so (storage §2a). `tests/no_key_protected_data.rs` sweeps every table for a
+marker written through the real write path.
+Tenant isolation is an application filter plus row-level security from a transaction-local setting.
+Migrations are in `crates/fathom-server/migrations/`; an applied one is never edited. Two custodies:
+operators hold the machine, stewards hold the data (migrations 0004, 0005).
 
-**View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
-PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
-organisation can be added. The grant is signed in the steward's enrolled browser and the server
-re-derives every signed field. Shares do not expire and cover everything inside the scope. Not built:
-outside invites, a public link.
+**Authority** (admin design §3; `authority.rs`, `grants.rs`). Signed grants (ES256), seconding, suspension,
+revocation, an authority head whose digest covers the whole state, sole-steward flag inside the signed
+bytes. Teams (ADR-0081; `teams.rs`, `roles.rs`; attacked in `docs/TEAMS-ATTACK-ROUND.md`), team roles
+with fixed powers, and plan approvals (`plan_approval.rs`) are signed acts in the same head. Not built:
+Shamir shares, WebAuthn/passkeys, an operator suspending an account, work assignment through teams.
+Sessions are signed messages with single-use nonces (`sessions.rs`): 1 hour idle, 12 hours at most; Site
+access needs a verification code under 15 minutes old (ADR-0057). Every server answer is `no-store`.
 
-**Print pack** (#39, round 10). Print lists pages with counts: This view (also a PNG drawn by the browser
-from the canvas), Rack elevations, Cable schedule, Port map; "Make PDF" opens the preview and the browser's
-own Save as PDF. A4 or Letter; cables none, all or as shown on screen; serials and management addresses
-optional; black and white with colours as words; title block and page x of y. Port map also as .csv or
-.xlsx. From Inventory the pack also prints the table as shown (its columns, filters and sort).
+**Operator plane** (ADR-0055, 0057). The notice address is the identity; sign-in is address, password
+(argon2id, 15 to 128 characters) and an authenticator-app code, plus ten recovery codes. The setup
+password opens setup once for 30 minutes. Quorum is `min(2, live independent operators)` at every act.
+Break-glass is `fathom-server recover-operator <address>` on the host. The console can place itself on its
+own host or from `FATHOM_ADMIN_HOSTS` / `FATHOM_ADMIN_SOURCES`. A client's address is one rule everywhere
+(`client_address.rs`; `X-Forwarded-For` believed only from `FATHOM_TRUSTED_PROXIES`). Every console and
+sign-in request writes an `access` line (`access_log.rs`, optional `FATHOM_ACCESS_SYSLOG`). The
+forgot-password route answers before it issues its token, so its timing does not tell an address that has
+an account from one that has not.
+**Not built:** sending mail. SMTP is a console setting with no mail client behind it, so there is no reset
+or notice by mail (ADR-0085 is design only; server-side email has no screens). The console's second-operator
+signature for two-person verbs; handing a requested colleague their setup token.
 
-**Phone field view and labels** (ADR-0075, card r39-phone). Under 760px wide: tabs Scan, Find (Inventory)
-and Canvas (read-only), plus Ideas while an AI idea waits; desk chrome folded away; a design opens on Find.
-A label's QR code is `/scan#<design>/<id>`; scanning it (phone Camera app, or Scan with `BarcodeDetector`
-or typing) opens the item's Inventory page after sign-in. Same-server links only; other text goes to Find.
-Add to Home Screen (manifest, no service worker). Inventory › tick rows › Print labels: devices, racks,
-cables (two each) and ports on Brother TZe 36/24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
-Cables also print as a wrap (the name repeated round the cable, no code) or a flag (a code on each face),
-on 24 mm tape sized to the cable: slim patch, Cat5e/Cat6 or Cat6A. Cables default to the wrap.
-A store's bin label opens its page (Print bin label there); a Scan button fills serial fields on a phone.
-Not yet: door labels (rooms). Drive: `scripts/drive-phone.mjs`.
+**Estate index and sites** (ADR-0079; `estate.rs`, migrations 0058, 0068). After a save the server
+rebuilds a design's rows (devices, cards, optics, supplies, spares, plans, issues) five seconds after it
+goes quiet, sealed under a derived key, searched by keyed hashes, filtered by the caller's Read at the
+time of asking. Ctrl+K shows **Other sites**, Inventory **Every site**. An `ExternalPeer` can name a far
+design and port; Checks warn when the far end is gone or one-sided. Each checkpoint keeps the newest 500
+changes (Undo reaches those); history pages from the server. Scale and HA: `docs/SCALE.md` (measured),
+ADR-0089 and ADR-0090 (design only, nothing built beyond the index changes).
 
-**Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
-VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Each person's own per design,
-on the server and sealed (migration 0076, sign-off r114; draft), never in the design; both looks. Quick search also finds cables, VLANs and containers by name or tag.
+**Work tab** (ADR-0087; `components/work/`, migration 0064). Plans, issues and spares from every design the
+caller may read, with Fathom numbers `W-42`, never reused; refreshes every five seconds while shown.
 
-**Show menu** (#110, #121, #123). Layers on the drawing: Checks (on by default), Addresses, VLANs, Docs,
-Maintenance, Tags. Device style for the Diagram look: Boxes or Icons (outline router, switch, firewall,
-server, access point). Per browser and design, never saved.
+**IP plan store** (ADR-0083; `ipam.rs`, migration 0065, schema layer `plan`). **Server only:** eleven
+`Ipam*` kinds as sealed records beside the designs, with Next free under an advisory lock, reservations
+that lapse, and routes under `…/ipam/`. No screens, no difference checks, no NetBox files.
 
-**Maintenance plans** (#98; schema 0.15). A plan is ordered typed steps. Plan (indigo, dashed, What it
-touches with Why? cards via `OP_PLAN_PREVIEW`), Do (teal checklist, one live step, Done or Went
-differently), Record (outcome, never edited again). Right-click "Plan a change". Steps apply through the
-ordinary edit path; plan text is gated like notes.
-A **LAG** step (schema 0.25) picks a device, ticks two or more of its member interfaces (so the
-config must be pasted first), names it (the next free ae, bond or Port-channel by platform) and sets
-LACP; Done builds the AggregateInterface and its member edges in one undo step. The far end is its own
-step. No VPN step yet.
-**Back out** (sign-off r16-backout): once a step is marked, Back out stops the work (remaining steps not done,
-recorded failed, naming the way back) and opens a new, separate plan from where things are now back to the start:
-the reverse of every done step, newest first (a cable cut, a cut re-made, a move back, a field's old value, a LAG
-removed), a check step for each that went differently, and room for steps of its own. A recorded plan that did not
-succeed can be backed out too; it stays as written. `scripts/drive-backout.mjs` drives it.
-**From a plan to the night itself** (sign-off r73-plan-flow; schema 0.33, field keys 545-551). Any main-line
-step can carry one **If path**: a reason and a few steps, drawn dashed under it, numbered 3a, 3b; one level only.
-It is off the line of work (and out of `OP_PLAN_PREVIEW`) until a step that went differently takes it, when its
-steps come next. A plan holds **release notes** pasted through the gate, with the lines that name what it touches
-marked (hostnames, interfaces, models, a version a step names). A step that went differently offers
-**Troubleshoot**: It's down on its device, carrying the note; the issue saved names the step (`Issue.step`) and
-the step names the issue (`PlanStep.issue`). Every plan ends with **After the work**: Fathom's Checks on what it
-touched, then typed checks (a firmware plan writes three) answered OK, Not OK or Can't tell; Not OK offers
-Troubleshoot, and Record waits until none is open. AI apps can propose all of it; release notes reach them at the
-notes tier. Not built: a check answered by Fathom reading the device (waits on SNMP).
-**Where a plan goes** (sign-off r94-plan-next; schema 0.37, no field key). The plan panel opens on the way it runs,
-Plan, Maintenance (its window, or "No window set"), Checks after, Record, with where it is marked; the band says
-"Maintenance next" and the window. While planning, **What happens next** offers Start the maintenance beside **Call
-it off…**: Not needed, Done another way, or Troubleshooting first (which then opens It's down on the plan's first
-device, carrying the note). A called-off plan (`MaintenancePlan.stage` `called_off`, the reason and note in
-`record`) changes nothing in the design, draws no marks, is finished work on the Work tab, and can be planned again.
-Once a step is marked it is Back out or Record, as before.
+**Live co-editing** (ADR-0063; `live.rs`). Changes are signed requests applied to the server's head
+through the engine, then numbered, chained, encrypted and streamed. Different fields merge; on the same
+field the later wins and the overwritten person can **Put mine back**. Presence and changes cross server
+processes through PostgreSQL `NOTIFY`, so several servers behind one balancer need no sticky sessions
+(`docs/RUNNING-IT.md`). Nothing exercises two genuinely concurrent saves (a row lock serialises them).
 
-**Mesh VPNs** (sign-off r16-overlay; schema 0.26, field keys 479-485). An `OverlayNetwork` (Tailscale,
-Headscale, NetBird, ZeroTier, WireGuard, Nebula or other) hangs off the root; `OverlayMember` edges to Devices
-carry each member's VPN address, exit node, and subnet routes. Entered by hand in Inventory › Networks, under
-VPNs; addresses, ranges and routes are refused unless they parse (IPv4 only), so a pasted key never gets in from
-the form. The server's credential check reads a VPN's name, note and routes, and the redaction gate now knows
-Tailscale's `tskey-` keys (detector `key-prefix`, source Tailscale "Key prefixes", read 2026-10-25). Show › VPNs
-(off by default) draws, on the Diagram look, each VPN of three or more as a badge right of its members with a
-dashed spoke to each, a two-member VPN as one dashed arc with its name, and each member's VPN address under its
-box; a badge opens a card with range, members, exit node and routes. Not yet: pasting `tailscale status` or
-`netbird status`, and the Rack look. `scripts/drive-vpns.mjs` drives it.
+**Password vault** (ADR-0042, 0071; `vault.rs`, `vault_fathom.rs`, `vault_breach.rs`, `vault_outside/`,
+`client/src/vault/`). Sealed in the browser (Mode A) with an Emergency Kit and passphrase; Mode B lets
+Fathom itself use a login the owner consented to (second admin countersigns when shared; every use files
+`vault_read` first); breach checks run in a holder's browser against the Have I Been Pwned range API with
+five hash characters; outside vaults pull from Vaultwarden, Delinea Secret Server and Passbolt (OpenPGP in
+a separate helper, `helpers/passbolt/`). An outside vault URL on a private or special-purpose address is
+refused unless the operator lists the host (`FATHOM_OUTSIDE_VAULT_HOSTS`; IANA special-purpose
+registries), and every failure on an unlisted host reads the same. Delinea and Passbolt are tested
+against stand-ins of their documented shapes, never a real server. Not built: the chain verifier's check
+that a `vault_read` names a login then in Mode B. `scripts/drive-vault.mjs` sweeps a superuser `pg_dump`
+for every secret.
 
-**Links lens on the canvas** (sign-off r109, borrowed from homelab-diagram's grammar in Fathom's theme; no
-schema change). With the Links lens lit, the Diagram look draws an access line in its VLAN's colour
-(`--vlan-1` to `--vlan-6` in `design/tokens.css`, then they repeat), a line carrying more than one VLAN hollow
-(ink with a page core), and every line's weight by the slower end's `Interface.speed` (none set draws the
-copper weight). A Networks key sits bottom left. Boxes are never coloured. In the Rack look the lens says it
-draws in the Diagram look and offers to switch. `components/drawing/linksLens.ts`;
-`scripts/drive-links-lens.mjs` drives it. Nothing yet sets `Interface.speed` by hand (r109 item 5).
+**Device reading** (ADR-0082; the reader is a separate helper, `helpers/reader/`, compose profile `reader`,
+`scripts/gate-reader.sh`; `device_read*.rs`, `device_reading.rs`, migrations 0067, 0073, 0077). The operator
+allows it with `FATHOM_DEVICE_READ=on`; a Steward turns it on per organisation and lists management
+ranges (loopback, link-local, multicast and reserved addresses refused whatever is listed). It reads
+only, never writes or acts:
+- **SNMPv3** (Fathom's own, GetRequest, GetNextRequest, GetBulkRequest only; authPriv with HMAC-SHA-512,
+  -256 or -96 and AES-128; no MD5, DES or Set): system, entity inventory, interfaces, LLDP, MAC and ARP.
+- **SSH** (russh; a platform's fixed commands): the configuration, through the gate in the reader and
+  again on the server, kept sealed as the newest ten. A read is incomplete unless the device ended its
+  output; connecting gives up after 15 s.
+- **Identity first:** before any login is sent, the SNMP engine ID or SSH host key must be confirmed (last 8
+  characters typed by someone with Draw, or a Steward approving a range). A range's login over SSH waits for
+  a host key a Steward confirmed; a changed one stops reads until confirmed alone.
+- The device panel shows a "differs from drawing" chip and a Readings tab; Accept, Add and Add cable are
+  ordinary edits. Attacked in r117 (fixes merged with #337). Not built: scheduled reads, logins by folder,
+  port descriptions, site readers (ADR-0089).
 
-**Routing lens on the canvas** (sign-off r101, option A; no schema change). With the Routing lens lit, the
-Diagram look writes on the same boxes: a device that routes says `ROUTES · n TABLES`, a VLAN gateway says
-`GW VLAN 11 · 10.10.11.1`, a host names its default gateway or says `NO GATEWAY` in caution, and a switch
-with VLANs and no address says `SWITCHES ONLY`. A cable whose ends share a network carries the prefix in
-ink; one in a VLAN is dashed with its VLANs. A key sits bottom left. The Rack look dashes switched cables
-only. Read off the design, not a trace (`components/drawing/routingLens.ts`); `scripts/drive-routing-lens.mjs`
-drives it. While the lens is lit the device panel opens on a Routing tab (`RoutingTab.tsx`, `routingTable` in
-`document/routes.ts`): a table per routing table, default first, then each VRF; connected networks named by port
-or VLAN, then static routes, each saying whether it came from a paste or by hand; Add route with the device
-filled in; and a note that OSPF and BGP routes are not read yet. A path trace now shows on the Diagram look
-too (`diagramTrace.ts`): what the walk touches stays, the rest fades, each hop is numbered on its box or line,
-and a walk that stopped short dashes its last box in caution with a "Stopped here" box beside it giving the
-engine's reason. When a device keeps a VRF, a Table picker sits above the key: one table lit, the rest at
-the phantom fade (`tableLit` in `routingLens.ts`; a host behind a switch on a VRF's port lights with it), and a
-trace started on a device with VRFs walks in the picked table (`trace_in`, the fourth line of `OP_TRACE`); a
-start on an interface keeps its own table. A trace to an address this design does not hold asks the estate
-index (ADR-0079) which other designs this person may read hold it, and the panel says "10.8.0.5 is on nas-01
-in Branch · Open it there" (`trace/traceElsewhere.ts`). It does not carry the walk across: past this site's
-edge is that design's own trace.
+**AI access** (ADR-0072, 0077; `ai.rs`, `oauth.rs`, `mcp.rs`, `ai_change.rs`). A person a Steward names lets
+an AI app read the designs they can read at the tiers the organisation allows (layout, addresses, notes),
+never passwords or the vault, and send ideas a person accepts. The connector is Fathom's own OAuth 2.1
+server plus `/mcp` (needs `FATHOM_AI_PUBLIC_URL`); the helper is `client/public/fathom-ai.mjs` with an
+ES256 key. An AI never writes a design: with two ticks it may propose a change, kept sealed in an idea and
+shown on the canvas as an open plan; accepting makes it the person's own edit. What it may do is set by
+kind of work at three layers (Admin ceiling, Steward rules, each connection), strictest wins.
 
-**Routes by hand** (sign-off r96, round 1; no schema change). Inventory › Networks, under Routes, lists every
-static route on every device, pasted or typed, and adds one: a device, To (`default` for 0.0.0.0/0, or a
-prefix) and Via (an IPv4 next hop, or `discard`). A device with no routing instance gets `default`; one with
-several asks which. A pasted route is listed as "from a paste" and is not removed here. `document/routes.ts`;
-`src/engine/routes.trace.test.ts` traces a drawn host past its router once it has a gateway.
+**Termix** (ADR-0078, 0080; `termix.rs`, `components/termix/`). Optional, off unless `FATHOM_TERMIX_URL` is
+set: open a device's terminal, send hosts, snippets, maintenance windows, and a check step that can fetch
+its own read-only output. Proved against a real Termix in CI (`termix` job).
 
-**Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
-head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
-encrypts and streams them to other browsers. Different fields merge; on the same field the later one
-wins, and the overwritten person can **Put mine back**. Others show as initials dots in the bar.
-Since 2026-10-27 the dots and pointers cross server processes through `NOTIFY` on `fathom_presence`,
-as changes already did, so several servers behind one load balancer need no sticky sessions
-(`docs/RUNNING-IT.md`, "Running more than one server"). The audit feed is sent by whichever server
-holds its advisory lock. Every console request and sign-in logs one `access` line with the client's
-address and the proxy's (`access_log.rs`). How big a design goes, measured: `docs/SCALE.md`.
+**Firmware** (ADR-0045, 0064; `firmware*.rs`). Staged images with SHA-256, SHA-512 and MD5 (MD5 never
+compared), re-hashed hourly and at every download; limits set from the settings file, **Admin › Firmware**
+and **Steward › Firmware**; the Firmware permission sits between Draw and Steward; one-time links; retire;
+plans with vendor steps for Junos, IOS XE, NX-OS, EOS and written steps for OPNsense, Debian, Ubuntu,
+TrueNAS and Synology DSM (marked not checked). Not built: the firmware check on spares.
 
-**History panel** (#124, #128). The bar's **History** leads with the chain check in words ("Checked:
-every save is intact", "Broken at save N"), lists saves newest first, shows any save read-only with its
-changes outlined, and **Restore this version** (Draw) makes a new save.
+**Other server stores.** Cable corrections from the floor (`corrections.rs`, 0036); field definitions
+(0035); folder place and kind (0050) and `design_moved`; teaching setting "Type it yourself" (0041);
+faceplate templates and each person's Cables lists, sealed (0076; both merged in #333); the Activity
+trail on the console (`admin.rs`).
 
-**Round 15 quality of life** (r15-qol; schema 0.21, field key 462). A sketch port's name field takes a
-pattern (`ge-0/0/{0-23}` is 24 ports, `document/portPattern.ts`). A port has a MAC (`PhysicalPort.mac`),
-edited on its panel or the Ports table; Find and Ctrl+K answer a MAC, or its start, with the port and
-where it is plugged. A rack's panel and right-click offer **Close gaps** and **Copy rack, with its
-cables** (R1 gives R2, names get -2; `document/rackTidy.ts`), one undo step each. A device panel shows
-its **Photo**: the newest image on its own docs, added by drop or pick onto a "Photo" doc, shown as a
-`data:` image (the CSP allows no `blob:`), confirmed as showing no passwords first.
+**Backups** (ADR-0070). A data file and a keys file (sealed under a recovery phrase through Argon2id),
+`fathom-server backup | keys-file | restore | dump-from`; in compose a `backup` service makes one nightly
+(keeps 14) and restore-tests weekly; the `offsite` profile copies to S3-compatible storage. Admin ›
+Settings › Backups shows the state.
 
-**Missing links, for cables** (ADR-0068 rounds 26-27; schema 0.24, field key 478 `Cable.needs_finishing`).
-A cable with only one end connected draws as a column leaving its port (`LooseCableNode.tsx`), in one of two
-looks. **Unknown** (the default): the line fades out over its last ~110px, no motion, "Far end unknown" on
-hover, not counted. **Needs finishing** (a person marks it: the cable's panel toggle or its right-click; one undo
-step): that last stretch is slanted amber dashes crawling toward the far end, with a **?** in a circle that swings
-like a bell every 3.2s; both stop under `prefers-reduced-motion`. A free port gets **Add a cable, far end open**
-(starts Unknown); dropping a free port onto a one-ended cable's port plugs in its second end (`completeCable`;
-clears the mark; the Checks guard does not run on that drop). The bar's **Missing links · N** counts Needs
-finishing only and hides at 0; its list has a row per cable ("sw-01 3 → (no far end)") with **Go**, and a folded
-**Unknown (n)** below. Detection is pure (`drawing/missingLinks.ts`); circuits join by handing it loose ends.
-Not drawn yet: a one-ended cable on a shelf's or wall's port (listed and counted, no line); Sites and Inventory
-do not list them yet. Drive: `scripts/drive-missing-links.mjs`.
+**Running it.** `docker compose up -d` from the root with one variable in `.env` (`docs/RUNNING-IT.md`),
+run end to end by CI's `compose` job. `publish.yml` pushes `ghcr.io/keyxmakerx/fathom-server` and
+`fathom-backup` on every merge to main; `release.yml` and `scripts/release/pin-compose.sh` build a compose
+file with every image hashed. No alpha tag has been cut. Keys are generated by the `db` container's start.
 
-**Cables: styles, runs and ties** (round 15; schema 0.23).
-- **Cable style** (`drawing/cableStyle.ts`), picked per person in the Show menu and kept in this browser,
-  never in the design: Physics (the default; cables hang and sway), Cable-tied, Right-angle, Faded.
-- **Cable runs and ties** (`document/cableRuns.ts`, `drawing/PortalTrayNode.tsx`): a `CableRun` is a tray or
-  lacing bar along one side of a rack or wall; a `CableTie` clips onto it and holds the cables it ties.
-  Removing a run takes its ties; removing a cable drops it from any tie.
-- **Suggestions from a neighbour list:** see "Suggestions from what a switch knows" above.
+**Dependency gate.** Layers: approval records per crate, licence and source allowlists with duplicate
+bans, RustSec, lookalike names, a publication cooldown, and `scripts/osv-gate.sh` (needs egress to OSV.dev;
+fails closed, and cannot run from every environment). `scripts/gate-reader.sh` and the Passbolt helper
+have their own. Server crate cap 200, revisit at 180.
 
-**Port ties** (`document/portTies.ts`, `components/ties/`). A pasted interface is joined to the drawn port it
-sits on (`Occupies`). The person makes every tie; Fathom suggests only from a cited naming rule in
-`corpus/dict/port-names.json` (Juniper EX, SRX on-board ports, EdgeRouter), never by name likeness. The tie
-card opens after a paste onto a drawn device and from a trace or "It's down" stop that reads "not tied to a
-port"; it offers jacks only, and shows and unties ties.
+---
 
-**Termix** (ADR-0078; `src/termix.rs`, `components/termix/`). With `FATHOM_TERMIX_URL` set, a
-device's Management fold offers "Open in Termix": the browser finds the Termix host at the management
-address with the person's own Termix API key (kept in the tab, never sent to Fathom) and opens its
-terminal in a new tab, or adds the host first with no credentials. Inventory › Devices sends the ticked
-devices at once ("Send N to Termix"), skipping hosts Termix already has. The server only names the origin
-and adds it to `connect-src`; it never calls Termix. A steward turns it off for everyone in the organisation or
-for one person (migration 0056, Organisation › People); the address is then not given out and the buttons are
-gone. Proved against a real Termix 26.10.6 in CI (the `termix` job, `scripts/drive-termix.mjs`, ADR-0080
-decision 1); that run found Termix refuses a new host without `authType` since 26.10.2, so Fathom now sends
-`authType: none`.
+## Browser client
 
-**Device reading, part one** (ADR-0082 §4.3 and §4.4; migration 0067; `src/device_read.rs`,
-`src/device_read_admin.rs`, `helpers/reader/`, `components/organisation/DeviceReadingPage.tsx`). The
-switches and the reader's socket, no reads yet. The operator allows reading with `FATHOM_DEVICE_READ=on`
-and the `reader` compose profile (its own image, network and gate, `scripts/gate-reader.sh`); Admin ›
-Settings shows it, read-only. A Steward then turns it on per organisation and lists the management ranges
-(Steward › Device reading, `device_read_set` on the organisation's history); loopback, link-local,
-multicast and reserved addresses are refused whatever is listed. A vault login or SNMP entry can be marked
-read-only (sealed in its details, shown on the Logins card). The reader answers a ping, proved through
-its socket in CI (the `reader` job).
+`client/`: React, Vite, React Flow (`@xyflow/react`), plain CSS; the only runtime dependencies are React,
+React DOM and React Flow (About Fathom lists every shipped library with its licence;
+`scripts/licences-npm.mjs` fails CI on a drift). Look and
+layout are in `docs/UI-SPEC.md`, ADR-0060 and ADR-0061. The redaction gate runs in the browser
+before anything from a paste is stored or sent.
 
-**Device reading, the reader's SNMPv3** (ADR-0082 §4.1 and §4.5; `helpers/reader/src/{ber,usm,snmp,purposes,address}.rs`).
-Fathom's own SNMPv3, able to send only GetRequest, GetNextRequest and GetBulkRequest: authPriv
-with HMAC-SHA-512, -256 or the older -96 and AES-128, no MD5, DES or Set anywhere. First contact
-learns the engine id without sending a login; a read needs that id confirmed and stops if it
-changes. It reads fixed lists only (system, entity inventory, interfaces, LLDP, MAC and ARP
-tables) and signs each reading with a SHA-256 digest. Proved in CI against net-snmp's `snmpd` with
-each protocol, and refused by name for a wrong password, a wrong privacy password, an unknown user
-and MD5.
+**Sign-in, Home and the console.** First run takes the setup token, address, password, authenticator app
+and recovery codes (ADR-0056); `SignIn.tsx`, `Enrol.tsx`, `InviteWhileSignedIn.tsx`, `Reset.tsx`. Home has
+tabs Designs, Work, Teams, Passwords, Steward, AI and Admin, each shown only to someone who may use it. The operator
+console (`components/console/`) has Accounts, Organisations, Operators and Settings. ADR-0068's Admin
+rework (Health first, section list, Engines) is decided, not built. People and access are added by link
+(Read or Draw at once; a Steward is invited and confirmed by signature). Not built: removing access given
+to a whole organisation, making an existing member a Steward.
 
-**Device reading, read on a device** (ADR-0082 §4.2, §4.4; sign-off r100, all A; migration 0073;
-`src/device_reading.rs`, `src/design_api/device_read_routes.rs`, `components/reading/`). Read now in
-the device panel's head, a "differs from drawing" chip and a Readings tab after Ports. Before any login
-is sent, the agent a device answers with (its SNMP engine ID) must be confirmed: by someone with Draw
-typing its last 8 characters, or by a Steward approving a range's new ones at once (Steward › Device
-reading); a changed one stops reads and is approved alone. A read uses a read-only SNMP login marked on
-the device, or one a Steward set for its range, opened from Fathom's copy. What the device said passes the
-redaction gate's detector and is kept sealed under the organisation's key, the last 10 per device. The
-browser compares it with the drawing: name, serial, firmware, and LLDP neighbours against cables. Accept,
-Add and Add cable are ordinary edits; Accept all is one undo step; Dismiss holds until the device says
-something else. MAC and ARP are read on request, with Find, what changed since the last, and CSV. Not
-built: port descriptions (the drawing keeps none on a physical port), logins by folder, scheduled reads,
-SSH (next).
+**Folders and places** (ADR-0074, 0051; `components/places/`). A site, building or closet has a kind and a
+role (hub, branch, customer); zoom stops above the closet draw the folders as boxes (grid, not hand
+placed); a building's floor plan is traced over an uploaded picture. A steward of both folders moves a
+design. Import from NetBox on Folders (`scripts/drive-folder-place.mjs`). Not built: PDF plans, DXF, door
+labels.
 
-**Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
-`components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is
-optional and has its plain way beside it (OPERATING.md, "Termix's add-ons"). A plan lists its devices with
-Open in Termix and Connect with ssh lines; Do shows Open in Termix on the current step and Termix's up or
-down (`GET /host/status`, on open and Refresh). A device's vault login pulled from Vaultwarden goes to
-Termix as a `bw://` reference when Termix runs Secret Sources. Steps with commands go to Termix as snippets
-(Snippets add-on). Start the maintenance opens a maintenance window per device (Automations add-on; ticked by default,
-the plan's window, at most 10080 minutes) and Record ends it only where the reason is still the plan's;
-the plan always says to pause your own alerting. A check step has a paste box: Fathom compares before the
-redaction gate (version, image hash; only a full hash can say Matches), then keeps the gated paste in
-`PlanStep.seen` and the verdict in `PlanStep.compared`. With Fetch from Termix turned on by a steward
-(`organisation_termix.fetch_on`, sealed as `termix_access_set`), a check step can run its own command
-through Snippets, only if it is on the platform's read-only list (`termix/readOnly.ts`: Junos, IOS XE,
-NX-OS, EOS; EOS takes no output filters, unsourced), via a temporary snippet that is read back and
-deleted; the answer goes into the paste box unkept. A console port records `PhysicalPort.console_baud` and
-shows PuTTY, screen and picocom lines, and Open Termix with "choose Serial on its left rail" (Termix's
-Serial has no direct link). Inventory › Devices has an In Termix column, read from Termix's host list.
-Learn has the lesson "Doing a plan with Termix, or without it" on the practice lab.
+**The canvas** (ADR-0060). One canvas, detail by degrees: closet 87.5%, rack 100%, faceplate 200%, inside
+300% (max 400%). Racks with rails and U numbers, rear elevation (ADR-0050), shelves, walls and free boxes
+(ADR-0051), cables that hang, bundle and light their whole path, portals for cables leaving the closet,
+cards and optics (ADR-0073), power supplies. Marquee, copy, duplicate, align, nudge. A device whose rack
+spot is unknown is a free box with its whole self. Look switch: **Rack** or **Diagram** (plain labelled
+boxes, square lines). Every change saves (one in flight, latest queued; a refusal is shown, never rolled
+back). Not built: line routing, touch marquee, "in this rack, spot unknown".
+Controls: a back button with a tree of where you are (`JumpTrail.tsx`), a quick card on click, a peek on
+pause, one grouped right-click menu per kind of thing (same in the panel's ⋯, Ctrl K and Inventory rows),
+the device panel (Details, Ports, Notes, Readings, Routing; **Also in** at its foot; Esc closes only the top
+thing), "Swap model, keep ports", "Not here? Describe it", a keyboard shortcuts button in the bar.
+`docs/UI-SPEC.md` is the spec; the audit of 2026-11-11 found controls scattered and a right-click menu too
+long, and a layout rework is waiting on the owner's answer.
 
-**AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
-person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
-organisation allows (layout, which includes spares without serials; addresses; notes, which includes a
-spare's custom fields, ADR-0076), and send ideas a person accepts or dismisses. Never
-passwords or the vault. Two ways in, one grant row (`ai_keys`, kind `helper` or `connector`) and one set of
-rules checked at every request: (a) the **connector**: with `FATHOM_AI_PUBLIC_URL` set, the server is its
-own OAuth 2.1 authorization server and serves `/mcp` (Streamable HTTP, five tools; since ADR-0074 a design
-says `where` it sits, site › building › closet with kind and hub role, as far as the person may read,
-and `list_designs` takes a `folder`). Claude and Claude Code
-are pinned by their published client ids and redirects; other apps register (RFC 7591) and are off until a
-Steward allows them. S256 PKCE, one-minute single-use codes, one-hour access tokens, rotating refresh
-tokens with reuse detection, hashes only. A Claude grant is used only from Anthropic's published range
-(`FATHOM_AI_CLAUDE_RANGES`). The person signs in and chooses on the "Connect an AI app" page at
-`/oauth/authorize`. (b) the **helper** (`client/public/fathom-ai.mjs`): an ES256 key pair on the person's
-computer signs each `/ai/v1/*` request, and works with the connector off. The person downloads it from
-Steward › AI › Connect an AI app › "It uses a key", runs the pair line shown, pastes the public half
-and presses Make key; the page then gives the Claude Code line and an `mcpServers` block to paste
-(`scripts/drive-ai-helper.mjs` drives it end to end). Steward › AI rules holds the policy (on/off, who, ceiling, apps,
-longest, second-person folders) and every connection with narrow and turn-off; a named person who is not
-an admin sees that tab with AI alone. Admin › AI turns AI off for the server and turns any connection off
-with a reason. AI ideas are a side tab on the Canvas, Racks and Inventory; an Inventory row an open idea
-names is marked. Accepting marks the idea; the change is the person's own edit. "Make it a plan" turns an
-idea into a draft maintenance plan with no edits in it and accepts the idea (ADR-0072 decision 22). The
-reading includes maintenance plans and "It's down" issues, without who wrote them or a step's stored edit.
-Both connect pages warn against a personal AI account; Fathom cannot check which account it is (decision
-23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
-(decision 24, migration 0049). ADR-0077 (amended 2026-10-27: an AI proposes, a person accepts): an AI connection never writes to a
-design. With two ticks, Steward › AI rules' "AI apps may propose changes" and the connection's own "May
-propose changes" (migration 0050), `POST /ai/v1/designs/{d}/changes` (the Claude tool `propose_change`,
-the helper's `fathom_propose_change`) and `recommend`'s optional `change` check the operations as they
-would be made (fields set, nodes and edges added and named with `as`, removals; kinds and fields the
-reading shows at `layout` and `notes`; the version read; 200 operations, at most 20 things removed,
-never a place still holding things or anything holding what the AI cannot see; the owner able to draw
-there; every string through the server's gate) and keep them sealed in an AI idea, 10 a minute and 300
-a day per connection. The idea carries `preview`; the ideas panel's Show on canvas draws it as an open
-plan, in the plan colour with AI CHANGES / AI REMOVES / AI ADDS tags, removals greyed. Accept and apply
-makes it on the current design as the accepting person's own edit. `whoami` is `readOnly: true` for
-every connection. While an idea is shown, the canvas asks `GET .../ai-ideas/{i}/change` for the change
-Accept would write, built on the design as it is and not written, and draws the design with it made,
-read-only: what it adds sits where it would go (a chassis in its rack, a cable on its ports), tagged AI
-ADDS, and what it removes stays drawn, greyed. A server without that route, or a change that no longer
-fits, falls back to outlining what the idea names. An idea that adds a maintenance plan tags each device
-its steps work on (AI PLANS · STEPS 1–7; from the steps' targets, or hostnames its text names) and lists
-the steps on the idea card; it no longer offers Make it a plan, and Make it a plan on any other idea
-clears the preview first so the plan lands on the design itself. `ai_design_changes` (migration 0051) holds only rows
-from before the amendment. What an AI may do is set by kind of work
-(editing the design, drafting plans, troubleshooting, working through a plan), each Off, Ideas or
-Proposes, at three places whose strictest wins: Admin › AI's ceiling, Steward › AI rules and each
-connection (migration 0057, card r47-ai-controls). A Steward also marks folders ideas-only or out of an
-AI's sight, keeps it to a list of kinds and fields, and lowers the limits (proposals a minute and a day,
-removals in one); 429 past a limit. All three show one grid (card r54-ai-layers): a read-only column for each
-layer above, the page's own column, and In effect, naming the layer that holds a row back. Every
-connection carries an access word, Safe, Medium, Critical or Full, from what it may see and do with all
-three applied (`client/src/components/ai/Access.tsx`); Admin › AI's list takes it from the server's
-`inEffect`.
+**Show menu and lenses.** Layers on the drawing (Checks, Addresses, VLANs, Docs, Maintenance, Tags, VPNs),
+cable style (Physics, Cable-tied, Right-angle, Faded), device style on Diagram (Boxes or Icons). Lenses:
+Links (VLAN colour, hollow trunks, weight by the slower end's speed; nothing sets `Interface.speed` by
+hand yet) and Routing (what a box routes or switches, gateways, a Table picker for VRFs, a Routing tab).
+All per browser and design, never saved in the design. A path trace also draws on Diagram.
 
-**Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
-Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.
+**Inventory and notes** (ADR-0053, 0058, 0059, 0062, 0067). Two places over one document: Canvas and
+Inventory (rail of kinds, grid per rack, Gaps, one page as the editor, Show on rack; coming back finds it as
+left). Kinds include Devices, Parts (cards, supplies, optics, On hand, stores and levels per ADR-0076),
+Networks (VLANs, subnets, Docker networks, VPNs, Routes by hand), Firmware, Models, Tags (rename or delete),
+Issues and Passwords. Organisation-wide custom fields (migration 0035). One importer (CSV, NetBox, Proxmox,
+nmap). Tags are chips on most things and search finds them. Notes are nodes, pasted through the gate or
+stored as typed and saying so. **Undo** is a new batch of reversing operations: only your own, a
+colleague's later change refuses by name. **Docs** (Markdown subset, files up to 25 MB, text gated in the
+browser, images and PDFs need a per-file confirm). Not built: a Docs kind, private fields, saved filters
+and grids for racks, cables and ports.
 
-**Backups** (ADR-0070). Two files: a data file (the `pg_dump -Fc` archive and staged firmware,
-sealed under `backup.key` in 1 MiB ChaCha20-Poly1305 chunks) and a keys file (the key volume, sealed
-under a 26-character recovery phrase through Argon2id). `fathom-server backup`, `keys-file`,
-`restore` (`--out` or `--check`) and `dump-from`; each file carries key ids, so a wrong keys file is
-named before the phrase is asked for. In compose, a `backup` service makes one nightly (keep 14) and
-tests a restore weekly; `backup-keys` makes the keys file by hand; the `offsite` profile copies data
-files to S3-compatible storage with a pinned rclone. Admin › Settings › Backups shows the state, and
-failures, staleness and an out-of-date keys file reach the console banner.
+**Paste and suggestions.** Paste a config anywhere (`components/paste/`): a card names hostname, platform,
+interfaces and what the gate destroyed by kind, never values; nothing is stored until chosen. A dropped
+folder of configs matches files to devices by hostname. Neighbour lists (`show lldp neighbors`, CDP), MAC
+and ARP tables, DHCP leases and `show version`/`show inventory` output *suggest* cables, hosts, serials and
+versions (ADR-0046: suggestions, never facts; one undo step). Port ties join a pasted interface to a drawn
+port, made by a person, suggested only from a cited naming rule.
 
-**Carried**
-- The dependency-vulnerability gate needs egress to the advisory database (`scripts/osv-gate.sh`); the
-  v0.1 tag waits on that run.
-- The server's credential check is the detector only; SNMPv3 auth and priv values are a known residual
-  (W7). Issue #104's narrow redaction leaks are closed: #135 took its server items (id-shaped
-  secrets in plan text, batch comments, history under undeclared keys, canvas-editor paste), #145 the
-  quoting and wrapped tails, and #104's own PR the RouterOS and pfSense secrets that reached the note
-  box. How EdgeOS quotes a value holding a space or `'` is still not established from a source.
-- People and access, residuals named: (1) an operator-issued token for an account can still be redeemed
-  after a steward confirms that account (design section 4.4), so a second key could appear after confirm;
-  (2) confirm checks that the account has exactly one live key, and nothing about a password or app
-  code, which only the joiner can set today (revisit once a mail path exists); (3) the daily cap of 50
-  invitations is per steward per organisation, not across organisations.
-- Nothing exercises two genuinely concurrent saves (the row lock serialises them).
-- Trail and notes: the sealed mark is an idle-time approximation; the comment box should attach to the
-  next batch; a note's line count is taken before the gate; private notes arrive with the vault (W6).
-- Wire shapes have no cross-language vector yet.
-- Unbuilt: saved filters and grids for racks, cables and ports; unreachable-policy hatching; the
-  assistant panel; a Proxmox dictionary. (Optics are built: ADR-0073.)
-- The old Rust-assembled HTML client is retired, on disk under `crates/fathom-artifact/`, not served.
+**Plans, It's down, lessons.** Maintenance plans (ADR-0061; Plan, Do, Record): typed steps, a LAG step,
+If paths, release notes, Back out, After the work checks, Call it off, firmware plans, Termix helpers; Move
+mine and Let them know from clashes. **It's down** is a checklist from a device (power, neighbours, link,
+port, address, gateway) that can be saved as an issue and picked up again. Learn (ADR-0066): explainers
+(`corpus/explainers/`), Learn notes on Diagram, guided lessons (`corpus/lessons/`) checked by the page's own
+engine, a lesson builder, and the sample home lab (`corpus/samples/home-lab.json`) with five first steps.
+Not built: the Run Ansible lesson step, explainers for Cisco and MikroTik.
+
+**Sharing, printing, phone.** A steward's **Share** gives View or Draw to people already in the
+organisation (no outside invites or public link). Print pack: This view, Rack elevations, Cable schedule,
+Port map (.csv or .xlsx), the Inventory table, then the browser's Save as PDF. Labels print a QR code
+(`/scan#<design>/<id>`) for devices, racks, cables, ports and bins on Brother TZe, QL or A4. Under 760 px
+wide the phone field view shows Scan, Find and a read-only Canvas (ADR-0075); the full top bar is not yet
+usable at phone width. Add to Home Screen works; there is no service worker.
+
+**Missing links, history, cable corrections.** A one-ended cable draws as a faded or amber "needs
+finishing" column and the bar counts the latter. **History** leads with the chain check in words and
+**Restore this version** (Draw) makes a new save. Cable corrections ("Traced ✓", "Label wrong", "Not
+here") wait for a Draw person's accept or dismiss.
 
 ---
 
 ## Never built
 
-Walkthrough view (the teaching half of the product; guided lessons are built, ADR-0066); Config view; a
-room stop of its own (the building stop draws the floor plan and its rooms, ADR-0074); engine manager (how equipment types are registered and
-kept current); automatic correlation across separately-pasted configs; anything that discovers a
-network live (everything today comes from pasted text).
-
----
+Walkthrough view and Config view; a room stop of its own; engine manager; automatic correlation across
+separately pasted configs; anything that discovers a network live (everything comes from pasted or read
+text); the Rust-assembled HTML client is retired and not served (`crates/fathom-artifact/`).
 
 ## Known limits worth remembering
 
-**Compose, run end to end by CI.** `docker compose up -d` from the root with one variable in `.env`
-(`docs/RUNNING-IT.md`) pulls the image `publish.yml` pushes to GHCR on every merge to `main`
-(`deploy/Dockerfile`'s `server` stage, `ghcr.io/keyxmakerx/fathom-server`); `--build` builds the same
-stage. The file is self-contained. The `db` container's start generates the four root keys
-(master, chain, backup, vault) (since 2026-10-31; a one-shot `keys-init` container until then) and three database passwords into the `keys` volume. CI's `compose` job
-checks health and the client on the published port, signs the first operator in, proves a restart
-keeps its keys, and makes, restore-tests and opens one backup. The backup service's image,
-`ghcr.io/keyxmakerx/fathom-backup`, is published beside the server's.
-
-**The server serves the web client itself** (`crates/fathom-server/src/client.rs`,
-`FATHOM_CLIENT_ROOT`, read into memory once at startup) on the one published port, plain HTTP. HTTPS is
-the operator's reverse proxy's job; the browser's WebCrypto needs it for sign-in. The operator
-console can be confined to host names and source ranges (`FATHOM_ADMIN_HOSTS`,
-`FATHOM_ADMIN_SOURCES`); elsewhere its paths are 404.
-
-**A client's address is one rule for every route** (`client_address.rs`). `X-Forwarded-For` is
-believed only from `FATHOM_TRUSTED_PROXIES`, across every line of the header: the client is the last
-entry the trusted proxy appended, or the `FATHOM_FORWARDED_HOPS`-th from the right behind a further
-hop. Nothing is trusted by default (the peer is the address and the server warns). A header named
-with no proxy trusted refuses to start.
-
-**The test suite needs a fresh database.** Tests against one database share global state: triggers,
-rate-limit buckets, the site chain, settings rows (`docs/NEXT.md` rule 3 has the isolation
-requirements). Reused, the suite fails intermittently.
-- `past_the_bound_a_rotation_is_refused_and_drains_to_succeed` fails only on a reused database. Not
-  fixed; it costs nothing under rule 3, and CI creates a database per run.
-- `tests/operators.rs` leaves a `fathom_isolated_*` database behind per test. Harmless in CI; a slow
-  leak elsewhere. Not fixed; the fixture is the place.
-
-**The server refuses to start on a broken schema, deliberately.** `EngineState::load` runs every gate;
-a failure is a startup failure naming the gate and file, exit 7. `deploy/Dockerfile` copies `schema/`
-into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` overrides the path.
-
-- **Typed values are not redacted.** The gate runs on paste only. A password typed by hand is stored
-  and exported as written, with a warning mark. That is the decision, not a bug.
-- **A paste creates no cables or ports.** Ports are drawn, described or made from a pattern by hand;
-  cables are drawn, or added from a neighbour-list suggestion a person ticks.
-- **Engines are files in the tree.** ADR-0044 describes signed data packs; none of its Phase 5
-  exists (no `engine.yaml`, signature, install, chain entry or pinning). The server reads
-  `corpus/catalogue/` from disk at start; the client compiles `corpus/dict/` into its bundle. Every
-  device fact is cited with its read date; every credential test uses the length the device accepts.
-  - **Home-lab catalogue** (2026-10-10): MikroTik, TP-Link, Netgear, Netgate, Protectli, QNAP, Synology,
-    Raspberry Pi, Lenovo and Intel models, plus UPS and rack makers (APC, CyberPower, Tripp Lite, Panduit,
-    ICC); `ls corpus/catalogue` is the list.
-  - **Juniper.** `junos-srx` is the one dictionary with real depth (a branch config binds about 57% of
-    its lines). `junos-ex` binds VLANs, ethernet-switching membership, LAG membership and irb units;
-    `interface-mode` is unbound on purpose. A virtual chassis has no schema representation. The
-    catalogue covers the EX4300, EX2300, EX4100, SRX300 and SRX340 (1U; the vendor page wins over the
-    design board).
-  - **OPNsense.** The rules-migration CSV (26.1 and later) is the only readable export and the only one
-    bound. Aliases export as JSON. `config.xml` needs an XML framer; the fields it must destroy are in
-    `corpus/dict/opnsense/README-config-xml.md`. The dictionary declares no secrets and the core floor
-    destroyed every credential driven at it. No catalogue entry: the catalogue has no form for "a box
-    that runs OPNsense".
-  - **Ubiquiti.** Catalogue: thirteen UniFi models (gateways, switches, access points). UniFi has no human-readable export, so no
-    dictionary. EdgeOS binds hostname, interface description, disable and `vif` sub-interfaces; base
-    addresses, static routes, DHCP server and NAT are unbound (`corpus/dict/README-ubiquiti.md`).
-  - **Linux hosts.** Read by `iproute.rs` (above); `bridge` output is residue
-    (`corpus/dict/README-linux-host.md`). A pasted WireGuard private key is still destroyed. Eight
-    per-flavour explainers plus `linux-family-basics`, cited.
-  - **Arista.** Two catalogue entries (720XP-48ZC2, 7050SX3-48YC8) and an EOS explainer; no dictionary
-    (same shape gap). The safety net destroys every credential in a 120-line synthetic config
-    (`crates/fathom-ingest/tests/arista_eos.rs`).
-  - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; the Learn screens
-    say *Unreviewed* on each one (OPEN-QUESTIONS E2, ADR-0066).
-  - **Engine gaps:** ADR-0044 rule 2's redaction-unproven refusal is not built; the
-    core floor is the only fence. A credential typed into the free-text description cell of the
-    OPNsense CSV is not caught (pinned in `opnsense_csv.rs`). The `<named human>` placeholder is a
-    warning, not a build failure, because the shipping gate does not exist. A dictionary cannot bind
-    `lacp_mode`, an interface form or a `NextHop` (`ValueTy` has no arm). The catalogue has a plain SFP
-    port kind (1G) but no SFP28 kind. `secret_exempt` is honoured only for path shapes a core-held allowlist names;
-    empty citations and reviewers are refused; every dictionary file carries a `source` header and a
-    reviewer.
+- **The test suite needs a fresh database** (`docs/NEXT.md` rule 3). Reused, it fails intermittently;
+  `tests/operators.rs` leaves a `fathom_isolated_*` database behind per test.
+- **The server's credential check is the detector only;** SNMPv3 auth and priv values are a known residual.
+- **People and access, residuals:** an operator-issued token for an account can be redeemed after a steward
+  confirms that account; confirm checks nothing about the joiner's password or app code; the daily cap of 50
+  invitations is per steward per organisation.
+- **Trail and notes:** the sealed mark is an idle-time approximation; a note's line count is taken before
+  the gate; private notes wait for the vault.
+- **Corrections** have no chain entry and no retention clean-up of decided rows.
+- Wire shapes have no cross-language vector yet.
+- **Unreviewed content:** every rule and explainer says so until a named person reviews it.

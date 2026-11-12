@@ -485,6 +485,6 @@ from them.
   a note is seen by everyone who can read the design.
 - **Nothing is emailed.** An invitation is a token you hand over yourself, and the two-operator
   interlock on settings refuses correctly but notifies nobody.
-- **Nothing talks to a live device.** Everything comes from pasted text, through the redaction gate.
+- **Devices are read only when a person starts it.** Fathom reads a device over SNMPv3 or SSH, read-only (ADR-0082), with logins from the vault. Everything else comes from pasted text, through the redaction gate.
 - **The audit trail is unwitnessed** unless you set `FATHOM_AUDIT_SYSLOG`. Without it, entries are
   sealed and stored and nothing outside the machine holds a copy; the server says so at startup.
