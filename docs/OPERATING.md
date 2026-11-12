@@ -895,7 +895,16 @@ docker compose config | grep 'fathom-server:'
 
 The backup service's image, `ghcr.io/keyxmakerx/fathom-backup`, carries the same tag and is
 promoted by the same release run, which prints its digest as `FATHOM_BACKUP_DIGEST`; set that too
-to pin it to bytes as well.
+to pin it to bytes as well. The optional Passbolt helper is promoted the same way (since
+2026-11-02), as `FATHOM_PASSBOLT_DIGEST`.
+
+**Or skip `.env` and use the release's compose file.** Since 2026-11-02 each release on GitHub
+carries `compose.pinned.yaml`: that commit's `compose.yaml` with Fathom's three images already
+written as `name:<release>@sha256:<digest>`, read back from the registry and checked against the
+image `main` published for that commit. Every image in it is a hash, so a compose front end
+(Cosmos, Portainer, Unraid) shows them all that way. Paste it in place of `compose.yaml`, or save
+it as `compose.yaml` beside your `.env`; `FATHOM_TAG` and the `FATHOM_*_DIGEST` lines no longer
+apply to it. Step 2 still comes first.
 
 **4. Start it and check.** `docker compose up -d`, then:
 
@@ -906,7 +915,8 @@ docker image ls --digests ghcr.io/keyxmakerx/fathom-server   # a row with sha256
 
 …and the list under "What to check after an upgrade" below.
 
-**To leave the pin**, delete both lines and `docker compose up -d`: the host follows `latest` again.
+**To leave the pin**, delete the lines and `docker compose up -d` (or go back to the plain
+`compose.yaml`): the host follows `latest` again.
 **To move it**, repeat from step 1; step 2 is not optional for a move, for the same reason.
 
 ## What to check after an upgrade
