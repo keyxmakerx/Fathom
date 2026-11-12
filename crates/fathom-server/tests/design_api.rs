@@ -8762,6 +8762,7 @@ async fn estate_search_keeps_its_answers_and_an_older_rebuild_never_wins() {
         place: String::new(),
         addresses: Vec::new(),
         ports: Vec::new(),
+        work: None,
     };
     let version_two = vec![
         row("e1", "device", "core-sw-01", "PE3714AF0001"),
