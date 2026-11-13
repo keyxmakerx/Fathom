@@ -15,6 +15,7 @@ import {
 import type { CableStyle } from './cableStyle';
 import type { CableKind } from './contract';
 import { CABLE_SLACK, cableSwings, hangCable } from './cablePhysics';
+import { RACK_INNER_PX } from './geometry';
 import { prefersReducedMotion } from './motion';
 
 const ZERO: Pt = { x: 0, y: 0 };
@@ -69,8 +70,14 @@ export interface CableShapeResult {
 
 /** The line one cable (or band) draws in this person's style. */
 export function cableShape({ style, id, kind, ends, source, target, tied, waypoints, sway }: CableShapeInput): CableShapeResult {
-  const leads = ends != null && (ends[0] != null || ends[1] != null) ? leadsFor(ends[0], ends[1], source, target) : null;
+  const hasBox = ends != null && (ends[0] != null || ends[1] != null);
   if (style === 'physics') {
+    // Within one rack's width (a shelf down to a switch, one switch to the next), each plug points at
+    // the other end whatever row its port is in, so the cable drops from one into the other instead of
+    // leaving a bottom-row port downward and curling back up. Runs between places keep their rows.
+    const near = (box: PortPoint | null, fb: Pt) => (box != null ? box.x + box.w / 2 : fb.x);
+    const inOneRack = hasBox && Math.abs(near(ends[0], source) - near(ends[1], target)) <= RACK_INNER_PX;
+    const leads = hasBox ? leadsFor(ends[0], ends[1], source, target, !inOneRack) : null;
     // A real cable hangs between its ports under gravity (`cablePhysics.ts`). Power carries a little
     // more slack, so a power lead and a data lead between the same two places never draw as one line.
     const hung = hangCable({
@@ -78,9 +85,11 @@ export function cableShape({ style, id, kind, ends, source, target, tied, waypoi
       b: leads != null ? leads.b : target,
       slack: kind === 'power' ? CABLE_SLACK + 0.03 : CABLE_SLACK,
       sway,
+      stiffDrop: inOneRack,
     });
     return { d: hung.d, points: hung.points, leads };
   }
+  const leads = hasBox ? leadsFor(ends[0], ends[1], source, target) : null;
   const square = leads ?? leadsFor(null, null, source, target);
   const points =
     style === 'tied' && waypoints != null && waypoints.length > 0
