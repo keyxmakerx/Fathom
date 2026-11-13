@@ -11,7 +11,7 @@ import { parseScannedText, scanHash } from '../components/phone/scan';
 import { parseHash } from '../components/inventory/listState';
 import { encodeQr } from '../qr';
 import { addStore, storeById } from '../document/stock';
-import { CABLE_THICKNESS, LABEL_PRESETS, aroundMm, labelItems, pageNameOf, pagesOf, presetOf, presetsFor, storeLabel, wrapColumns } from './labels';
+import { BROTHER_CSV_HEADER, CABLE_THICKNESS, LABEL_PRESETS, aroundMm, brotherCableRows, shortEnd, labelItems, pageNameOf, pagesOf, presetOf, presetsFor, storeLabel, wrapColumns } from './labels';
 
 
 // Read as text: Vitest hands a stylesheet import back empty.
@@ -91,7 +91,7 @@ describe('pagesOf', () => {
 describe('cable wraps and flags', () => {
   it('are offered only when printing cables', () => {
     expect(presetsFor(false).some((p) => p.shape !== 'flat')).toBe(false);
-    expect(presetsFor(true).map((p) => p.id)).toEqual(expect.arrayContaining(['wrap-24', 'flag-24', 'tze-36']));
+    expect(presetsFor(true).map((p) => p.id)).toEqual(expect.arrayContaining(['wrap-18', 'flag-18', 'wrap-24', 'flag-24', 'tze-36']));
     expect(presetsFor(false).map((p) => p.id)).toContain('tze-36');
   });
 
@@ -101,16 +101,44 @@ describe('cable wraps and flags', () => {
     expect(presetOf('wrap-24', 'cat6').widthMm).toBeGreaterThan(aroundMm('cat6'));
     expect(presetOf('flag-24', 'cat6a').widthMm).toBeGreaterThan(presetOf('flag-24', 'cat6').widthMm);
     for (const t of CABLE_THICKNESS) {
-      const wrap = presetOf('wrap-24', t.id);
-      // The name shows at least twice round the cable, in columns wide enough to read.
-      expect(wrapColumns(wrap)).toBeGreaterThanOrEqual(2);
-      expect(wrap.widthMm / wrapColumns(wrap)).toBeGreaterThanOrEqual(7);
+      for (const id of ['wrap-18', 'wrap-24'] as const) {
+        const wrap = presetOf(id, t.id);
+        // The name shows at least twice round the cable, in columns wide enough to read.
+        expect(wrapColumns(wrap)).toBeGreaterThanOrEqual(2);
+        expect(wrap.widthMm / wrapColumns(wrap)).toBeGreaterThanOrEqual(7);
+      }
     }
   });
 
   it('a flat label is the same at any thickness', () => {
     expect(presetOf('tze-24', 'slim')).toEqual(presetOf('tze-24', 'cat6a'));
     expect(pageNameOf('tze-24', 'slim')).toBe('label-tze-24');
+  });
+});
+
+describe('brotherCableRows', () => {
+  it('writes an end as people write it on tape', () => {
+    expect(shortEnd('P01 · 11')).toBe('P01-11');
+    expect(shortEnd('SW01 · Gi1/0/11')).toBe('SW01-Gi1/0/11');
+    expect(shortEnd('Demarc')).toBe('Demarc');
+  });
+
+  it('gives one row per cable, ends joined for the label, and a link that opens the cable', () => {
+    const { doc, view, idx } = built();
+    const rows = cableRows(doc, view, idx);
+    const table = brotherCableRows(rows, ORIGIN, DESIGN);
+    expect(table[0]).toEqual([...BROTHER_CSV_HEADER]);
+    expect(table.length).toBe(rows.length + 1);
+    const [label, from, to, , link] = table[1]!;
+    expect(label).toBe(`${from} > ${to}`);
+    expect(from).not.toContain(' · ');
+    expect(scanHash(doc, parseScannedText(link!, ORIGIN)!.nodeId)).not.toBeNull();
+  });
+
+  it('falls back to the name when a cable has no ends', () => {
+    const { doc, view, idx } = built();
+    const row = { ...cableRows(doc, view, idx)[0]!, cells: { name: 'Uplink 1', endA: '', endB: '' } };
+    expect(brotherCableRows([row], ORIGIN, DESIGN)[1]![0]).toBe('Uplink 1');
   });
 });
 

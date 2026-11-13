@@ -25,9 +25,10 @@ function escapeCsvField(raw: string): string {
 }
 
 /** CRLF rows, a UTF-8 BOM first so Excel on Windows reads "—" and "·"
- * correctly rather than guessing the wrong code page. */
-export function buildCsv(rows: readonly (readonly string[])[]): Uint8Array {
+ * correctly rather than guessing the wrong code page. `bom: false` leaves the mark off, for an app
+ * that would read it as part of the first column's name. */
+export function buildCsv(rows: readonly (readonly string[])[], { bom = true }: { bom?: boolean } = {}): Uint8Array {
   const body = rows.map((row) => row.map(escapeCsvField).join(',')).join('\r\n');
-  const text = '﻿' + body + (rows.length > 0 ? '\r\n' : '');
+  const text = (bom ? '﻿' : '') + body + (rows.length > 0 ? '\r\n' : '');
   return new TextEncoder().encode(text);
 }

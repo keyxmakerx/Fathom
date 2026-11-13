@@ -316,6 +316,38 @@ try {
     check('labels: two cables give four labels', (await p2.locator('.labels-preview .label').count()) === 4, String(await p2.locator('.labels-preview .label').count()));
     check('labels: cables default to a wrap, one a page, with the name and no code', (await p2.locator('.labels-page').count()) === 4 && (await p2.locator('.labels-preview .label--wrap').count()) === 4 && (await p2.locator('.labels-preview .label svg').count()) === 0);
     await p2.screenshot({ path: SHOTS + 'labels-00-wrap.png' });
+    await p2.locator('.labels-preview select').first().selectOption('wrap-18');
+    check('labels: an 18 mm wrap is offered for cables, one a page', (await p2.locator('.labels-preview .label--wrap').count()) === 4);
+    await p2.screenshot({ path: SHOTS + 'labels-00-wrap-18.png' });
+    {
+      const [download] = await Promise.all([
+        p2.waitForEvent('download', { timeout: 5_000 }),
+        p2.getByRole('button', { name: 'Download for Brother app (.csv)' }).click(),
+      ]);
+      const csvPath = await download.path();
+      const { readFileSync } = await import('node:fs');
+      const lines = readFileSync(csvPath, 'utf8').trim().split('\r\n');
+      check('labels: the Brother .csv has a header and one row per cable', download.suggestedFilename() === 'cable-labels.csv' && lines[0] === 'Label,From,To,Cable,Link' && lines.length === 3, lines.join(' | '));
+      check('labels: the Brother .csv writes the ends as "A-1 > B-2"', / > /.test(lines[1] ?? '') && !(lines[1] ?? '').includes(' · '), lines[1]);
+    }
+    // On a phone: the bar's controls fit the screen, nothing scrolls sideways, and each control is big
+    // enough to tap.
+    await p2.setViewportSize({ width: 390, height: 844 });
+    await p2.waitForTimeout(200);
+    {
+      const fit = await p2.evaluate(() => {
+        const root = document.querySelector('.labels-preview');
+        const bar = [...document.querySelectorAll('.labels-preview__bar button, .labels-preview__bar select')];
+        return {
+          sideways: root.scrollWidth - root.clientWidth,
+          outside: bar.filter((el) => { const r = el.getBoundingClientRect(); return r.left < 0 || r.right > window.innerWidth; }).length,
+          small: bar.filter((el) => el.getBoundingClientRect().height < 40).length,
+        };
+      });
+      check('labels on a phone: nothing scrolls sideways and every control fits and is tappable', fit.sideways <= 0 && fit.outside === 0 && fit.small === 0, JSON.stringify(fit));
+    }
+    await p2.screenshot({ path: SHOTS + 'labels-00-phone.png' });
+    await p2.setViewportSize({ width: 1440, height: 900 });
     await p2.locator('.labels-preview select').first().selectOption('flag-24');
     check('labels: a flag carries the code on both faces', (await p2.locator('.labels-preview .label--flag svg path').count()) === 8);
     await p2.screenshot({ path: SHOTS + 'labels-00-flag.png' });
