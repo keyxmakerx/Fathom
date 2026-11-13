@@ -19,7 +19,11 @@ source:
     read 2026-10-10. 5 x 10/100/1000 Ethernet, 1 x USB, passive PoE in, no SFP;
     113x89x28 mm desktop unit. Port face, layout and roles are conventions,
     not photo-confirmed; see the file header.
+    Size from the same page, "Dimensions 113x89x28mm", re-read 2026-11-13; the sheet does
+    not label the sides, and 113 is recorded as the width (the long side the ports run
+    along).
   read_on: "2026-10-10"
+size_mm: { width: 113, depth: 89, height: 28 }
 faceplates:
   - face: front
     port_count: 5

@@ -3591,7 +3591,7 @@ mod body {
                 EdgeKind::RelaysFor => &[],
                 EdgeKind::RelayServerIn => &[],
                 EdgeKind::FittedIn => &[],
-                EdgeKind::SitsOn => &[crate::bag::FieldKey(318), crate::bag::FieldKey(644)],
+                EdgeKind::SitsOn => &[crate::bag::FieldKey(318), crate::bag::FieldKey(644), crate::bag::FieldKey(645)],
                 EdgeKind::HasSurface => &[],
                 EdgeKind::FixedTo => &[crate::bag::FieldKey(323), crate::bag::FieldKey(324)],
                 EdgeKind::HasCapture => &[],
@@ -12709,14 +12709,16 @@ mod body {
     pub enum SitsOnField {
         Slot,
         XMm,
+        YMm,
     }
 
     impl SitsOnField {
-        pub const COUNT: usize = 2;
+        pub const COUNT: usize = 3;
         /// Every field, declaration order.
-        pub const ALL: [SitsOnField; 2] = [
+        pub const ALL: [SitsOnField; 3] = [
             SitsOnField::Slot,
             SitsOnField::XMm,
+            SitsOnField::YMm,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -12725,6 +12727,7 @@ mod body {
             match self {
                 SitsOnField::Slot => "slot",
                 SitsOnField::XMm => "x_mm",
+                SitsOnField::YMm => "y_mm",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -12732,6 +12735,7 @@ mod body {
             match self {
                 SitsOnField::Slot => crate::bag::FieldKey(318),
                 SitsOnField::XMm => crate::bag::FieldKey(644),
+                SitsOnField::YMm => crate::bag::FieldKey(645),
             }
         }
     }
@@ -12923,7 +12927,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 579] = [
+    pub const FIELD_KEYS: [(&str, u32); 580] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -13503,6 +13507,7 @@ mod body {
         ("NatPool.address_to", 642),
         ("NatPool.port", 643),
         ("SitsOn.x_mm", 644),
+        ("SitsOn.y_mm", 645),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit

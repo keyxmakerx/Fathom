@@ -587,11 +587,15 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card.
 - **Shelves** (r56, `scripts/drive-shelf-room.mjs`). A shelf draws as a tray: hairline sides, an ink lip
   the things stand on 2px clear of, its name as a caption, names whole, what does not fit folded into one
-  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens the shelf drawn from the
-  front between the rack's posts, to scale (sign-off shelf-view, schema 0.40): each thing sits at its
-  `SitsOn.x_mm`, or is packed by slot until someone drags it; a writer drags it left or right (snapping to
-  neighbours and 10 mm steps, Alt to place freely, arrow keys too) and the slots follow the order. Boxes are
-  sized from their ports with a dashed edge, since no catalogue model records a size yet. Cables hang from
+  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens the shelf drawn twice,
+  lined up (sign-off shelf-view, answer C, schema 0.40): a strip seen from above (at half depth, 300 mm
+  deep) over the shelf seen from the front between the rack's posts, to scale. Dashed lines join each
+  thing's two drawings and pointing at either lights both. Each thing sits at its `SitsOn.x_mm` and
+  `SitsOn.y_mm` (back from the lip), or is packed by slot along the front until someone drags it; a writer
+  drags it left or right in either view, or back and forward in the strip (snapping to neighbours and 10 mm
+  steps, Alt to place freely, arrow keys too) and the slots follow the order. A box is the catalogue's
+  `size_mm` when its model records one (solid edge: eight desktop models so far) or a guess from its ports
+  (dashed edge). Cables hang from
   their ports with the restored physics (`drawing/cablePhysics.ts`) and swing after a move; one leaving
   the shelf runs up or down the nearer post to a tag. **Back** turns it round to the rear ports. The bar's
   path and Esc lead back out. Each rack line is drawn once

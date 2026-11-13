@@ -100,7 +100,7 @@
   stroke: var(--ink);
   stroke-width: 1.2;
 }
-/* No model records a size yet: the box is a guess, and its edge is dashed to say so. */
+/* The catalogue records no size for its model: the box is a guess, and its edge is dashed to say so. */
 .shelf-room__box--guess {
   stroke-dasharray: 6 3;
 }
@@ -123,6 +123,43 @@
 }
 .shelf-room__thing--over .shelf-room__box {
   fill: url(#shelf-room-hatch);
+}
+.shelf-room__thing--lit .shelf-room__box {
+  stroke-width: 2;
+  fill: color-mix(in srgb, var(--ink) 9%, var(--surface));
+}
+.shelf-room__thing--selected .shelf-room__box {
+  fill: color-mix(in srgb, var(--ink) 12%, var(--surface));
+}
+/* Seen from the front, a thing set back from the lip sits behind what is at the front: drawn paler. */
+.shelf-room__thing--set-back:not(.shelf-room__thing--plan) .shelf-room__box {
+  fill: var(--surface-2);
+  stroke: var(--muted);
+}
+/* The strip seen from above. */
+.shelf-room__plan-tray {
+  fill: var(--surface-2);
+  stroke: var(--ink);
+  stroke-width: 1.2;
+}
+.shelf-room__plan-lip {
+  fill: var(--ink);
+}
+.shelf-room__view-label {
+  fill: var(--ink);
+  letter-spacing: 0.1em;
+}
+/* What joins a thing's two drawings: faint always, dark for the one pointed at or selected. */
+.shelf-room__guide path {
+  fill: none;
+  stroke: var(--hairline);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  pointer-events: none;
+}
+.shelf-room__guide--lit path {
+  stroke: var(--ink);
+  stroke-width: 1.2;
 }
 .shelf-room__label {
   fill: var(--ink);

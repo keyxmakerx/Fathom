@@ -1332,4 +1332,5 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "NatPool.address_to": 642,
   "NatPool.port": 643,
   "SitsOn.x_mm": 644,
+  "SitsOn.y_mm": 645,
 };

@@ -657,6 +657,20 @@ describe('arrangeShelf (schema 0.40)', () => {
     const { doc: withLoose, chassisId: loose } = bareChassis(doc);
     expect(() => arrangeShelf(withLoose, shelfId, [{ itemId: loose, xMm: 0 }], { now: NOW })).toThrow(ShelfArrangeError);
     expect(() => arrangeShelf(doc, shelfId, [{ itemId: ids[0]!, xMm: SHELF_MAX_INSIDE_MM + 1 }], { now: NOW })).toThrow(ShelfArrangeError);
+    expect(() => arrangeShelf(doc, shelfId, [{ itemId: ids[0]!, xMm: 0, yMm: -5 }], { now: NOW })).toThrow(ShelfArrangeError);
+  });
+
+  it('writes how far back a thing sits, and leaves a thing at the front without one', () => {
+    const { doc, shelfId, ids } = threeOnAShelf();
+    const next = arrangeShelf(doc, shelfId, [
+      { itemId: ids[0]!, xMm: 0, yMm: 120 },
+      { itemId: ids[1]!, xMm: 200, yMm: 0 },
+    ], { now: NOW });
+    expect(fieldsOf(next, ids[0]!)).toEqual({ slot: 1, xMm: 0, yMm: 120 });
+    expect(fieldsOf(next, ids[1]!)).toEqual({ slot: 2, xMm: 200 });
+    // Brought back to the front, it says 0 rather than losing the field.
+    const back = arrangeShelf(next, shelfId, [{ itemId: ids[0]!, xMm: 0, yMm: 0 }], { now: NOW });
+    expect(fieldsOf(back, ids[0]!)).toEqual({ slot: 1, xMm: 0, yMm: 0 });
   });
 });
 

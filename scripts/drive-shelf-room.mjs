@@ -135,8 +135,12 @@ try {
     await page.waitForSelector('[data-testid=shelf-room]', { timeout: 5_000 });
     const text = await room(page).textContent();
     check('double-click steps into the shelf', true);
-    for (const name of ['padparadscha', 'morpheus-nas', 'homeassistant', 'pihole-02', 'kvm']) check(`the shelf view names ${name} whole`, text.includes(name), text);
-    check('every thing on the shelf is drawn as its own box', (await page.locator('.shelf-room__thing').count()) === 5);
+    for (const name of ['padparadscha', 'morpheus-nas', 'homeassistant', 'pihole-02', 'kvm', 'bnuuy-edge']) check(`the shelf view names ${name} whole`, text.includes(name), text);
+    check('every thing on the shelf is drawn as its own box', (await page.locator('.shelf-room__thing[data-occupant-id]').count()) === 6);
+    // Sign-off shelf-view, answer C: the same shelf from above, over the front view, each thing in both.
+    check('the shelf is drawn from above too', text.includes('FROM ABOVE') && (await page.locator('[data-plan-id]').count()) === 6, text);
+    check('a dashed line joins each thing\'s two drawings', (await page.locator('[data-guide-for]').count()) === 6);
+    check('a size from the catalogue is drawn solid', (await page.locator('[data-occupant-id] .shelf-room__box:not(.shelf-room__box--guess)').count()) === 1);
     check('the shelf is drawn from the front, to scale', text.includes('FRONT · 450 MM INSIDE'), text);
     check('a cabled port says where it goes', text.includes('to core-sw'), text);
     const crumbs = await pathLabels(page).allInnerTexts();
@@ -144,9 +148,12 @@ try {
     await shot(page, 'r63-1-shelf');
 
     // Sign-off shelf-view: drag a thing along the shelf. It moves, stays moved, and its cable follows.
-    const thing = (name) => page.locator('.shelf-room__thing', { hasText: name });
+    const thing = (name) => page.locator('.shelf-room__thing[data-occupant-id]', { hasText: name });
     const kvmBox = async () => (await thing('kvm').locator('rect').first().boundingBox());
+    // Measured from the shelf's tray: the drawing is centred, so it shifts as a whole when its width changes.
+    const tray = async () => (await page.locator('.shelf-room__tray').boundingBox()).x;
     const homeBefore = await thing('homeassistant').locator('rect').first().boundingBox();
+    const trayBefore = await tray();
     const cableBefore = await page.locator('.shelf-room__cable').nth(2).getAttribute('d');
     const before = await kvmBox();
     await page.mouse.move(before.x + 10, before.y + 10);
@@ -159,7 +166,8 @@ try {
     check('a dragged thing moves along the shelf', Math.abs(after.x - before.x) > 20, `${before.x} -> ${after.x}`);
     check('placing one thing pins the rest where they were drawn', !(await room(page).textContent()).includes('not placed by hand'));
     const homeAfter = await thing('homeassistant').locator('rect').first().boundingBox();
-    check('nothing else moved', Math.abs(homeAfter.x - homeBefore.x) < 1, `${homeBefore.x} -> ${homeAfter.x}`);
+    const trayAfter = await tray();
+    check('nothing else moved', Math.abs(homeAfter.x - trayAfter - (homeBefore.x - trayBefore)) < 1, `${homeBefore.x - trayBefore} -> ${homeAfter.x - trayAfter}`);
     // Drag homeassistant (cabled) and its cable follows.
     await page.mouse.move(homeAfter.x + 10, homeAfter.y + 10);
     await page.mouse.down();
@@ -167,6 +175,29 @@ try {
     await page.mouse.up();
     await page.waitForTimeout(800);
     check('a moved thing\'s cable follows it', (await page.locator('.shelf-room__cable').nth(2).getAttribute('d')) !== cableBefore);
+    // A second drag of a thing already placed by hand is saved too (it once compared the drag with itself).
+    const homeMoved = await thing('homeassistant').locator('rect').first().boundingBox();
+    check('a second drag of a placed thing stays where it was dropped', Math.abs(homeMoved.x - homeAfter.x) > 3, `${homeAfter.x} -> ${homeMoved.x}`);
+    // Pointing at a thing in the front view lights its footprint in the strip and the line between.
+    const pihole = await thing('pihole-02').locator('rect').first().boundingBox();
+    await page.mouse.move(pihole.x + 8, pihole.y + 8);
+    await page.waitForTimeout(150);
+    check('pointing at a thing lights it from above too', (await page.locator('.shelf-room__thing--lit[data-plan-id]').count()) === 1 && (await page.locator('.shelf-room__guide--lit[data-guide-for]').filter({ has: page.locator('path') }).evaluateAll((gs) => gs.filter((g) => g.closest('svg') && g.getAttribute('data-guide-for')).map((g) => g.getAttribute('data-guide-for')))).includes(await thing('pihole-02').getAttribute('data-occupant-id')));
+    await shot(page, 'shelf-view-linked');
+    // In the strip, drag a thing back from the lip: it says how far back, and stays there.
+    const plan = page.locator('[data-plan-id]', { hasText: 'pihole-02' });
+    const planBox = await plan.locator('rect').first().boundingBox();
+    await page.mouse.move(planBox.x + 8, planBox.y + planBox.height - 6);
+    await page.mouse.down();
+    await page.mouse.move(planBox.x + 8, planBox.y + planBox.height - 6 - 50, { steps: 6 });
+    await shot(page, 'shelf-view-depth-drag');
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    const planAfter = await plan.locator('rect').first().boundingBox();
+    check('dragging up in the strip sets a thing further back', planAfter.y < planBox.y - 20, `${planBox.y} -> ${planAfter.y}`);
+    check('the front view says how far back it is', /pihole-02[\s\S]*\d+ mm back/.test(await thing('pihole-02').textContent()), await thing('pihole-02').textContent());
+    await page.mouse.move(5, 5);
+    await shot(page, 'shelf-view-after');
     await page.locator('.shelf-room__tool', { hasText: 'Back' }).click();
     await page.waitForTimeout(300);
     check('Back turns the shelf round', (await room(page).textContent()).includes('BACK · 450 MM INSIDE'));
@@ -175,9 +206,9 @@ try {
     await page.waitForTimeout(300);
 
     // A click selects a thing: the panel shows it.
-    await page.locator('.shelf-room__thing', { hasText: 'morpheus-nas' }).click();
+    await page.locator('.shelf-room__thing[data-occupant-id]', { hasText: 'morpheus-nas' }).click();
     await page.waitForTimeout(300);
-    check('a click selects a thing on the shelf', (await page.locator('.shelf-room__thing--selected').textContent()).includes('morpheus-nas'));
+    check('a click selects a thing on the shelf', (await page.locator('.shelf-room__thing--selected[data-occupant-id]').textContent()).includes('morpheus-nas'));
     await shot(page, 'r63-2-selected');
     // A device on a shelf gets a racked device's whole panel: the ⋯ menu, its name to rename, the foot.
     check('a shelf device has the ⋯ menu', (await page.locator('[data-testid=device-more]').count()) === 1);
@@ -189,7 +220,7 @@ try {
     await page.locator('[data-testid=device-more] summary').click();
 
     // A double-click on a device opens it, and leaving it comes back to the shelf.
-    await page.locator('.shelf-room__thing', { hasText: 'padparadscha' }).dblclick();
+    await page.locator('.shelf-room__thing[data-occupant-id]', { hasText: 'padparadscha' }).dblclick();
     await page.waitForSelector('[data-testid=jot]', { timeout: 5_000 });
     const deep = await pathLabels(page).allInnerTexts();
     check('the device opens with the shelf in its path', deep.slice(-3).join(' › ') === 'A-04 › Top shelf › padparadscha', deep.join(' › '));

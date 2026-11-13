@@ -89,6 +89,8 @@ vendors:
   intel:      {}         # corpus/catalogue/intel/: a NUC mini PC.
   lenovo:     {}         # corpus/catalogue/lenovo/: a ThinkCentre Tiny mini PC.
   raspberrypi: {}        # corpus/catalogue/raspberrypi/: single-board computers.
+  ikoolcore: {}          # corpus/catalogue/ikoolcore/: a 75 mm mini PC router, added 2026-11-13
+                         # because the owner names one (an iKoolCore R2) on their top shelf.
 
   proxmox:   {}          # Owner-named 2026-08-28 (`70` §18.4): *"proxmox would probably
                          # need to be an engine"* — the first general-purpose host vendor,

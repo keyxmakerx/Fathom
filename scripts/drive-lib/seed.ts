@@ -616,6 +616,11 @@ export function seedShelfRoomScene(catalogue: CatalogueModel[], me: string): Doc
     working = placeOnShelf(t.doc, t.chassisId, shelfId, slot, { actor: me });
     for (let i = 0; i < ports; i += 1) working = addSketchPort(working, t.chassisId, { label: `eth${i}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
   }
+  // Sign-off shelf-view, answer C: one thing whose catalogue model records its size (the maker's
+  // 75 x 75 mm), so the shelf draws it solid beside the guessed, dashed ones.
+  const edge = newSketchDevice(working, 'bnuuy-edge', me);
+  working = placeOnShelf(edge.doc, edge.chassisId, shelfId, 4, { actor: me });
+  working = setChassisField(working, edge.chassisId, 'model', 'R2', { actor: me });
   const view = viewOf(working, catalogue);
   const rack = view.racks.find((r) => r.id === rackId)!;
   const swPorts = rack.chassis.find((c) => c.hostname === 'core-sw')!.ports;

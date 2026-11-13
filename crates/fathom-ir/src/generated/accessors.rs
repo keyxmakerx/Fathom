@@ -3528,6 +3528,7 @@ mod body {
             642 => Some((core::any::TypeId::of::<crate::scalar::IpPrefix>(), "crate::scalar::IpPrefix")),
             643 => Some((core::any::TypeId::of::<crate::scalar::L4Port>(), "crate::scalar::L4Port")),
             644 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            645 => Some((core::any::TypeId::of::<u16>(), "u16")),
             _ => None,
         }
     }
@@ -4115,6 +4116,7 @@ mod body {
             642 => crate::canon::slot_to::<crate::scalar::IpPrefix>(642, "crate::scalar::IpPrefix", value),
             643 => crate::canon::slot_to::<crate::scalar::L4Port>(643, "crate::scalar::L4Port", value),
             644 => crate::canon::slot_to::<u16>(644, "u16", value),
+            645 => crate::canon::slot_to::<u16>(645, "u16", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -4700,6 +4702,7 @@ mod body {
             642 => crate::canon::slot_from::<crate::scalar::IpPrefix>(j),
             643 => crate::canon::slot_from::<crate::scalar::L4Port>(j),
             644 => crate::canon::slot_from::<u16>(j),
+            645 => crate::canon::slot_from::<u16>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

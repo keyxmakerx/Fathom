@@ -21,6 +21,7 @@ import type {
   CataloguePort,
   CatalogueFaceplate,
   CatalogueModel,
+  CatalogueSize,
   CataloguePsuSlot,
   CatalogueSlotPosition,
 } from '../api/catalogue';
@@ -265,6 +266,12 @@ export interface OccupantView {
   /** `SitsOn.x_mm` (schema 0.40): millimetres from the shelf's inside left edge, or `null` when
    * nobody has placed it by hand yet (the shelf view then lays it out by slot). */
   xMm?: number | null;
+  /** `SitsOn.y_mm` (schema 0.40): millimetres back from the shelf's front lip, or `null` when it is
+   * pushed to the front, which is where nobody has moved it from. */
+  yMm?: number | null;
+  /** The catalogue's outside size for its model, when the catalogue records one (sign-off
+   * shelf-view); otherwise the shelf view estimates one from the ports. */
+  sizeMm?: CatalogueSize;
   ports: PortView[];
   /** True when this occupant has no catalogue model and at least one port
    * (the same rule `ChassisView.sketch` uses, generalised to a passive
@@ -906,6 +913,7 @@ function occupantView(
   const sits = readSitsOnFields(sitsOnEdge);
   const slot = sits.slot ?? 0;
   const xMm = sits.xMm ?? null;
+  const yMm = sits.yMm ?? null;
   const hasPorts = edgesOut(doc, itemId, 'HasPort');
 
   if (isNodeOfKind(itemId, 'Chassis')) {
@@ -938,6 +946,8 @@ function occupantView(
       model,
       slot,
       xMm,
+      yMm,
+      ...(catalogueModel?.sizeMm ? { sizeMm: catalogueModel.sizeMm } : {}),
       ports,
       sketch: chassisFields.model === undefined && hasPorts.length > 0,
       ...withChassis(doc, itemId, catalogue, closetRackIds),
@@ -960,6 +970,8 @@ function occupantView(
     model,
     slot,
     xMm,
+    yMm,
+    ...(catalogueModel?.sizeMm ? { sizeMm: catalogueModel.sizeMm } : {}),
     ports,
     sketch: passiveFields.model === undefined && hasPorts.length > 0,
   };

@@ -787,7 +787,7 @@ fn dispatch_names_every_registry_key() {
     // 571 -> 572: a plan's team (637, schema 0.38).
     // 572 -> 578: NAT on firewalls (638-643, schema 0.39).
     // 578 -> 579: where a thing sits along a shelf (`SitsOn.x_mm`, 644, schema 0.40).
-    assert_eq!(FIELD_KEYS.len(), 579, "the registry grew or shrank");
+    assert_eq!(FIELD_KEYS.len(), 580, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

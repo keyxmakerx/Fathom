@@ -3594,6 +3594,14 @@ edges:
           thing's left side, as drawn when the shelf is stepped into. Absent means on the
           shelf with the spot not yet measured -- the same reason FixedTo.x_mm is 0..1. The
           slot stays the left-to-right order; the client keeps the two agreeing.
+      - name: y_mm
+        type: u16
+        card: "0..1"
+        emit: "—"
+        doc: |
+          0.40 (sign-off shelf-view, answer C). Millimetres from the shelf's front lip back
+          to the thing's front face, as dragged in the strip seen from above. Absent means
+          pushed to the front, which is where a thing on a shelf usually sits.
     emit_dict: null
     doc: |
       ADR-0051 §1. Seats a Chassis or PassiveNode on the shelf it sits on -- a shelf

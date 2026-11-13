@@ -1043,6 +1043,17 @@ export function placeOnShelf(doc: Document, itemId: string, shelfId: string, slo
  * checks against (a 19-inch rack's opening is 450 mm; a 23-inch one's is 552 mm, so 600 keeps
  * both with room to spare and still refuses a typo). */
 export const SHELF_MAX_INSIDE_MM = 600;
+/** Schema 0.40 — the deepest a shelf can be, the cap on `SitsOn.y_mm` (a deep rack is about
+ * 1200 mm front to back, so this refuses a typo and nothing real). */
+export const SHELF_MAX_DEPTH_MM = 1200;
+
+/** Where one thing goes on a shelf: along it from the inside left edge, and (when given) back from
+ * the front lip. */
+export interface ShelfPosition {
+  itemId: string;
+  xMm: number;
+  yMm?: number;
+}
 
 export class ShelfArrangeError extends Error {
   constructor(message: string) {
@@ -1063,7 +1074,7 @@ export class ShelfArrangeError extends Error {
 export function arrangeShelf(
   doc: Document,
   shelfId: string,
-  positions: ReadonlyArray<{ itemId: string; xMm: number }>,
+  positions: ReadonlyArray<ShelfPosition>,
   opts?: Actor,
 ): Document {
   requireShelf(doc, shelfId);
@@ -1073,12 +1084,17 @@ export function arrangeShelf(
   });
   const byItem = new Map(sitters.map((e) => [e.from, e]));
   const wanted = new Map<string, number>();
-  for (const { itemId, xMm } of positions) {
+  const wantedY = new Map<string, number>();
+  for (const { itemId, xMm, yMm } of positions) {
     if (!byItem.has(itemId)) throw new ShelfArrangeError(`${nameOfMounted(doc, itemId)} is not on this shelf`);
     if (!Number.isFinite(xMm) || xMm < 0 || xMm > SHELF_MAX_INSIDE_MM) {
       throw new ShelfArrangeError(`A shelf is at most ${SHELF_MAX_INSIDE_MM} mm wide inside`);
     }
+    if (yMm !== undefined && (!Number.isFinite(yMm) || yMm < 0 || yMm > SHELF_MAX_DEPTH_MM)) {
+      throw new ShelfArrangeError(`A shelf is at most ${SHELF_MAX_DEPTH_MM} mm deep`);
+    }
     wanted.set(itemId, Math.round(xMm));
+    if (yMm !== undefined) wantedY.set(itemId, Math.round(yMm));
   }
 
   // Each occupant's position after this change, and its slot before it.
@@ -1112,6 +1128,14 @@ export function arrangeShelf(
       const f = setField(working, now, actor, edge.id, edge.fields['SitsOn.x_mm'], 'SitsOn.x_mm', uint(row.x!, 16));
       working = f.doc;
       updates['SitsOn.x_mm'] = f.entry;
+      ops.push(f.op);
+    }
+    const beforeY = readSitsOnFields(edge).yMm;
+    const y = wantedY.get(edge.from);
+    if (y !== undefined && beforeY !== y && !(beforeY === undefined && y === 0)) {
+      const f = setField(working, now, actor, edge.id, edge.fields['SitsOn.y_mm'], 'SitsOn.y_mm', uint(y, 16));
+      working = f.doc;
+      updates['SitsOn.y_mm'] = f.entry;
       ops.push(f.op);
     }
     if (Object.keys(updates).length > 0) working = replaceEdge(working, edge.id, (e) => ({ ...e, fields: { ...e.fields, ...updates } }));

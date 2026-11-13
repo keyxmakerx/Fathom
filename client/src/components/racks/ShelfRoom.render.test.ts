@@ -99,6 +99,30 @@ describe('ShelfRoom (render-to-string)', () => {
     expect(render({ ...shelf, occupants: shelf.occupants.map((o, i) => ({ ...o, xMm: i * 200 })) }, null, true)).not.toContain('not placed by hand');
   });
 
+  it('draws the shelf twice, from above and from the front, joined by a line for each thing', () => {
+    const markup = render(shelf);
+    expect(markup).toContain('FROM ABOVE');
+    expect(markup).toContain('FROM THE FRONT');
+    expect(markup).toContain('data-plan-id="padparadscha"');
+    expect(markup).toContain('data-guide-for="padparadscha"');
+    expect(markup).toContain('data-guide-for="outlets"');
+  });
+
+  it('a size from the catalogue is drawn solid, a guessed one dashed', () => {
+    const sized = { ...shelf, occupants: [occupant('sw', 1, { model: 'TL-SG108E', sizeMm: { widthMm: 158, depthMm: 101, heightMm: 25 } }), occupant('guess', 2)] };
+    const markup = render(sized);
+    const frontOf = (id: string) => markup.slice(markup.indexOf(`data-occupant-id="${id}"`)).slice(0, 300);
+    expect(frontOf('sw')).toContain('class="shelf-room__box"');
+    expect(frontOf('guess')).toContain('shelf-room__box--guess');
+  });
+
+  it('a thing set back says how far, and is drawn behind', () => {
+    const back = { ...shelf, occupants: [occupant('kvm', 1, { xMm: 0, yMm: 120 })] };
+    const markup = render(back);
+    expect(markup).toContain('120 mm back');
+    expect(markup).toContain('shelf-room__thing--set-back');
+  });
+
   it('says so when the shelf is gone', () => {
     const markup = renderToStaticMarkup(
       createElement(ShelfRoom, { view: viewWith(shelf), shelfId: 'nope', selected: null, paused: false, onSelect: noop, onOpenDevice: noop, onBack: noop }),

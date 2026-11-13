@@ -16,7 +16,11 @@ source:
     Lenovo, "ThinkCentre M920 Tiny" PSREF specification,
     psref.lenovo.com/syspool/Sys/PDF/ThinkCentre/ThinkCentre_M920_Tiny/ThinkCentre_M920_Tiny_Spec.html,
     read 2026-10-10. 1x RJ-45 Gigabit Ethernet on the rear; optional I350-T4 not recorded.
+    Size from the same PSREF page's "Dimensions (WxDxH)": 179 x 183 x 34.5 / 37 mm with
+    rubber feet, recorded with its feet (37) since that is how it sits on a shelf, read
+    2026-11-13.
   read_on: "2026-10-10"
+size_mm: { width: 179, depth: 183, height: 37 }
 faceplates:
   - face: front
     port_count: 0

@@ -18,7 +18,10 @@ source:
     eu.protectli.com/wp-content/uploads/2025/01/VP2420-Datasheet-20250115.pdf, and
     protectli.com/product/vp2420/, read 2026-10-10. 4x RJ-45 2.5GbE (Intel
     I226-V) on the rear panel; USB Micro-B console not recorded.
+    Size from the same datasheet, "Chassis Dimensions 5.75 x 5 x 2 in, 146 x 127 x 50 mm",
+    read 2026-11-13; 146 is recorded as the width.
   read_on: "2026-10-10"
+size_mm: { width: 146, depth: 127, height: 50 }
 faceplates:
   - face: front
     port_count: 0

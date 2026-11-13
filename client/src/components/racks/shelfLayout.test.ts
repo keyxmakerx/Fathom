@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OccupantView, PortView } from '../../document/view';
-import { SHELF_INSIDE_MM, dropSpot, estimateSizeMm, layoutShelf } from './shelfLayout';
+import { SHELF_DEPTH_MM, SHELF_INSIDE_MM, depthSpot, dropOnPlan, dropSpot, estimateSizeMm, layoutShelf, sizeOf } from './shelfLayout';
 
 function ports(n: number, face: 'front' | 'rear' = 'front'): PortView[] {
   return Array.from({ length: n }, (_, i) => ({ id: `p${i}`, label: `${i + 1}`, connector: 'rj45', row: 0, column: i, uplink: false, role: null, cable: null, face, passThroughId: null }) as PortView);
@@ -61,5 +61,43 @@ describe('dropSpot', () => {
   });
   it('is null when it fits nowhere', () => {
     expect(dropSpot([{ xMm: 0, wMm: SHELF_INSIDE_MM }], 50, 10, false)).toBeNull();
+  });
+});
+
+describe('sizeOf', () => {
+  it('uses the catalogue size when the model has one, and says it is not a guess', () => {
+    expect(sizeOf({ kind: 'chassis', ports: ports(8), sizeMm: { widthMm: 158, depthMm: 101, heightMm: 25 } })).toEqual({ wMm: 158, dMm: 101, hMm: 25, sized: true });
+  });
+  it('estimates otherwise, with a depth that fits on the shelf', () => {
+    const s = sizeOf({ kind: 'chassis', ports: ports(8) });
+    expect(s.sized).toBe(false);
+    expect(s.dMm).toBeLessThan(SHELF_DEPTH_MM);
+  });
+});
+
+describe('depth on a shelf', () => {
+  it('a placed thing keeps how far back it was set; an unplaced one sits at the front', () => {
+    const [a, b] = layoutShelf([occ('a', 1, { xMm: 0, yMm: 120 }), occ('b', 2)]);
+    expect(a!.yMm).toBe(120);
+    expect(b!.yMm).toBe(0);
+  });
+  it('a thing set back does not push the front row along', () => {
+    // a is set right back, so b can be packed in front of it at the left end.
+    const [, b] = layoutShelf([occ('a', 1, { xMm: 0, yMm: 200, ports: ports(4) }), occ('b', 2, { ports: ports(4) })]);
+    expect(b!.xMm).toBe(0);
+  });
+  it('depthSpot snaps to the front, the back and 10 mm steps, and never past the back', () => {
+    expect(depthSpot(100, 5, true)).toBe(0);
+    expect(depthSpot(100, 63, true)).toBe(60);
+    expect(depthSpot(100, 195, true)).toBe(SHELF_DEPTH_MM - 100);
+    expect(depthSpot(100, 999, false)).toBe(SHELF_DEPTH_MM - 100);
+    expect(depthSpot(SHELF_DEPTH_MM + 50, 40, true)).toBe(0);
+  });
+  it('dropOnPlan lets one thing sit behind another but never on it', () => {
+    const front = [{ xMm: 0, wMm: 100, yMm: 0, dMm: 100 }];
+    // Behind it, the same spot along the shelf is free.
+    expect(dropOnPlan(front, { wMm: 100, dMm: 100 }, 0, 150, true)).toEqual({ xMm: 0, yMm: 150 });
+    // In its row, it is moved along to the nearest gap instead.
+    expect(dropOnPlan(front, { wMm: 100, dMm: 100 }, 20, 0, true)).toEqual({ xMm: 100, yMm: 0 });
   });
 });

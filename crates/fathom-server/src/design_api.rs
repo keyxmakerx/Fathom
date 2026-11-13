@@ -4194,6 +4194,13 @@ fn json_of_model(m: &Model) -> Json {
         "faceplates".to_string(),
         Json::Arr(m.faceplates.iter().map(json_of_faceplate).collect()),
     );
+    if let Some(size) = m.size_mm {
+        let mut obj = BTreeMap::new();
+        obj.insert("width".to_string(), Json::Int(i64::from(size.width)));
+        obj.insert("depth".to_string(), Json::Int(i64::from(size.depth)));
+        obj.insert("height".to_string(), Json::Int(i64::from(size.height)));
+        map.insert("size_mm".to_string(), Json::Obj(obj));
+    }
 
     Json::Obj(map)
 }
