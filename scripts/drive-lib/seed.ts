@@ -615,6 +615,8 @@ export function seedShelfRoomScene(catalogue: CatalogueModel[], me: string): Doc
     const t = newSketchDevice(working, name, me);
     working = placeOnShelf(t.doc, t.chassisId, shelfId, slot, { actor: me });
     for (let i = 0; i < ports; i += 1) working = addSketchPort(working, t.chassisId, { label: `eth${i}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+    // Sign-off shelf-view, version 3: a port on a side, seen only from that end of the shelf.
+    if (name === 'kvm') working = addSketchPort(working, t.chassisId, { label: 'mgmt', connector: 'rj45', service: 'ethernet', face: 'right' }, { actor: me });
   }
   // Sign-off shelf-view, answer C: one thing whose catalogue model records its size (the maker's
   // 75 x 75 mm), so the shelf draws it solid beside the guessed, dashed ones.

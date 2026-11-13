@@ -117,10 +117,12 @@ describe('ShelfRoom (render-to-string)', () => {
   });
 
   it('a thing set back says how far, and is drawn behind', () => {
-    const back = { ...shelf, occupants: [occupant('kvm', 1, { xMm: 0, yMm: 120 })] };
+    const back = { ...shelf, occupants: [occupant('kvm', 1, { xMm: 0, yMm: 120 }), occupant('nuc', 2, { xMm: 0, yMm: 0 })] };
     const markup = render(back);
     expect(markup).toContain('120 mm back');
-    expect(markup).toContain('shelf-room__thing--set-back');
+    const frontOf = (id: string) => markup.slice(markup.indexOf(`data-occupant-id="${id}"`) - 200, markup.indexOf(`data-occupant-id="${id}"`));
+    expect(frontOf('kvm')).toContain('shelf-room__thing--set-back');
+    expect(frontOf('nuc')).not.toContain('shelf-room__thing--set-back');
   });
 
   it('says so when the shelf is gone', () => {
@@ -132,5 +134,17 @@ describe('ShelfRoom (render-to-string)', () => {
 
   it('an empty shelf says so', () => {
     expect(render({ ...shelf, slots: null, occupants: [] })).toContain('Nothing on this shelf yet.');
+  });
+
+  it('draws an AI idea shown in the ideas panel: what it moves in the plan colour, and nothing to drag', () => {
+    const placed = { ...shelf, occupants: shelf.occupants.map((o, i) => ({ ...o, xMm: i * 200 })) };
+    const moved = { ...placed, occupants: placed.occupants.map((o) => (o.id === 'outlets' ? { ...o, xMm: 300, yMm: 40 } : o)) };
+    const markup = renderToStaticMarkup(
+      createElement(ShelfRoom, { view: viewWith(placed), proposed: viewWith(moved), shelfId: 's1', selected: null, paused: false, onSelect: noop, onOpenDevice: noop, onBack: noop, onArrange: noop }),
+    );
+    expect(markup).toContain('Showing an AI idea on this shelf: it moves or adds 1 thing');
+    expect(markup).toContain('AI MOVES');
+    expect(markup.match(/shelf-room__thing--ai/g)?.length).toBe(2);
+    expect(markup).not.toContain('shelf-room__thing--movable');
   });
 });

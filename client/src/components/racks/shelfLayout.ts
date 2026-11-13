@@ -14,7 +14,9 @@ const AUTO_GAP_MM = 6;
 export const SNAP_STEP_MM = 10;
 const SNAP_EDGE_MM = 8;
 
-export type ShelfFace = 'front' | 'rear';
+/** The four sides a shelf can be looked at from, going round: front, right end, back, left end. */
+export type ShelfFace = 'front' | 'right' | 'rear' | 'left';
+export const SHELF_FACES: readonly ShelfFace[] = ['front', 'right', 'rear', 'left'];
 
 export interface ShelfItem {
   id: string;
@@ -34,7 +36,7 @@ export interface ShelfItem {
 
 type Box = Pick<ShelfItem, 'xMm' | 'wMm' | 'yMm' | 'dMm'>;
 
-/** The ports drawn on one face of an occupant. Side and top ports are on neither. */
+/** The ports drawn on one face of an occupant. Top ports are on none of the four. */
 export function portsOnFace(occupant: Pick<OccupantView, 'ports'>, face: ShelfFace): PortView[] {
   return occupant.ports.filter((p) => p.face === face);
 }
@@ -188,4 +190,61 @@ export function dropOnPlan(
 /** The things in the same row as `box` (sharing any depth), the ones a slide along the shelf stops against. */
 export function rowOf<T extends Box>(others: readonly T[], box: Pick<Box, 'yMm' | 'dMm'>): T[] {
   return others.filter((o) => sameRow(o, box));
+}
+
+/**
+ * A box as seen from one side, in millimetres: `u` from the left of the view along the side being
+ * looked at (`uw` wide), and `v` from the viewer back to its nearest face (`vd` deep). From the front
+ * that is the shelf's own x and y; from behind both run the other way; from the right end the view
+ * runs front to back with the front on the left; from the left end back to front.
+ */
+export function onFace(box: Box, face: ShelfFace, insideMm: number = SHELF_INSIDE_MM, depthMm: number = SHELF_DEPTH_MM): { u: number; uw: number; v: number; vd: number } {
+  switch (face) {
+    case 'front':
+      return { u: box.xMm, uw: box.wMm, v: box.yMm, vd: box.dMm };
+    case 'rear':
+      return { u: insideMm - box.xMm - box.wMm, uw: box.wMm, v: depthMm - box.yMm - box.dMm, vd: box.dMm };
+    case 'right':
+      return { u: box.yMm, uw: box.dMm, v: insideMm - box.xMm - box.wMm, vd: box.wMm };
+    case 'left':
+      return { u: depthMm - box.yMm - box.dMm, uw: box.dMm, v: box.xMm, vd: box.wMm };
+  }
+}
+
+/** How wide the view from one side is (`alongMm`) and how far it reaches away from the viewer (`awayMm`). */
+export function faceSpan(face: ShelfFace, insideMm: number = SHELF_INSIDE_MM, depthMm: number = SHELF_DEPTH_MM): { alongMm: number; awayMm: number } {
+  return face === 'front' || face === 'rear' ? { alongMm: insideMm, awayMm: depthMm } : { alongMm: depthMm, awayMm: insideMm };
+}
+
+/** A move seen from one side (`du` to the right, `dv` away from the viewer) as a move along the shelf (x) and back (y). */
+export function fromFace(face: ShelfFace, du: number, dv: number): { dx: number; dy: number } {
+  switch (face) {
+    case 'front':
+      return { dx: du, dy: dv };
+    case 'rear':
+      return { dx: -du, dy: -dv };
+    case 'right':
+      return { dx: -dv, dy: du };
+    case 'left':
+      return { dx: dv, dy: -du };
+  }
+}
+
+/**
+ * Where a box lands when slid front to back to `wantY` (as dragged in a view from either end):
+ * among only the things it shares width with, never overlapping them nor past the back, snapped as
+ * `dropSpot` snaps. `null` when it fits nowhere in that line.
+ */
+export function depthSlide(others: readonly Box[], box: Pick<Box, 'xMm' | 'wMm' | 'dMm'>, wantY: number, snap: boolean, depthMm: number = SHELF_DEPTH_MM): number | null {
+  const line = others.filter((o) => o.xMm < box.xMm + box.wMm && box.xMm < o.xMm + o.wMm).map((o) => ({ xMm: o.yMm, wMm: o.dMm }));
+  return dropSpot(line, box.dMm, wantY, snap, Math.max(depthMm, box.dMm));
+}
+
+/** True when something else stands between this box and the viewer on that side: it is drawn paler, behind. */
+export function hiddenBehind(box: Box, others: readonly Box[], face: ShelfFace): boolean {
+  const me = onFace(box, face);
+  return others.some((o) => {
+    const it = onFace(o, face);
+    return it.u < me.u + me.uw && me.u < it.u + it.uw && it.v < me.v;
+  });
 }

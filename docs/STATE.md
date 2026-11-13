@@ -594,10 +594,14 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   `SitsOn.y_mm` (back from the lip), or is packed by slot along the front until someone drags it; a writer
   drags it left or right in either view, or back and forward in the strip (snapping to neighbours and 10 mm
   steps, Alt to place freely, arrow keys too) and the slots follow the order. A box is the catalogue's
-  `size_mm` when its model records one (solid edge: eight desktop models so far) or a guess from its ports
+  `size_mm` when its model records one (solid edge: ten desktop models so far) or a guess from its ports
   (dashed edge). Cables hang from
   their ports with the restored physics (`drawing/cablePhysics.ts`) and swing after a move; one leaving
-  the shelf runs up or down the nearer post to a tag. **Back** turns it round to the rear ports. The bar's
+  the view runs up or down the nearer post to a tag. **Front, Right, Back and Left** walk round it (version
+  3): from an end the shelf is 300 mm across, the strip turns with the view, and side ports show there.
+  A writer runs a cable by clicking a free port, then the port at the other end on any side. An AI
+  connection reads and may propose `SitsOn.x_mm`/`y_mm` (layout), and an AI idea the ideas panel shows is
+  drawn on the shelf as it would leave it, in the plan colour, with dragging off until it is accepted. The bar's
   path and Esc lead back out. Each rack line is drawn once
   (a shared edge between stacked devices is one line) and a device's name sits level with its U number.
 - **The panel** (r57, r60, r65). Its foot sits on the bottom edge on every tab; inside an opened device

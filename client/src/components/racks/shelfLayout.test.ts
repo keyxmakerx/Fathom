@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OccupantView, PortView } from '../../document/view';
-import { SHELF_DEPTH_MM, SHELF_INSIDE_MM, depthSpot, dropOnPlan, dropSpot, estimateSizeMm, layoutShelf, sizeOf } from './shelfLayout';
+import { SHELF_DEPTH_MM, SHELF_INSIDE_MM, depthSlide, depthSpot, dropOnPlan, dropSpot, estimateSizeMm, faceSpan, fromFace, hiddenBehind, layoutShelf, onFace, sizeOf } from './shelfLayout';
 
 function ports(n: number, face: 'front' | 'rear' = 'front'): PortView[] {
   return Array.from({ length: n }, (_, i) => ({ id: `p${i}`, label: `${i + 1}`, connector: 'rj45', row: 0, column: i, uplink: false, role: null, cable: null, face, passThroughId: null }) as PortView);
@@ -99,5 +99,51 @@ describe('depth on a shelf', () => {
     expect(dropOnPlan(front, { wMm: 100, dMm: 100 }, 0, 150, true)).toEqual({ xMm: 0, yMm: 150 });
     // In its row, it is moved along to the nearest gap instead.
     expect(dropOnPlan(front, { wMm: 100, dMm: 100 }, 20, 0, true)).toEqual({ xMm: 100, yMm: 0 });
+  });
+});
+
+describe('the four sides', () => {
+  const box = { xMm: 100, wMm: 50, yMm: 20, dMm: 80 };
+
+  it('sees a box from each side as you would standing there', () => {
+    expect(onFace(box, 'front')).toEqual({ u: 100, uw: 50, v: 20, vd: 80 });
+    expect(onFace(box, 'rear')).toEqual({ u: 300, uw: 50, v: 200, vd: 80 });
+    // From the right end the front is on the left; from the left end, on the right.
+    expect(onFace(box, 'right')).toEqual({ u: 20, uw: 80, v: 300, vd: 50 });
+    expect(onFace(box, 'left')).toEqual({ u: 200, uw: 80, v: 100, vd: 50 });
+    expect(faceSpan('left')).toEqual({ alongMm: 300, awayMm: 450 });
+  });
+
+  it('turns a move seen from a side back into one along and back on the shelf', () => {
+    for (const face of ['front', 'right', 'rear', 'left'] as const) {
+      const { dx, dy } = fromFace(face, 7, 3);
+      const moved = onFace({ ...box, xMm: box.xMm + dx, yMm: box.yMm + dy }, face);
+      const was = onFace(box, face);
+      expect([moved.u - was.u, moved.v - was.v]).toEqual([7, 3]);
+    }
+  });
+
+  it('slides front to back only among the things it shares width with', () => {
+    const others = [
+      { xMm: 0, wMm: 120, yMm: 100, dMm: 50 },
+      { xMm: 300, wMm: 100, yMm: 0, dMm: 200 },
+    ];
+    // Wanting 90 mm back runs into the first; it is moved to the nearest gap.
+    expect(depthSlide(others, { xMm: 50, wMm: 40, dMm: 60 }, 90, false)).toBe(40);
+    // The second is not in its line, so it does not block.
+    expect(depthSlide(others, { xMm: 200, wMm: 40, dMm: 60 }, 90, false)).toBe(90);
+  });
+
+  it('is behind when something nearer overlaps it from that side', () => {
+    const front = { xMm: 0, wMm: 100, yMm: 0, dMm: 50 };
+    const back = { xMm: 50, wMm: 100, yMm: 100, dMm: 50 };
+    expect(hiddenBehind(back, [front], 'front')).toBe(true);
+    expect(hiddenBehind(front, [back], 'front')).toBe(false);
+    expect(hiddenBehind(front, [back], 'rear')).toBe(true);
+    // From the right end the one further right is nearer, when they share depth.
+    const right = { xMm: 200, wMm: 100, yMm: 20, dMm: 50 };
+    expect(hiddenBehind(front, [right], 'right')).toBe(true);
+    expect(hiddenBehind(front, [right], 'left')).toBe(false);
+    expect(hiddenBehind(front, [back], 'right')).toBe(false);
   });
 });

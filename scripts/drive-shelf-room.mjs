@@ -1,4 +1,4 @@
-// Drives sign-off r63 and shelf-view end to end: dragging a thing along the shelf, Back; stepping into a shelf by double-click, by its "+N", by right-click Open
+// Drives sign-off r63 and shelf-view end to end: dragging a thing along the shelf, Back, the two ends, running a cable; stepping into a shelf by double-click, by its "+N", by right-click Open
 // shelf and by the panel's Open shelf; the path back to the rack; a device opened from the shelf and back.
 // Usage: bash scripts/build-wasm.sh (once), then node scripts/drive-shelf-room.mjs. Screenshots land in FATHOM_SHOTS.
 // Overrides: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT.
@@ -202,6 +202,41 @@ try {
     await page.waitForTimeout(300);
     check('Back turns the shelf round', (await room(page).textContent()).includes('BACK · 450 MM INSIDE'));
     await shot(page, 'shelf-view-back');
+    // Version 3: the two ends. From the right end the shelf is 300 mm across, front on the left, and a
+    // port on a thing's right side shows only there.
+    await page.locator('.shelf-room__tool', { hasText: 'Right' }).click();
+    await page.waitForTimeout(300);
+    check('Right looks at the shelf from its right end', (await room(page).textContent()).includes('RIGHT END · 300 MM DEEP'));
+    const sidePort = page.locator('[data-port-id]').filter({ has: page.locator('title', { hasText: 'mgmt' }) });
+    check('a port on the right side shows from the right end', (await sidePort.count()) === 1);
+    await shot(page, 'shelf-view-right');
+    // Run a cable: click the free side port, turn to the front, click a free port there.
+    await sidePort.click();
+    await page.waitForTimeout(200);
+    check('clicking a free port starts a cable from it', (await page.locator('.shelf-room__pending').count()) === 1 && (await page.locator('.shelf-room__port--pending').count()) === 1);
+    await page.locator('.shelf-room__tool', { hasText: 'Front' }).click();
+    await page.waitForTimeout(300);
+    check('the cable being run is still waiting after turning the shelf', (await page.locator('.shelf-room__pending').count()) === 1);
+    await shot(page, 'shelf-view-connecting');
+    // pihole-02's only port, eth0, is free: the free port drawn inside its box.
+    const pb = await thing('pihole-02').locator('rect').first().boundingBox();
+    let target = null;
+    for (const p of await page.locator('[data-port-id]').all()) {
+      const b = await p.boundingBox();
+      if (b && b.x >= pb.x && b.x + b.width <= pb.x + pb.width && !((await p.getAttribute('class')) ?? '').includes('cabled')) target = p;
+    }
+    check('pihole-02 has a free port from the front', target != null);
+    if (target != null) await target.click();
+    await page.waitForTimeout(500);
+    check('clicking the other end runs the cable', (await page.locator('.shelf-room__pending').count()) === 0);
+    await page.locator('.shelf-room__tool', { hasText: 'Right' }).click();
+    await page.waitForTimeout(300);
+    check('from the right end the side port is now cabled, tagged with its far end', ((await sidePort.getAttribute('class')) ?? '').includes('shelf-room__port--cabled') && (await room(page).textContent()).includes('to pihole-02, its front'));
+    await shot(page, 'shelf-view-right-cabled');
+    await page.locator('.shelf-room__tool', { hasText: 'Left' }).click();
+    await page.waitForTimeout(300);
+    check('Left looks at the shelf from its left end', (await room(page).textContent()).includes('LEFT END · 300 MM DEEP'));
+    await shot(page, 'shelf-view-left');
     await page.locator('.shelf-room__tool', { hasText: 'Front' }).click();
     await page.waitForTimeout(300);
 
