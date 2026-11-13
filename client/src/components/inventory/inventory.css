@@ -638,6 +638,38 @@
   text-overflow: ellipsis;
 }
 
+/* r127: the Sheet's way to a row's page, so a click in the grid only selects. Shown on the row's
+   hover and on the active cell; always there on a touch screen, which has no hover. */
+.inv-table__open {
+  flex: none;
+  margin-left: auto;
+  padding: 0 var(--s1);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  line-height: 20px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.inv-table__row:hover .inv-table__open,
+.inv-table__cell--active .inv-table__open,
+.inv-table__open:focus-visible {
+  opacity: 1;
+}
+
+.inv-table__open:hover {
+  border-color: var(--hairline);
+}
+
+@media (hover: none) {
+  .inv-table__open {
+    opacity: 1;
+  }
+}
+
 .inv-table__blank {
   color: var(--muted);
 }

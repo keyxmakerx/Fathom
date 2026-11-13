@@ -49,6 +49,12 @@ export interface DataTableProps {
   aiMarked?: ReadonlySet<string>;
   /** Sign-off r58: what a right-click on a row offers (a device's own menu); none, the browser's. */
   rowMenu?: (row: InvRow) => readonly MenuItem[];
+  /**
+   * The Sheet face (r127): the grid stays a spreadsheet. A click only selects a cell; double-click,
+   * Enter, F2 or typing edits any editable cell, the first column too. The row's page opens only from
+   * the small open button in its first cell, or Ctrl or Cmd Enter.
+   */
+  sheet?: boolean;
 }
 
 interface Cell {
@@ -65,7 +71,7 @@ function inputType(col: Column): string {
 }
 
 export function DataTable(props: DataTableProps) {
-  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, empty, initialScrollTop = 0, onScrollTop, aiMarked, rowMenu } = props;
+  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, empty, initialScrollTop = 0, onScrollTop, aiMarked, rowMenu, sheet = false } = props;
   const phone = usePhone();
   const tableRef = useRef<HTMLDivElement | null>(null);
   const [rowMenuAt, setRowMenuAt] = useState<{ items: readonly MenuItem[]; x: number; y: number } | null>(null);
@@ -205,13 +211,19 @@ export function DataTable(props: DataTableProps) {
     const ri = rowIndex(editing.cell.rowKey);
     const ci = columns.findIndex((c) => c.key === editing.cell.colKey);
     const value = (e.target as HTMLInputElement).value;
+    // The editor unmounts on close, so the keys go back to the grid: arrows and Enter keep working.
+    const backToGrid = () => scrollRef.current?.focus({ preventScroll: true });
     if (e.key === 'Escape') {
       e.preventDefault();
       setEditing(null);
       setError(null);
+      backToGrid();
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (commit(value)) moveTo(ri + 1, ci);
+      if (commit(value)) {
+        moveTo(ri + 1, ci);
+        backToGrid();
+      }
     } else if (e.key === 'Tab') {
       e.preventDefault();
       if (!commit(value)) return;
@@ -273,6 +285,13 @@ export function DataTable(props: DataTableProps) {
         return;
       case 'Enter':
         e.preventDefault();
+        if (sheet) {
+          // A spreadsheet's Enter: edit an editable cell, otherwise step down. Ctrl or Cmd Enter opens the row.
+          if (e.ctrlKey || e.metaKey) onOpen(rows[ri]!);
+          else if (columns[ci]!.editable && canEdit) startEdit(active);
+          else moveTo(ri + 1, ci);
+          return;
+        }
         // The first column is the row's title: Enter opens it. Other editable cells edit.
         if (ci > 0 && columns[ci]!.editable && canEdit) startEdit(active);
         else onOpen(rows[ri]!);
@@ -406,7 +425,8 @@ export function DataTable(props: DataTableProps) {
                           setActive({ rowKey: row.key, colKey: col.key });
                           // A click opens the row, except in an editable cell past the first column,
                           // which takes the click as "select it" so a double-click can edit.
-                          if (colIndex === 0 || !(col.editable && canEdit)) onOpen(row);
+                          // The Sheet never opens on a click: it stays a spreadsheet (r127).
+                          if (!sheet && (colIndex === 0 || !(col.editable && canEdit))) onOpen(row);
                         }}
                         onDoubleClick={() => startEdit({ rowKey: row.key, colKey: col.key })}
                       >
@@ -433,6 +453,26 @@ export function DataTable(props: DataTableProps) {
                           <span className="inv-table__text" title={text}>
                             <SheathWord name={text} />
                           </span>
+                        ) : sheet && colIndex === 0 ? (
+                          <>
+                            <span className={text !== '' ? 'inv-table__text' : 'inv-table__blank'} title={text}>
+                              {text !== '' ? text : '—'}
+                            </span>
+                            <button
+                              type="button"
+                              className="inv-table__open"
+                              aria-label={`Open ${row.title}`}
+                              title="Open its page (Ctrl Enter)"
+                              tabIndex={-1}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpen(row);
+                              }}
+                              onDoubleClick={(e) => e.stopPropagation()}
+                            >
+                              ↗
+                            </button>
+                          </>
                         ) : text !== '' ? (
                           <span className="inv-table__text" title={text}>
                             {text}

@@ -620,6 +620,10 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   returning keeps the list, filter, sort, Where, scroll, the open page and its tab, and Parts' On hand. Only
   something newly picked on the canvas is carried back (r60), opened over the same list. The Work tab keeps
   its filters for the session. `scripts/drive-keep-place.mjs` drives it.
+- **The Sheet stays a spreadsheet** (owner, 2026-11-12; sign-off r127). On the Sheet a click only selects a
+  cell; double-click, Enter, F2 or typing edits any editable cell, the name too. A row's page opens only from
+  the small ↗ in its first cell or Ctrl Enter. Inventory keeps its list, where a click on the name opens the
+  page. After an edit closes, the keys go back to the grid. `scripts/drive-keep-place.mjs` step 5 drives it.
 - **Notes** are nodes on a device, port or rack: pasted through the gate or stored as typed, and saying so.
 - **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
   refuses by name. The trail shows sealed and pending, with a comment on the next change.
