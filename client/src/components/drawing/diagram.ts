@@ -26,6 +26,14 @@ export interface DiagramBox extends Rect {
   role: string | null;
 }
 
+const FORM_ORDER = ["wall", "floor", "desk", "ceiling"];
+
+/** Fixtures top to bottom, then left to right, as they hang on their surface; one not measured yet goes last. */
+function byPlace(a: FixtureView, b: FixtureView): number {
+  const at = (v: number | null) => v ?? Number.POSITIVE_INFINITY;
+  return at(a.yMm) - at(b.yMm) || at(a.xMm) - at(b.xMm) || a.label.localeCompare(b.label) || a.id.localeCompare(b.id);
+}
+
 /** Every device in the view, in columns: one per rack (racked devices from the top unit down, then what sits
  * on its shelves), one per wall, floor or desk, then one for devices on free canvas spots or not placed at
  * all. A device is drawn once, and passives (a panel, a splitter, an outlet block) are not devices. */
@@ -82,7 +90,7 @@ export function layoutDiagram(view: ClosetView): DiagramBox[] {
   const fixtures = (
     list: FixtureView[],
   ): Array<{ id: string; hostname: string; role: string | null }> =>
-    list.flatMap((f) => [
+    [...list].sort(byPlace).flatMap((f) => [
       ...(f.kind === "chassis"
         ? [
             {
@@ -94,7 +102,11 @@ export function layoutDiagram(view: ClosetView): DiagramBox[] {
         : []),
       ...fixtures(f.fixtures ?? []),
     ]);
-  for (const surface of view.surfaces ?? [])
+  // A fixed order, so Diagram looks the same on every load: walls, floors, desks, then ceilings, each by name.
+  const surfaces = [...(view.surfaces ?? [])].sort(
+    (a, b) => FORM_ORDER.indexOf(a.form) - FORM_ORDER.indexOf(b.form) || a.label.localeCompare(b.label) || a.id.localeCompare(b.id),
+  );
+  for (const surface of surfaces)
     column(surface.label, fixtures(surface.fixtures ?? []));
   column(
     null,
