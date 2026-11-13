@@ -174,6 +174,49 @@
   border-right: 0.2mm dashed #000000;
 }
 
+/* On a phone (r130, "make sure the mobile view is easy to work"): each picker gets a row of its own,
+   every control is a 44 px target (WCAG 2.5.5's size), the bar scrolls away rather than holding a
+   third of the screen, the Brother download fills its own row as the
+   likely way out from a phone, and the phone's paragraph comes before the print-dialog one. */
+@media (max-width: 640px) {
+  .labels-preview__bar {
+    position: static;
+    gap: var(--s2);
+    padding: var(--s2) var(--s3);
+  }
+  .labels-preview__bar label {
+    flex: 1 1 100%;
+  }
+  .labels-preview__bar select {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+  }
+  .labels-preview__bar button {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+  .labels-preview__bar .labels-preview__brother {
+    flex-basis: 100%;
+  }
+  .labels-preview__grow {
+    display: none;
+  }
+  .labels-preview__help {
+    margin-inline: var(--s3);
+  }
+  .labels-preview__help--brother {
+    order: 1;
+  }
+  .labels-preview__help:not(.labels-preview__help--brother) {
+    order: 2;
+  }
+  .labels-preview__pages {
+    order: 3;
+    padding: var(--s3);
+  }
+}
+
 @media print {
   body.labels-open #root {
     display: none;

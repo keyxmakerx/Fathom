@@ -112,7 +112,7 @@ export function LabelsPreview({ items, note, cables = false, brotherRows, onClos
         {brotherRows && brotherRows.length > 1 ? (
           <button
             type="button"
-            className="btn-quiet"
+            className="btn-quiet labels-preview__brother"
             onClick={() => downloadBytes('cable-labels.csv', buildCsv(brotherRows, { bom: false }), 'text/csv;charset=utf-8')}
           >
             Download for Brother app (.csv)
@@ -133,7 +133,7 @@ export function LabelsPreview({ items, note, cables = false, brotherRows, onClos
         {preset.note ? ` ${preset.note}` : ''}
       </p>
       {brotherRows && brotherRows.length > 1 ? (
-        <p className="labels-preview__help">
+        <p className="labels-preview__help labels-preview__help--brother">
           Printing from a phone over Bluetooth, such as to a PT-E720BT? Download the .csv, open it in
           Brother's Pro Label Tool app, connect it to a label and print: one label per cable, its ends
           written as {brotherRows[1]?.[0] ? `“${brotherRows[1][0]}”` : '“P01-11 > SW01-11”'}. Set copies to 2 for a
