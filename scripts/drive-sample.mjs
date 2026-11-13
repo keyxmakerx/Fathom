@@ -155,7 +155,7 @@ try {
       await shot(page, 'SN-03-trace');
     }
 
-    // Cable physics (r126): a rack dropped in a new place sets its cables swinging, and they settle.
+    // Cable physics (r129): a rack dropped in a new place sets its cables swinging, and they settle.
     // Broke silently twice: once when long runs drew straight, once when a dropped rack's cables were
     // remade and forgot where they had been. Light pass only; the drag uses the Select tool.
     await page.getByRole('button', { name: 'Fit to view' }).click();
@@ -170,11 +170,15 @@ try {
       const sy = rb.y + rb.height - 8;
       await page.mouse.move(sx, sy);
       await page.mouse.down();
+      const whileDragging = new Set();
       for (let i = 1; i <= 10; i++) {
         await page.mouse.move(sx - i * 12, sy + i * 6);
         await page.waitForTimeout(16);
+        whileDragging.add(await cablePaths());
       }
       await page.mouse.up();
+      // r129: the rack carries its devices and their cables while it is dragged, not only on the drop.
+      check('the cables follow the rack while it is dragged', whileDragging.size >= 3, `${whileDragging.size} distinct frames`);
       const frames = new Set();
       const t0 = Date.now();
       while (Date.now() - t0 < 2200) {
