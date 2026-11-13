@@ -460,7 +460,7 @@ const EDGES: &[EdgeRow] = &[
     EdgeRow {
         tier: Tier::Layout,
         kind: EdgeKind::SitsOn,
-        fields: fields!(SitsOnField: Slot),
+        fields: fields!(SitsOnField: Slot, XMm, YMm),
     },
     EdgeRow {
         tier: Tier::Layout,
@@ -903,6 +903,23 @@ mod tests {
                 assert!(!banned.contains(key), "{name} must never reach an AI");
             }
         }
+    }
+
+    #[test]
+    fn where_a_thing_sits_on_a_shelf_is_read_and_changed_like_its_slot() {
+        // Sign-off shelf-view: an AI sees and may propose how far along and how far back a thing
+        // sits on a shelf, as the shelf view drags it, at layout alone.
+        let layout: BTreeSet<Tier> = [Tier::Layout].into_iter().collect();
+        for name in ["slot", "x_mm", "y_mm"] {
+            assert!(
+                settable_edge_field(&layout, EdgeKind::SitsOn, name).is_some(),
+                "{name}"
+            );
+        }
+        // A port's side, which the shelf view turns to, and a cable between two ports.
+        assert!(settable_node_field(&layout, NodeKind::PhysicalPort, "face").is_some());
+        assert!(settable_node_kind(&layout, NodeKind::Cable));
+        assert!(settable_edge_kind(&layout, EdgeKind::Terminates));
     }
 
     #[test]

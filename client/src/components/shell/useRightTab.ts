@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** The right-hand side is one slot with four tabs (Equipment, Details, History, Trail); one is open at a time, or none. */
+import { CANVAS_PRESS_MS } from './clickAnswer';
+
+/** The right-hand side is one slot (Equipment, Details, History); one is open at a time, or none. The Trail is History's second tab. */
 export type RightTab = 'equipment' | 'details' | 'history' | 'trail';
 
 /** Asks for the Details tab, from outside the shell: the quick card's Details button (`QuickCard.tsx`). */
@@ -48,6 +50,12 @@ export function equipmentClosed(before: RightTab | null, after: RightTab | null)
   return before === 'equipment' && after !== 'equipment';
 }
 
+/** Whether a selection that has just arrived is the answer to a press on the canvas, made `pressedAt`. Such a
+ * click is answered by the quick card, not by opening the panel (r116); a selection from Ctrl K or a link is not. */
+export function cameFromCanvasPress(now: number, pressedAt: number): boolean {
+  return now - pressedAt >= 0 && now - pressedAt < CANVAS_PRESS_MS;
+}
+
 /** What is actually open: the chosen tab, unless there is nothing behind it. */
 export function visibleTab(pick: RightTab | null, have: { hasEquipment?: boolean; hasDetails: boolean; historyOpen: boolean; trailOpen: boolean; hasTrail: boolean }): RightTab | null {
   if (pick === 'equipment') return have.hasEquipment === true ? 'equipment' : null;
@@ -66,7 +74,8 @@ export function rememberedTab(pick: RightTab | null): 'details' | 'trail' | null
  * Which right-hand tab is open, and how the three stay in step with the two things the design
  * place owns (History mode and the Trail's open flag).
  *
- * Selecting something shows its Details, unless Equipment is open. If History was open, History mode stays on (the canvas
+ * Selecting something from outside the canvas (Ctrl K, a link) shows its Details, unless Equipment is open; a click on
+ * the canvas is answered by the quick card instead, and by the panel only while it is already open. If History was open, History mode stays on (the canvas
  * keeps showing the past save, and the History tab stays marked) rather than ending silently;
  * the History tab brings the list back.
  */
@@ -106,6 +115,17 @@ export function useRightTab(input: RightTabInput) {
     trailRef.current?.(false);
   }, [request]);
 
+  // When the canvas was last pressed. A thing clicked there is shown by the quick card unless the panel is
+  // already open (r116); a thing chosen any other way still brings its panel.
+  const pressedAt = useRef(-Infinity);
+  useEffect(() => {
+    const onPress = (e: PointerEvent) => {
+      if (e.target instanceof Element && e.target.closest('.shell__drawing') != null && e.target.closest('.quick-card') == null) pressedAt.current = Date.now();
+    };
+    document.addEventListener('pointerdown', onPress, true);
+    return () => document.removeEventListener('pointerdown', onPress, true);
+  }, []);
+
   // The quick card's Details: the selection's panel, even when it was folded or Equipment was open.
   useEffect(() => {
     const onShow = () => {
@@ -144,6 +164,7 @@ export function useRightTab(input: RightTabInput) {
     // While Equipment is open, placing one device after another selects each new one; the list
     // stays open so the next can be dragged out. The Details tab is one click away.
     if (pickNow.current === 'equipment') return;
+    if (cameFromCanvasPress(Date.now(), pressedAt.current)) return;
     setPick('details');
     if (trailRef.current != null) trailRef.current(false);
   }, [selectionKey, hasDetails]);
@@ -164,6 +185,8 @@ export function useRightTab(input: RightTabInput) {
       if (tab === 'trail') trailRef.current?.(true);
       else trailRef.current?.(false);
       if (tab === 'history' && !historyOpen) historyRef.current?.();
+      // The Trail is the History panel's second tab: showing it leaves History mode, so the canvas is the design again.
+      if (tab === 'trail' && historyOpen) historyRef.current?.();
     },
     [historyOpen],
   );
@@ -185,5 +208,5 @@ export function useRightTab(input: RightTabInput) {
   );
 
   const shown = visibleTab(pick, { hasEquipment, hasDetails, historyOpen, trailOpen, hasTrail });
-  return { shown, choose, fold };
+  return { shown, choose, fold, pick };
 }

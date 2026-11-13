@@ -133,7 +133,7 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
                   disabled={busy}
                   onClick={() => void act(() => setServerAi(ai.allowed, ai.reason ?? '', ai.version, ceiling))}
                 >
-                  Save the ceiling
+                  Save the limit
                 </button>
                 <button type="button" className="console__btn btn-main" disabled={busy} onClick={() => setCeiling(null)}>
                   Undo
@@ -151,9 +151,9 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
                   <th>Access</th>
                   <th>Person</th>
                   <th>Organisation</th>
-                  <th>Sees</th>
+                  <th>Can see</th>
                   <th>Last used</th>
-                  <th>State</th>
+                  <th>Status</th>
                   <th />
                 </tr>
               </thead>

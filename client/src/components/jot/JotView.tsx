@@ -33,7 +33,11 @@ export interface JotViewProps {
   canDraw: boolean;
   selected: Selection | null;
   litPortLabel: string | null;
-  startInside: boolean;
+  /** Inside (the device's virtual machines and zones) and Config are the Details panel's foot buttons, so the
+   * place holds whether each is on. */
+  inside: boolean;
+  onInsideChange: (inside: boolean) => void;
+  showConfig: boolean;
   onSelect: (selection: Selection | null) => void;
   onBack: () => void;
   onAddBox: (role: string | null, x: number, y: number, fromBoxId?: string, model?: { vendor: string; model: string }) => void;
@@ -91,7 +95,7 @@ function focusInField(): boolean {
 }
 
 export function JotView(props: JotViewProps): JSX.Element {
-  const { view, deviceId, origin, canDraw, selected, litPortLabel, startInside, onSelect, onBack, onAddBox, onMoveBox, onConnect, onDisconnect, onRemoveBox, onAddPort, onUndo, onRedo, fitRequest, paused, renderConfigDrawer, renderInsideStop } = props;
+  const { view, deviceId, origin, canDraw, selected, litPortLabel, inside, onInsideChange, showConfig, onSelect, onBack, onAddBox, onMoveBox, onConnect, onDisconnect, onRemoveBox, onAddPort, onUndo, onRedo, fitRequest, paused, renderConfigDrawer, renderInsideStop } = props;
   const { onPlacePorts, onResetPorts, templateOwner, onApplyTemplate } = props;
   const [arranging, setArranging] = useState(false);
   const [portDrag, setPortDrag] = useState<PortDrag | null>(null);
@@ -99,8 +103,6 @@ export function JotView(props: JotViewProps): JSX.Element {
   const stageRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 800, h: 500 });
   const [zoomBy, setZoomBy] = useState(1);
-  const [showConfig, setShowConfig] = useState(false);
-  const [inside, setInside] = useState(startInside);
   const [moving, setMoving] = useState<{ id: string; at: Pt } | null>(null);
   const [hoverPort, setHoverPort] = useState<string | null>(null);
   const [wire, setWire] = useState<{ from: string; a: Pt; to: Pt } | null>(null);
@@ -145,7 +147,7 @@ export function JotView(props: JotViewProps): JSX.Element {
       if (paused || focusInField()) return;
       if (e.key === 'Escape') {
         if (e.defaultPrevented) return; // Checks took this one
-        if (inside) setInside(false);
+        if (inside) onInsideChange(false);
         else onBack();
         e.preventDefault();
         return;
@@ -164,7 +166,7 @@ export function JotView(props: JotViewProps): JSX.Element {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [paused, inside, onBack, onUndo, onRedo, onDisconnect, onRemoveBox, canDraw, selected, deviceId, shown]);
+  }, [paused, inside, onInsideChange, onBack, onUndo, onRedo, onDisconnect, onRemoveBox, canDraw, selected, deviceId, shown]);
 
   const onWheel = (e: React.WheelEvent) => {
     if (!e.ctrlKey && !e.metaKey) return;
@@ -298,20 +300,10 @@ export function JotView(props: JotViewProps): JSX.Element {
 
   return (
     <div className="jot" ref={rootRef} data-testid="jot" onWheel={onWheel} onPointerDown={() => onSelect({ kind: 'chassis', id: deviceId })}>
+      {/* r116: the device's name is in the path, Inside and Config are the Details panel's foot, Back is the tool row's.
+          What is left is this view's own: the hovered port, the Add port tray and the plate tools. */}
       <div className="jot__bar" onPointerDown={(e) => e.stopPropagation()}>
-        {/* r30-device: no "← Canvas" here. The bar's breadcrumb leads back out, and so does Esc. */}
-        <span className="jot__name">{device.hostname || 'unnamed'}</span>
         {hoverPort !== null && <span className="jot__port">{hoverPort}</span>}
-        {renderConfigDrawer && (
-          <button type="button" aria-pressed={showConfig} onClick={() => setShowConfig((v) => !v)}>
-            Config
-          </button>
-        )}
-        {renderInsideStop && (
-          <button type="button" aria-pressed={inside} onClick={() => setInside((v) => !v)}>
-            Inside
-          </button>
-        )}
         {trayTarget != null && !inside && (
           <div className="jot__tray" role="group" aria-label="Add a port">
             <span className="jot__tray-label">Add port</span>
@@ -353,8 +345,8 @@ export function JotView(props: JotViewProps): JSX.Element {
 
       {insideBody != null ? (
         <div className="jot__inside">
-          {/* The way back out to the plate; the bar's Inside button and Esc do the same. */}
-          <button type="button" className="inside-back" title="Back out to the faceplate (Esc)" onClick={() => setInside(false)}>
+          {/* The way back out to the plate; the panel's Inside button and Esc do the same. */}
+          <button type="button" className="inside-back" title="Back out to the faceplate (Esc)" onClick={() => onInsideChange(false)}>
             ← Back out
           </button>
           {insideBody}

@@ -76,6 +76,16 @@ export interface CatalogueModel {
   /** r35 — the slots a card fits into, by the vendor's own name. Absent for a fixed model. */
   cardSlots?: CatalogueCardSlot[];
   faceplates: CatalogueFaceplate[];
+  /** Sign-off shelf-view: the outside size from the maker's sheet, when the catalogue records it. */
+  sizeMm?: CatalogueSize;
+}
+
+export interface CatalogueSize {
+  /** Across the front face. */
+  widthMm: number;
+  /** Front to back. */
+  depthMm: number;
+  heightMm: number;
 }
 
 export interface CatalogueCardSlot {
@@ -235,6 +245,16 @@ export function parseCatalogueModel(bytes: Uint8Array): CatalogueModel {
     faceplates: arr(m.faceplates, 'catalogue model.faceplates').map((f, i) =>
       parseFaceplate(f, `faceplates[${i}]`),
     ),
+    ...(m.size_mm === undefined ? {} : { sizeMm: parseSize(m.size_mm) }),
+  };
+}
+
+function parseSize(v: unknown): CatalogueSize {
+  const s = obj(v, 'catalogue model.size_mm');
+  return {
+    widthMm: num(s.width, 'size_mm.width'),
+    depthMm: num(s.depth, 'size_mm.depth'),
+    heightMm: num(s.height, 'size_mm.height'),
   };
 }
 

@@ -56,7 +56,7 @@
      name shortened with an ellipsis, and no View only chip (the field view is always view only, and
      the greyed Undo says so). Doing, Share and Admin fold into menus (Bar.tsx). */
   :root:has(.phone-tabs) .shell-bar {
-    padding: 0 var(--s3);
+    padding: 0 var(--s2);
     gap: var(--s2);
   }
   :root:has(.phone-tabs) .shell-bar__leading,
@@ -74,7 +74,7 @@
     min-width: 0;
   }
   :root:has(.phone-tabs) .shell-bar__path-text {
-    max-width: 12ch;
+    max-width: 7ch;
   }
   /* An open plan, trace or "It's down" keeps its coloured chip and Exit beside the design's name; the
      brand and the job's name give way (the band under the bar names the plan in full). */
@@ -82,6 +82,37 @@
   :root:has(.phone-tabs) .shell-bar--task .shell-bar__brand + .shell-bar__sep-wrap,
   :root:has(.phone-tabs) .shell-task__label,
   :root:has(.phone-tabs) .shell-task__stage {
+    display: none;
+  }
+  /* A narrow bar with no design under it (Home, Admin, Steward) has no use for views to go back to. Its
+     views were the one thing the bar could not fold past, so it ran to 721px on a 390px phone. */
+  .shell-bar .shell-bar__tabs--views,
+  .shell-bar .shell-bar__views-menu {
+    display: none;
+  }
+  /* The bar on a phone is a row of marks, not a toolbar: no rules between groups, a tighter brand, and
+     chips with less padding, so Fathom, the design's name, the lens, More and the account all fit 390px. */
+  .shell-bar {
+    padding: 0 var(--s2);
+    gap: var(--s2);
+  }
+  .shell-bar .shell-bar__sep-wrap {
+    display: none;
+  }
+  .shell-bar .shell-bar__brand {
+    letter-spacing: 0.1em;
+  }
+  .shell-bar .shell-bar__trailing .shell-chip--ink {
+    padding: 0 8px;
+  }
+  .shell-bar .shell-bar__path-text {
+    max-width: 7ch;
+  }
+  .shell-bar .shell-lens.shell-bar__fold {
+    padding: 0 8px;
+  }
+  /* Find is the phone's search, one tab away; the bar's magnifier would be the one thing too many. */
+  .shell-bar .shell-search--collapsed {
     display: none;
   }
   /* Inventory: lists to read and find in. Import, paste, columns, add and the tick boxes are a

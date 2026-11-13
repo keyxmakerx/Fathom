@@ -201,6 +201,85 @@ async fn every_answer_is_no_store_except_the_hashed_assets() {
     assert!(!lower.contains("no-store"), "{head}");
 }
 
+/// Precompressed files (`name.br`, `name.gz`, written by `client/scripts/precompress.mjs`) are
+/// sent to a browser that accepts them, the plain file to one that does not, and neither the
+/// variants nor anything else is reachable by its own name.
+#[tokio::test]
+async fn precompressed_files_go_to_browsers_that_accept_them() {
+    let dir = a_built_client();
+    std::fs::write(dir.join("assets/main-abc123.js.br"), b"BROTLI").expect("br");
+    std::fs::write(dir.join("assets/main-abc123.js.gz"), b"GZIP").expect("gz");
+    let addr = serve(ClientRoot::open(&dir).expect("a built client")).await;
+
+    let get = |accept: Option<&'static str>| async move {
+        raw_http_bytes(addr, "/assets/main-abc123.js", accept).await
+    };
+
+    let (head, body) = get(Some("gzip, deflate, br")).await;
+    let lower = head.to_ascii_lowercase();
+    assert!(lower.contains("content-encoding: br"), "{head}");
+    assert!(lower.contains("vary: accept-encoding"), "{head}");
+    assert!(lower.contains("content-type: text/javascript"), "{head}");
+    assert_eq!(body, b"BROTLI");
+
+    let (head, body) = get(Some("gzip")).await;
+    assert!(
+        head.to_ascii_lowercase().contains("content-encoding: gzip"),
+        "{head}"
+    );
+    assert_eq!(body, b"GZIP");
+
+    // Refused with q=0, absent, or only `*`: the plain file, still marked as varying.
+    for accept in [Some("br;q=0, gzip;q=0"), None, Some("*"), Some("identity")] {
+        let (head, body) = get(accept).await;
+        let lower = head.to_ascii_lowercase();
+        assert!(!lower.contains("content-encoding"), "{accept:?}: {head}");
+        assert!(
+            lower.contains("vary: accept-encoding"),
+            "{accept:?}: {head}"
+        );
+        assert_eq!(body, b"console.log('fathom')", "{accept:?}");
+    }
+
+    // The variants are not files of their own, and a file with none has no Vary.
+    for path in ["/assets/main-abc123.js.br", "/assets/main-abc123.js.gz"] {
+        let (head, _) = raw_http_request(addr, "GET", path).await;
+        assert!(status(&head).starts_with("HTTP/1.1 404"), "{path}: {head}");
+    }
+    let (head, _) = raw_http_bytes(addr, "/", Some("br, gzip")).await;
+    let lower = head.to_ascii_lowercase();
+    assert!(
+        !lower.contains("vary:") && !lower.contains("content-encoding"),
+        "{head}"
+    );
+}
+
+async fn raw_http_bytes(
+    addr: std::net::SocketAddr,
+    path: &str,
+    accept_encoding: Option<&str>,
+) -> (String, Vec<u8>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+    let accept = accept_encoding
+        .map(|a| format!("Accept-Encoding: {a}\r\n"))
+        .unwrap_or_default();
+    let request =
+        format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n{accept}Connection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).await.expect("write");
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.expect("read");
+    let split = buf
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("a header block");
+    (
+        String::from_utf8_lossy(&buf[..split]).into_owned(),
+        buf[split + 4..].to_vec(),
+    )
+}
+
 /// HTTP/1.1 by hand over a real socket, as `schema_endpoint.rs` does.
 async fn raw_http_request(
     addr: std::net::SocketAddr,

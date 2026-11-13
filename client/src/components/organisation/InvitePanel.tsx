@@ -73,7 +73,7 @@ export function InviteForm({ folders, organisationName, busy, error, onSubmit, o
       </label>
       <p className="org-note">
         {capability === 'steward'
-          ? 'A steward is invited, not added: once they have joined, you confirm them under Waiting for you, and a second steward or a one-day wait makes it count.'
+          ? 'A Steward is invited, not added. Once they have joined, you confirm them under Waiting for you, and a second Steward’s approval, or a one-day wait, makes it count.'
           : 'They have this access as soon as you add them. You get a link to send them, which they open once to set up their sign-in.'}
       </p>
       {error && (

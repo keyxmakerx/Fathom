@@ -66,7 +66,7 @@ export function WaitingTable(p: WaitingTableProps) {
             <input type="checkbox" aria-label="Tick everyone" checked={allOn} onChange={(e) => p.onToggleAll(e.target.checked)} />
           </th>
           <th>Name</th>
-          <th>Key-check code</th>
+          <th>Check code</th>
           <th>Access asked for</th>
           <th>Invited by · joined</th>
           <th>
@@ -279,7 +279,7 @@ export function ReviewList({ checked, names, labels, busy, steward, onSign, onBa
       )}
       <p className="org-note">
         {n === 1
-          ? 'One signature, in your browser, naming that person\u2019s own key.'
+          ? 'Your browser signs to confirm this person\u2019s own sign-in key.'
           : `${n} signatures, made together, in your browser, each naming that person\u2019s own key. All of them are recorded or none are.`}
         {n > 50 ? ' This many can take a minute or more. Keep this page open.' : ''}
       </p>
@@ -375,7 +375,7 @@ export function SecondingList({ items, busy, nowMs, onApprove }: SecondingListPr
     <section className="org-box" data-testid="needs-second-steward">
       <div className="home__label">Needs a second steward</div>
       <p className="org-note">
-        These Steward appointments need another steward to agree before they take effect. Approving is your own signature.
+        These Steward appointments need a second Steward to agree before they start. Approving signs with your own key.
       </p>
       <ul className="org-review">
         {items.map((s) => (

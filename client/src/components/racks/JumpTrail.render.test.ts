@@ -16,18 +16,23 @@ const inRack: Level[] = [level('HQ', 'design', 0), level('R1', 'rack', 1), level
 const html = (props: Partial<Parameters<typeof JumpTrail>[0]> & Pick<Parameters<typeof JumpTrail>[0], 'trail'>) =>
   renderToStaticMarkup(createElement(JumpTrail, { backLabel: null, onBack: noop, levels: only, onGo: noop, ...props }));
 
+// Two stops: Back has somewhere to go.
+const twoStops = () => visit(visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0), spot('r1'), 'R1', null, 10_000);
+
 describe('JumpTrail', () => {
-  it('shows nothing until there is somewhere to go back to or a tree to show', () => {
+  it('shows nothing until there is somewhere to go back to', () => {
     const one = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
     expect(html({ trail: one })).toBe('');
   });
 
-  it('names where Back goes, and shows no chips and no Forward button', () => {
+  it('is labelled just "Back", with where it goes in its tooltip, and shows no chips and no Forward button', () => {
     let t = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
     t = visit(t, spot('r1'), 'R1', null, 10_000);
     t = visit(t, spot('r1', 'faceplate'), 'R1 · FACEPLATE', null, 20_000);
     const out = html({ trail: t, backLabel: 'R1', levels: inRack });
-    expect(out).toContain('Back to R1');
+    expect(out).toContain('</span> Back</button>');
+    expect(out).toContain('title="Back to R1 (');
+    expect(out).not.toContain('Back to R1<');
     expect(out).not.toContain('>HQ<');
     expect(out).not.toContain('jump-forward');
     expect(out).not.toContain('Forward');
@@ -44,14 +49,15 @@ describe('JumpTrail', () => {
     expect(out).not.toContain('data-testid="jump-back"');
   });
 
-  it('shows the fold-out arrow whenever there is a tree, even when Back has nowhere to go', () => {
-    const one = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
-    const out = html({ trail: one, levels: inRack });
+  it('shows the fold-out arrow beside Back, and neither while Back has nowhere to go', () => {
+    const out = html({ trail: twoStops(), backLabel: 'HQ', levels: inRack });
+    expect(out).toContain('data-testid="jump-back"');
     expect(out).toContain('data-testid="jump-tree-toggle"');
     expect(out).toContain('aria-expanded="false"');
     expect(out).toContain('aria-label="Where you are in this design"');
-    expect(out).not.toContain('data-testid="jump-back"');
     expect(out).not.toContain('data-testid="jump-tree"');
+    const none = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
+    expect(html({ trail: none, levels: inRack })).toBe('');
   });
 
   it('shows nothing at the top of the design, even with somewhere to go back to', () => {
@@ -61,8 +67,7 @@ describe('JumpTrail', () => {
   });
 
   it('unfolds to a list: name and kind word on each line, the current one marked', () => {
-    const one = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
-    const out = html({ trail: one, levels: inRack, defaultOpen: true });
+    const out = html({ trail: twoStops(), backLabel: 'HQ', levels: inRack, defaultOpen: true });
     expect(out).toContain('aria-expanded="true"');
     expect(out).toContain('<ol');
     expect((out.match(/data-testid="jump-tree-line"/g) ?? []).length).toBe(3);
@@ -75,8 +80,7 @@ describe('JumpTrail', () => {
 
   it('folds a deep tree to the top two, "N more" and the last three', () => {
     const deep = Array.from({ length: 9 }, (_, i) => level(`L${i}`, 'device', i));
-    const one = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
-    const out = html({ trail: one, levels: deep, defaultOpen: true });
+    const out = html({ trail: twoStops(), backLabel: 'HQ', levels: deep, defaultOpen: true });
     expect(out).toContain('4 more');
     expect(out).toContain('data-testid="jump-tree-fold"');
     for (const shown of ['L0', 'L1', 'L6', 'L7', 'L8']) expect(out).toContain(`>${shown}<`);
@@ -85,8 +89,7 @@ describe('JumpTrail', () => {
 
   it('does not fold six or fewer levels', () => {
     const six = Array.from({ length: 6 }, (_, i) => level(`L${i}`, 'device', i));
-    const one = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
-    expect(html({ trail: one, levels: six, defaultOpen: true })).not.toContain('more');
+    expect(html({ trail: twoStops(), backLabel: 'HQ', levels: six, defaultOpen: true })).not.toContain('more');
   });
 });
 

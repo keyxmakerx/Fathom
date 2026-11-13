@@ -30,7 +30,7 @@ const DB_NAME = 'fathom_add_equipment';
 const RUNTIME_URL = runtimeUrl(DB_NAME);
 const MIGRATE_URL = migrateUrl(DB_NAME);
 const CHROME = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
-const PLAYWRIGHT = '/opt/node22/lib/node_modules/playwright/index.mjs';
+const PLAYWRIGHT = process.env.PW_PLAYWRIGHT ?? '/opt/node22/lib/node_modules/playwright/index.mjs';
 // The setup password the server is started with (ADR-0057).
 const SETUP_PASSWORD = 'amber-kestrel-harbour-0057';
 const ADDRESS = 'owner@example.test';
@@ -207,7 +207,8 @@ async function main() {
   const stateBefore = await setupState(BASE_URL);
   check('GET /setup/state says pending on a fresh install', stateBefore === 'pending', stateBefore);
 
-  const { chromium } = await import(PLAYWRIGHT);
+  const pwModule = await import(PLAYWRIGHT);
+  const { chromium } = pwModule.default ?? pwModule;
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
 
   const errors = [];
@@ -262,8 +263,9 @@ async function main() {
   await tab.waitForSelector('[data-testid="console-entry"]', { timeout: 10000 });
   await tab.click('[data-testid="console-entry"]');
   await tab.waitForSelector('.console__section', { timeout: 25000 });
+  await tab.click('[data-testid="console-tab-organisations"]');
   await tab.fill('#console-org-name', 'Owner Networks');
-  await tab.getByRole('button', { name: 'Create the shell and its claim' }).click();
+  await tab.getByRole('button', { name: 'Create the organisation and its setup link' }).click();
   await tab.waitForSelector('li.console__minted-row', { timeout: 15000 });
   await tab.getByRole('button', { name: 'Claim it now' }).click();
   await tab.waitForSelector('#claim-token', { timeout: 15000 });

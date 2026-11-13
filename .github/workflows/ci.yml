@@ -787,3 +787,84 @@ jobs:
       - name: Termix's log, on failure
         if: failure()
         run: docker logs --tail 300 "${{ job.services.termix.id }}"
+
+  # THE BROWSER DRIVES. Added 2026-11-12 (the alpha audit, thread 8): there are dozens of
+  # `scripts/drive-*.mjs`, and until now CI ran one (Termix, above), so most had drifted from the
+  # screens they drive without anyone being told. This job runs ten that between them walk the core
+  # paths: first run, sign-in, an organisation, a site, a design saved and edited live by two
+  # browsers, the sample, Inventory, opening a device, a paste through the redaction gate, a plan.
+  # `scripts/ci/browser-drives.sh` has the list and says what each proves. Six start the built
+  # server on a database they create; four mount the built client over a scene with the network
+  # answered in the page. After `dependency-gates`, like every job that compiles. A drive that
+  # flakes is fixed, not dropped from the list.
+  browser-drives:
+    needs: dependency-gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0, the commit v4 named on 2026-11-02
+
+      - name: Provision a non-superuser test role (RLS does not bind to a superuser)
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER CREATEROLE;"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE DATABASE fathom_test OWNER fathom_test;"
+
+      - name: Install the pinned toolchain (reads rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: Restore the cargo build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target
+          key: cargo-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-v3-${{ runner.os }}-
+
+      - name: Build the server
+        run: cargo build -p fathom-server --locked
+
+      # As the runner's own user, so the host's node can run vite from the client's node_modules
+      # (the harness drives start it) and write its cache there.
+      - name: Build the wasm engine and the client
+        run: |
+          bash scripts/build-wasm.sh
+          docker run --rm --user "$(id -u):$(id -g)" -e npm_config_cache=/tmp/npm-cache \
+            -v "$PWD":/w -w /w/client \
+            node@sha256:f1127b82781601ca2a57c96811cf6be9da3d1f77d58ec13bab49e5f79cf8c84c \
+            sh -c 'npm ci --ignore-scripts && npm run build'
+
+      - name: Fetch Playwright and its Chromium (outside the client, never shipped)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save --ignore-scripts playwright@1.63.0
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+          echo "PW_PLAYWRIGHT=$RUNNER_TEMP/pw/node_modules/playwright/index.js" >> "$GITHUB_ENV"
+          echo "PW_CHROMIUM=$(node -e "console.log(require('$RUNNER_TEMP/pw/node_modules/playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Run the drives
+        env:
+          FATHOM_SHOTS: ${{ runner.temp }}/drive-shots
+        run: scripts/ci/browser-drives.sh
+
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drive-shots
+          path: ${{ runner.temp }}/drive-shots
+          if-no-files-found: ignore

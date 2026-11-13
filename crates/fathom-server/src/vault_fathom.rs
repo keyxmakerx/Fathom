@@ -894,7 +894,7 @@ pub async fn use_login_to_read(
                     ))
                 }
                 Protocol::Ssh if meta.kind != "login" => Err(VaultError::NotAllowed(
-                    "reading over SSH needs a login (a user and password), ticked read-only",
+                    "reading over SSH needs a login (a user and a password or an SSH key), ticked read-only",
                 )),
                 _ => Ok(()),
             }

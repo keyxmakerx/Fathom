@@ -1,5 +1,6 @@
-// r31-bar A: the drawing's own controls sit on the drawing, top left, not in the bar. Select and Pan (drawn by the
-// canvas), the lens and Layers share one strip; Undo, Redo and zoom sit in a pill at the bottom (`BottomPill`).
+// r31-bar A and r116: the drawing's own controls sit on the drawing, top left, not in the bar. Back (when there is
+// somewhere to go back to), Select and Pan (drawn by the canvas), the lens, Layers, Look and Views share one tool
+// row; the camera (zoom out, the stop, zoom in, fit) is a pill at the bottom (`BottomPill`). Undo and Redo are the bar's.
 
 import type { ReactNode } from 'react';
 
@@ -9,7 +10,6 @@ import { LAYERS } from '../drawing/layers';
 import { LENSES_IN, LENS_LABEL, type Lens } from './lens';
 import { Popover } from './Popover';
 import type { Place, ShellProps } from './types';
-import { shortcutText } from './shortcuts';
 
 export interface LensGroupProps {
   place: Place;
@@ -82,12 +82,38 @@ export function LensGroup({ place, lens, onLensChange, cablesGroupsPopover, cabl
 export interface LayersMenuProps {
   layers: NonNullable<ShellProps['layers']>;
   look?: ShellProps['look'];
-  /** More at the foot of the menu: the cable colour key (r30-panels). */
-  extra?: ReactNode;
 }
 
-/** Layers ▾: what is drawn on the drawing, the device and cable styles, and the colour key. */
-export function LayersMenu({ layers, look, extra }: LayersMenuProps) {
+/** One kind of tick box for every row that is on or off. */
+function TickRow({ id, label, on, note, onToggle }: { id: string; label: string; on: boolean; note?: string; onToggle: () => void }) {
+  return (
+    <button type="button" role="menuitemcheckbox" aria-checked={on} className="shell-show__row" data-testid={`show-${id}`} onClick={onToggle}>
+      <span className="shell-show__tick" aria-hidden="true">{on ? '✓' : ''}</span>
+      <span>{label}</span>
+      {note != null && <span className="shell-show__note">{note}</span>}
+    </button>
+  );
+}
+
+/** What Layers holds: the ticks, and nothing about how the drawing looks. */
+export function LayersPanel({ layers, look }: LayersMenuProps) {
+  return (
+      <div className="shell-show" role="group" aria-label="Show on the drawing">
+        <div className="shell-show__head">Show on the drawing</div>
+        {LAYERS.filter((l) => l.available).map((l) => (
+          <TickRow key={l.id} id={l.id} label={l.label} on={layers.value[l.id]} note={l.onByDefault ? 'on by default' : undefined} onToggle={() => layers.onToggle(l.id)} />
+        ))}
+        {layers.aids?.items.map((a) => (
+          <TickRow key={a.id} id={a.id} label={a.label} on={a.on} note={a.note} onToggle={() => layers.aids!.onToggle(a.id)} />
+        ))}
+        {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}
+        <p className="shell-show__hint">Each layer adds words in ink, placed so they never overlap. Yours, per browser.</p>
+      </div>
+  );
+}
+
+/** Layers ▾: what is drawn on the drawing (the nine ticks), and the Mini-map. How it looks is `LookMenu`'s. */
+export function LayersMenu({ layers, look }: LayersMenuProps) {
   return (
     <Popover
       renderTrigger={({ open, triggerProps, triggerRef }) => (
@@ -104,40 +130,21 @@ export function LayersMenu({ layers, look, extra }: LayersMenuProps) {
         </button>
       )}
     >
-      <div className="shell-show" role="group" aria-label="Show on the drawing">
-        <div className="shell-show__head">Show on the drawing</div>
-        {LAYERS.filter((l) => l.available).map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={layers.value[l.id]}
-            className="shell-show__row"
-            data-testid={`show-${l.id}`}
-            onClick={() => layers.onToggle(l.id)}
-          >
-            <span className="shell-show__tick" aria-hidden="true">{layers.value[l.id] ? '✓' : ''}</span>
-            <span>{l.label}</span>
-            {l.onByDefault && <span className="shell-show__note">on by default</span>}
-          </button>
-        ))}
-        {layers.aids?.items.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={a.on}
-            className="shell-show__row"
-            data-testid={`show-${a.id}`}
-            onClick={() => layers.aids!.onToggle(a.id)}
-          >
-            <span aria-hidden="true">{a.on ? '☑' : '☐'}</span>
-            <span>{a.label}</span>
-            {a.note != null && <span className="shell-show__note">{a.note}</span>}
-          </button>
-        ))}
-        {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}
-        <p className="shell-show__hint">Each layer adds words in ink, placed so they never overlap. Yours, per browser.</p>
+      <LayersPanel layers={layers} look={look} />
+    </Popover>
+  );
+}
+
+export interface LookMenuProps {
+  layers: NonNullable<ShellProps['layers']>;
+  /** More at the foot of the menu: the cable colour key (r30-panels). */
+  extra?: ReactNode;
+}
+
+/** What Look holds: device style, cable style, cable colour and the colour key. */
+export function LookPanel({ layers, extra }: LookMenuProps) {
+  return (
+      <div className="shell-show" role="group" aria-label="Look of the drawing">
         {layers.style != null && (
           <div className="shell-show__style" role="group" aria-label="Device style">
             <span className="shell-show__head">Device style</span>
@@ -202,6 +209,29 @@ export function LayersMenu({ layers, look, extra }: LayersMenuProps) {
         )}
         {extra}
       </div>
+  );
+}
+
+/** Look ▾: device style, cable style, cable colour and the colour key. Nothing here changes what is drawn, only how. */
+export function LookMenu({ layers, extra }: LookMenuProps) {
+  if (layers.style == null && layers.cables == null && extra == null) return null;
+  return (
+    <Popover
+      renderTrigger={({ open, triggerProps, triggerRef }) => (
+        <button
+          type="button"
+          className={open ? 'shell-lens shell-lens--on' : 'shell-lens'}
+          data-testid="shell-look"
+          ref={(el) => {
+            triggerRef.current = el;
+          }}
+          {...triggerProps}
+        >
+          Look ▾
+        </button>
+      )}
+    >
+      <LookPanel layers={layers} extra={extra} />
     </Popover>
   );
 }
@@ -214,16 +244,17 @@ export interface CanvasStripProps extends LensGroupProps {
   views?: ReactNode;
   hiddenCablesCount?: number;
   onShowAllHiddenCables?: () => void;
-  /** Where the canvas's own Select and Pan, and the Back trail, are drawn into. */
+  /** Where the canvas's own Select and Pan, and the one Back, are drawn into. */
   slotRef: (id: string) => (el: HTMLElement | null) => void;
 }
 
-/** The strip on the drawing, top left: Select and Pan, the lens, Layers, the saved views, and Back. */
+/** The tool row on the drawing, top left: Back, Select and Pan, the lens, Layers, Look and the saved views. */
 export function CanvasStrip({ layers, look, layersExtra, views, hiddenCablesCount, onShowAllHiddenCables, slotRef, ...lens }: CanvasStripProps) {
   return (
     <div className="shell-canvas-bar" data-print-omit="">
       <div className="shell-canvas-bar__group" role="toolbar" aria-label="Drawing tools">
-        <div className="shell-canvas-bar__slot" ref={slotRef('canvas-tools')} />
+        <div className="shell-canvas-bar__slot" data-slot="jump-trail" ref={slotRef('jump-trail')} />
+        <div className="shell-canvas-bar__slot" data-slot="canvas-tools" ref={slotRef('canvas-tools')} />
         <LensGroup {...lens} />
         {hiddenCablesCount != null && hiddenCablesCount > 0 && (
           <span className="shell-chip shell-bar__hidden-chip" data-testid="shell-hidden-cables-chip">
@@ -233,37 +264,27 @@ export function CanvasStrip({ layers, look, layersExtra, views, hiddenCablesCoun
             </button>
           </span>
         )}
-        {layers != null && <LayersMenu layers={layers} look={look} extra={layersExtra} />}
+        {layers != null && <LayersMenu layers={layers} look={look} />}
+        {layers != null && <LookMenu layers={layers} extra={layersExtra} />}
         {views}
       </div>
-      <div className="shell-canvas-bar__slot" ref={slotRef('jump-trail')} />
     </div>
   );
 }
 
 export interface BottomPillProps {
-  canUndo: boolean;
-  canRedo: boolean;
-  onUndo: () => void;
-  onRedo: () => void;
-  /** Absent where there is nothing to zoom (Inventory). */
+  /** Absent where there is nothing to zoom. */
   zoom?: { value: number; onIn: () => void; onOut: () => void; onFit?: () => void; stops?: ShellProps['zoomStops'] };
 }
 
-/** Undo, Redo and zoom in a pill at the bottom of the drawing. The percentage opens the zoom stops upward. */
-export function BottomPill({ canUndo, canRedo, onUndo, onRedo, zoom }: BottomPillProps) {
+/** The camera, in a pill at the bottom of the drawing: zoom out, the stop or percentage (it opens the stops upward),
+ * zoom in, fit. Undo and Redo are the bar's. */
+export function BottomPill({ zoom }: BottomPillProps) {
   const stops = zoom?.stops;
   return (
-    <div className="shell-pill" role="toolbar" aria-label="Undo and zoom" data-print-omit="" data-testid="shell-pill">
-      <button type="button" className="shell-pill__btn" aria-label="Undo" title={`Undo (${shortcutText('undo')})`} disabled={!canUndo} onClick={onUndo}>
-        <svg {...PILL_ICON}><path d="M5 4L2.5 6.5 5 9" /><path d="M2.5 6.5h7a3.5 3.5 0 010 7H7" /></svg>
-      </button>
-      <button type="button" className="shell-pill__btn" aria-label="Redo" title={`Redo (${shortcutText('redo')})`} disabled={!canRedo} onClick={onRedo}>
-        <svg {...PILL_ICON}><path d="M11 4l2.5 2.5L11 9" /><path d="M13.5 6.5h-7a3.5 3.5 0 000 7H9" /></svg>
-      </button>
+    <div className="shell-pill" role="toolbar" aria-label="Zoom" data-print-omit="" data-testid="shell-pill">
       {zoom != null && (
         <>
-          <span className="shell-pill__rule" aria-hidden="true" />
           <button type="button" className="shell-pill__btn" aria-label="Zoom out" title="Zoom out" onClick={zoom.onOut}>
             &minus;
           </button>

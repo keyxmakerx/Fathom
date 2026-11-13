@@ -33,6 +33,8 @@ export interface TraceController {
   /** A trace is asked for and its answer has not come back. */
   pending: boolean;
   openFrom(chassisId: string): void;
+  /** A cable's path: from the device at one end to the device at the other (r116, a cable's "Trace this path"). */
+  openBetween(fromChassisId: string, toChassisId: string): void;
   /** Opens a whole question at once: from a device to an address or device name, with a flow (may be empty). */
   ask(chassisId: string, to: string, flowText: string): void;
   /** Opens a trace already filled in: a lesson's trace step asks for one. `from` may be a device or a port. */
@@ -167,6 +169,22 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
     [view, doc],
   );
 
+  const openBetween = useCallback(
+    (fromChassisId: string, toChassisId: string) => {
+      const start = endFor(view, doc, fromChassisId);
+      const end = endFor(view, doc, toChassisId);
+      if (start == null) return;
+      if (end == null) return openFrom(fromChassisId);
+      setFrom(start);
+      setTarget(end);
+      setQueryText(end.label);
+      setFlowText('');
+      setResult(null);
+      setError('');
+    },
+    [view, doc, openFrom],
+  );
+
   const ask = useCallback(
     (chassisId: string, toText: string, flowWords: string) => {
       const end = endFor(view, doc, chassisId);
@@ -231,6 +249,7 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
     error,
     pending: from != null && to != null && flow !== null && result == null && error === '',
     openFrom,
+    openBetween,
     ask,
     openWith,
     close,

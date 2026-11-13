@@ -16,6 +16,7 @@ import type { PlansController } from './usePlansController';
 import { useTypeItYourself } from '../typing/typeItYourself';
 import '../typing/typing.css';
 import './plans.css';
+import { PanelHead } from '../shell/PanelHead';
 import { InSlot } from '../shell/sideSlot';
 import { PlanDevices } from '../termix/PlanDevices';
 import { PlanSnippets } from '../termix/PlanSnippets';
@@ -528,12 +529,11 @@ export function PlanPanel({ controller, plan, besideChecks }: { controller: Plan
       aria-label="Maintenance plan"
       data-testid="plans-panel"
     >
-      <header className="plans-panel__head" {...(inSlot ? {} : { onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp })}>
-        <h2 className="plans-panel__title">{HEADING[mode]}</h2>
-        <button type="button" className="plans-link" aria-label="Fold the plan panel" onClick={() => controller.setPanelOpen(false)}>
-          Fold
-        </button>
-      </header>
+      <PanelHead
+        name={HEADING[mode]}
+        onFold={() => controller.setPanelOpen(false)}
+        dragProps={inSlot ? undefined : { onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp }}
+      />
       <div ref={body} tabIndex={-1} className="plans-panel__body">
         <Notice controller={controller} />
         <WhySlot controller={controller} />

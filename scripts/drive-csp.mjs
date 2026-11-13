@@ -57,7 +57,7 @@ const DB_NAME = 'fathom_place_csp';
 const RUNTIME_URL = runtimeUrl(DB_NAME);
 const MIGRATE_URL = migrateUrl(DB_NAME);
 const CHROME = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
-const PLAYWRIGHT = '/opt/node22/lib/node_modules/playwright/index.mjs';
+const PLAYWRIGHT = process.env.PW_PLAYWRIGHT ?? '/opt/node22/lib/node_modules/playwright/index.mjs';
 const ADDRESS = 'operator@fathom.invalid';
 // The length and shape ADR-0055 decision 10 requires, and the CI script's own.
 const CREDENTIAL = 'harbour-lantern-copper-nine';
@@ -210,7 +210,8 @@ async function main() {
   );
 
   // ---- and the pages, in a real browser ----------------------------------
-  const { chromium } = await import(PLAYWRIGHT);
+  const pwModule = await import(PLAYWRIGHT);
+  const { chromium } = pwModule.default ?? pwModule;
   const browser = await chromium.launch({
     executablePath: CHROME,
     args: ['--no-sandbox'],

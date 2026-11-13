@@ -163,7 +163,7 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
   if (consoleHost.status === 'loading') {
     return (
       <div className="console">
-        <SkeletonRows label="Asking the server whether this host answers for the console…" rows={3} />
+        <SkeletonRows label="Checking whether Admin is available here…" rows={3} />
       </div>
     );
   }
@@ -171,12 +171,12 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
     return (
       <div className="console console__absent">
         <p>
-          The operator console does not answer on <code>{host}</code>. Nothing operator-side is offered here, and
-          nothing here would be answered if it were: the server replies 404 to every console path on this host.
+          Admin is not available at <code>{host}</code>. This server shows Admin only at another address, so
+          nothing from Admin appears here.
         </p>
         <p>
-          The console is confined either by <code>FATHOM_ADMIN_HOSTS</code> / <code>FATHOM_ADMIN_SOURCES</code> on
-          the server, or by a placement set in the console itself. Go to the host it was moved to and sign in
+          The address is set either by <code>FATHOM_ADMIN_HOSTS</code> and <code>FATHOM_ADMIN_SOURCES</code> on
+          the server, or under Settings › Where Admin answers. Go to the address Admin was moved to and sign in
           there.
         </p>
       </div>
@@ -186,9 +186,8 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
     return (
       <div className="console console__absent">
         <p>
-          This browser could not establish whether the console answers on <code>{host}</code>:{' '}
-          {consoleHost.message} Nothing operator-side is offered until it can — an unanswered question is not a
-          yes.
+          This browser could not check whether Admin is available at <code>{host}</code>:{' '}
+          {consoleHost.message} Nothing from Admin is shown until it can.
         </p>
       </div>
     );
@@ -198,9 +197,10 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
     <div className="console">
       {/* The page's title and tabs are Home's (ADR-0060 decision 7); this says whose acts these are. */}
       <p className="console__who">
-        Signed in as <code className="console__id">{operatorId}</code> · operator, on <code>{host}</code>. The key
-        that proves it is in this browser, and every operator act below is signed with it.
+        Signed in as <code className="console__id">{operatorId}</code>, a server admin, on <code>{host}</code>. Your
+        sign-in key is kept in this browser, and everything you do here is signed with it.
       </p>
+      <p className="console__note">For whoever runs this server: accounts, organisations, mail, backups.</p>
 
       {!firstLoadDone ? (
         <SkeletonRows label="Loading Admin…" rows={5} />
@@ -221,9 +221,9 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
             Accounts
           </h2>
           <p className="console__note">
-            An account is a shell until its person redeems an invitation, which puts a key in their browser. There is
-            nothing to email an invitation with in this build: read the token off this board and hand it over
-            yourself. Each token works once and expires.
+            A new account stays empty until the person opens their invitation and sets up sign-in in their browser.
+            Fathom does not email invitations: copy the code from Invitations and give it to them yourself. Each
+            code works once and runs out.
           </p>
           <AccountForm onMinted={onMinted} />
           <ReissueForm onMinted={onMinted} />
@@ -237,7 +237,7 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
             Organisations
           </h2>
           <p className="console__note">
-            Names in the clear, everything below them opaque: no design, rack or cable is reachable from here.
+            Admin sees only each organisation's name. It cannot open its designs, racks or cables.
           </p>
           <ListBlock
             loaded={organisations}
@@ -246,8 +246,8 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
               <table className="console__table">
                 <thead>
                   <tr>
-                    <th>id</th>
-                    <th>name</th>
+                    <th>ID</th>
+                    <th>Name</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -270,11 +270,11 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
       {section === 'operators' && (
         <section className="console__section" aria-labelledby="console-operators">
           <h2 id="console-operators" className="console__h2">
-            Operators
+            Server admins
           </h2>
           <ListBlock
             loaded={operators}
-            empty="No operator is registered, which cannot be: you are one."
+            empty="No server admin is registered, which cannot be: you are one."
             render={(rows) => <Operators actingOperatorId={operatorId} rows={rows} onChanged={refresh} />}
           />
           <button type="button" className="console__btn" onClick={refresh}>
@@ -316,9 +316,8 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
             Settings
           </h2>
           <p className="console__note">
-            Two settings live here rather than in a file, on the owner's instruction: mail, because an install with
-            no mail path cannot tell anybody anything; and where this console answers, because moving it from a file
-            means a restart, and a restart in the middle of a move is how a lockout happens.
+            Mail and the address Admin answers on are set here, not in a file. Changing them here needs no restart,
+            which keeps you from being locked out in the middle of a move.
           </p>
           <SmtpForm actingOperatorId={operatorId} />
           <PlacementForm actingOperatorId={operatorId} currentHost={host} />
@@ -330,13 +329,13 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
       {section === 'issued' && minted.length > 0 && (
         <section className="console__section" aria-labelledby="console-minted">
           <h2 id="console-minted" className="console__h2">
-            Issued in this session
+            Invitations made this session
           </h2>
           <p className="console__note">
-            Shown here only until you sign out or reload. The server holds a hash of each token and cannot show it
-            again; a lost invitation is replaced by issuing a new one. The prefix says what the token is for
-            (<code>inv_</code> an account invitation, <code>org_</code> an organisation claim); the enrolment
-            screen reads it, so the person just pastes the token and their address.
+            Shown here only until you sign out or reload. The server cannot show a code again; a lost invitation is
+            replaced by making a new one. The start of the code says what it is for (<code>inv_</code> an account
+            invitation, <code>org_</code> an organisation's setup link); the sign-up screen reads it, so the person
+            just pastes the code and their email.
           </p>
           <ul className="console__minted">
             {minted.map((m) => {
@@ -349,7 +348,7 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
                 <li key={m.invitation.tokenId} className="console__minted-row">
                   <div className="console__minted-label">{m.label}</div>
                   <div className="console__minted-meta">
-                    {m.kind === 'organisation' ? 'shell' : 'account'} <code>{m.invitation.subject}</code> · expires{' '}
+                    {m.kind === 'organisation' ? 'organisation' : 'account'} <code>{m.invitation.subject}</code> · expires{' '}
                     {formatUnix(m.invitation.expiresAtUnix)}
                   </div>
                   {/* An organisation claim has no address to hand over; only
@@ -357,8 +356,8 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
                   {claim ? (
                     <>
                       <p className="console__note">
-                        Notice address <code>{claim.noticeAddress}</code> -- the claim screen asks
-                        for this alongside the token when it is pasted in rather than claimed from
+                        Contact email <code>{claim.noticeAddress}</code> -- the setup screen asks
+                        for this alongside the code when it is pasted in rather than opened from
                         here.
                       </p>
                       {onClaimNow && (
@@ -487,10 +486,10 @@ function ReissueForm({ onMinted }: { onMinted: (m: Minted) => void }) {
 
   return (
     <form className="console__form" onSubmit={submit}>
-      <div className="console__form-title">Issue a new invitation</div>
+      <div className="console__form-title">Make a new invitation</div>
       <p className="console__note">
-        For an account whose invitation was lost or has expired, or whose key must be replaced. The token goes to
-        the account's own address of record; there is no field to send it elsewhere.
+        Use this when someone lost their invitation, it ran out, or they need to set up sign-in again. It is made
+        out to the email already on the account; you cannot choose another.
       </p>
       <label className="console__label" htmlFor="console-reissue-id">
         Account id
@@ -506,7 +505,7 @@ function ReissueForm({ onMinted }: { onMinted: (m: Minted) => void }) {
         required
       />
       <button type="submit" className="console__btn btn-main" disabled={busy || accountId.trim().length === 0}>
-        {busy ? 'Issuing…' : 'Issue'}
+        {busy ? 'Making…' : 'Make'}
       </button>
       {error && (
         <p className="console__error" role="alert">
@@ -539,10 +538,10 @@ function DisableForm() {
 
   return (
     <form className="console__form" onSubmit={(e) => e.preventDefault()}>
-      <div className="console__form-title">Disable or re-enable an account</div>
+      <div className="console__form-title">Turn an account off or on</div>
       <p className="console__note">
-        Disabling stops sign-in at once. It does not touch the account's grants inside any organisation; a steward
-        there revokes those.
+        Turning an account off stops sign-in straight away. It does not remove what the person can do inside an
+        organisation. A Steward of that organisation does that.
       </p>
       <label className="console__label" htmlFor="console-disable-id">
         Account id
@@ -563,7 +562,7 @@ function DisableForm() {
           disabled={busy || accountId.trim().length === 0}
           onClick={() => act(true)}
         >
-          Disable
+          Turn off
         </button>
         <button
           type="button"
@@ -571,7 +570,7 @@ function DisableForm() {
           disabled={busy || accountId.trim().length === 0}
           onClick={() => act(false)}
         >
-          Re-enable
+          Turn on
         </button>
       </div>
       {done && <p className="console__muted">{done}</p>}
@@ -597,7 +596,7 @@ function OrganisationForm({ onMinted }: { onMinted: (m: Minted) => void }) {
       const claim = await createOrganisationShell(displayName.trim());
       onMinted({
         kind: 'organisation',
-        label: `Claim for the organisation shell "${displayName.trim()}"`,
+        label: `Setup link for the new organisation "${displayName.trim()}"`,
         invitation: claim,
         claim,
       });
@@ -611,7 +610,7 @@ function OrganisationForm({ onMinted }: { onMinted: (m: Minted) => void }) {
 
   return (
     <form className="console__form" onSubmit={submit}>
-      <div className="console__form-title">New organisation shell</div>
+      <div className="console__form-title">New organisation</div>
       <label className="console__label" htmlFor="console-org-name">
         Display name
       </label>
@@ -626,7 +625,7 @@ function OrganisationForm({ onMinted }: { onMinted: (m: Minted) => void }) {
         required
       />
       <button type="submit" className="console__btn btn-main" disabled={busy || displayName.trim().length === 0}>
-        {busy ? 'Creating…' : 'Create the shell and its claim'}
+        {busy ? 'Creating…' : 'Create the organisation and its setup link'}
       </button>
       {error && (
         <p className="console__error" role="alert">

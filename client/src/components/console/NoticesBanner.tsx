@@ -36,14 +36,14 @@ export interface NoticesBannerProps {
 export function countSentence(live: number): string {
   if (live <= 0) {
     return (
-      'No operator on this install counts as independent yet — the register counts one only after their own ' +
-      'sign-in has stood for the independence window, so the first operator does not count on their first day.'
+      'No server admin counts as a separate person yet. A server admin counts only after having their own ' +
+      'sign-in for a while, so the first one does not count on their first day.'
     );
   }
   if (live === 1) {
-    return 'There is one independent operator on this install, and there should be two.';
+    return 'Only one server admin counts so far; there should be two.';
   }
-  return `There are ${live} independent operators on this install, and there should be two.`;
+  return `${live} server admins count; there should be two.`;
 }
 
 export function NoticesBanner({
@@ -57,7 +57,7 @@ export function NoticesBanner({
   if (pendingConfirmByUnix !== null) {
     lines.push({
       key: 'placement',
-      text: `This console's placement is not confirmed yet. ${countdownSentence(host, pendingSecondsLeft ?? 0)}`,
+      text: `The new address for Admin is not confirmed yet. ${countdownSentence(host, pendingSecondsLeft ?? 0)}`,
       loud: true,
     });
   }
@@ -67,19 +67,19 @@ export function NoticesBanner({
       lines.push({
         key: 'one_operator',
         text:
-          `${countSentence(notice.live)} Two is the standing shape: if the only one becomes unreachable, ` +
-          `the way back in is "fathom-server recover-operator" on the host that holds the key volume. ` +
-          `This install was set up ${notice.weeks === 0 ? 'less than a week' : notice.weeks === 1 ? 'a week' : `${notice.weeks} weeks`} ago. ` +
-          `Add a colleague below; with one operator the request stands alone and waits out its delay.`,
+          `${countSentence(notice.live)} If the only one is away, ` +
+          `the way back in is the command fathom-server recover-operator, run on the machine that holds the key volume. ` +
+          `This server was set up ${notice.weeks === 0 ? 'less than a week' : notice.weeks === 1 ? 'a week' : `${notice.weeks} weeks`} ago. ` +
+          `Add a colleague below; with one server admin, the request waits out its delay on its own.`,
         loud: notice.weeks >= 1,
       });
     } else if (notice.kind === 'recovered_from_host') {
       lines.push({
         key: `recovered-${notice.atUnix}`,
         text:
-          `An operator was recovered from the host on ${new Date(notice.atUnix * 1000).toLocaleString()}. ` +
-          `Whoever holds the key volume can do this, and it is recorded rather than prevented. ` +
-          `This notice stands until ${new Date(notice.untilUnix * 1000).toLocaleString()}. If it was not you, treat it as an incident.`,
+          `A server admin was restored from the server machine on ${new Date(notice.atUnix * 1000).toLocaleString()}. ` +
+          `Anyone with access to the key volume can do this: Fathom records it but cannot stop it. ` +
+          `This notice stays until ${new Date(notice.untilUnix * 1000).toLocaleString()}. If it was not you, treat it as a security problem.`,
         loud: true,
       });
     } else if (notice.kind === 'backup') {

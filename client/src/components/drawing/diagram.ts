@@ -2,7 +2,8 @@
  * box, one column per rack, and every cable is a square-cornered line between
  * boxes. Pure: the view in, boxes and paths out. */
 
-import type { CableView, ClosetView } from './contract';
+import type { CableView, ClosetView } from "./contract";
+import type { FixtureView } from "../../document/view";
 
 export const BOX_W = 200;
 export const BOX_H = 64;
@@ -22,17 +23,99 @@ export interface DiagramBox extends Rect {
   id: string;
   hostname: string;
   rackLabel: string | null;
+  role: string | null;
 }
 
-/** One column per rack in the view's order, each rack's devices from its top unit down. */
+const FORM_ORDER = ["wall", "floor", "desk", "ceiling"];
+
+/** Fixtures top to bottom, then left to right, as they hang on their surface; one not measured yet goes last. */
+function byPlace(a: FixtureView, b: FixtureView): number {
+  const at = (v: number | null) => v ?? Number.POSITIVE_INFINITY;
+  return at(a.yMm) - at(b.yMm) || at(a.xMm) - at(b.xMm) || a.label.localeCompare(b.label) || a.id.localeCompare(b.id);
+}
+
+/** Every device in the view, in columns: one per rack (racked devices from the top unit down, then what sits
+ * on its shelves), one per wall, floor or desk, then one for devices on free canvas spots or not placed at
+ * all. A device is drawn once, and passives (a panel, a splitter, an outlet block) are not devices. */
 export function layoutDiagram(view: ClosetView): DiagramBox[] {
   const boxes: DiagramBox[] = [];
-  view.racks.forEach((rack, col) => {
-    const ordered = [...rack.chassis].sort((a, b) => b.positionU - a.positionU || a.id.localeCompare(b.id));
-    ordered.forEach((c, row) => {
-      boxes.push({ id: c.id, hostname: c.hostname, rackLabel: rack.label, x: col * COLUMN_PITCH, y: row * ROW_PITCH, w: BOX_W, h: BOX_H });
+  const seen = new Set<string>();
+  let col = 0;
+  const column = (
+    label: string | null,
+    devices: Array<{ id: string; hostname: string; role: string | null }>,
+  ) => {
+    const fresh: typeof devices = [];
+    for (const d of devices)
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        fresh.push(d);
+      }
+    fresh.forEach((d, row) => {
+      boxes.push({
+        id: d.id,
+        hostname: d.hostname,
+        rackLabel: label,
+        role: d.role,
+        x: col * COLUMN_PITCH,
+        y: row * ROW_PITCH,
+        w: BOX_W,
+        h: BOX_H,
+      });
     });
-  });
+    if (fresh.length > 0) col += 1;
+  };
+  for (const rack of view.racks) {
+    const ordered = [...rack.chassis].sort(
+      (a, b) => b.positionU - a.positionU || a.id.localeCompare(b.id),
+    );
+    const onShelves = (rack.shelves ?? []).flatMap((s) =>
+      s.occupants
+        .filter((o) => o.kind === "chassis")
+        .map((o) => ({
+          id: o.id,
+          hostname: o.chassis?.hostname ?? o.label,
+          role: o.chassis?.role ?? null,
+        })),
+    );
+    column(rack.label, [
+      ...ordered.map((c) => ({
+        id: c.id,
+        hostname: c.hostname,
+        role: c.role ?? null,
+      })),
+      ...onShelves,
+    ]);
+  }
+  const fixtures = (
+    list: FixtureView[],
+  ): Array<{ id: string; hostname: string; role: string | null }> =>
+    [...list].sort(byPlace).flatMap((f) => [
+      ...(f.kind === "chassis"
+        ? [
+            {
+              id: f.id,
+              hostname: f.chassis?.hostname ?? f.label,
+              role: f.chassis?.role ?? null,
+            },
+          ]
+        : []),
+      ...fixtures(f.fixtures ?? []),
+    ]);
+  // A fixed order, so Diagram looks the same on every load: walls, floors, desks, then ceilings, each by name.
+  const surfaces = [...(view.surfaces ?? [])].sort(
+    (a, b) => FORM_ORDER.indexOf(a.form) - FORM_ORDER.indexOf(b.form) || a.label.localeCompare(b.label) || a.id.localeCompare(b.id),
+  );
+  for (const surface of surfaces)
+    column(surface.label, fixtures(surface.fixtures ?? []));
+  column(
+    null,
+    [...(view.free ?? []), ...(view.unplaced ?? [])].map((d) => ({
+      id: d.id,
+      hostname: d.hostname,
+      role: d.role ?? null,
+    })),
+  );
   return boxes;
 }
 
@@ -43,7 +126,8 @@ export interface Route {
   b: { x: number; y: number; dx: number; dy: number };
 }
 
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, v));
 
 /** A square-cornered route from `ra` to `rb`: straight when the boxes overlap
  * on an axis, otherwise out sideways, across and in. `lane` shifts it off the
@@ -57,7 +141,11 @@ export function orthRoute(ra: Rect, rb: Rect, lane = 0): Route {
     const ya = down ? ra.y + ra.h : ra.y;
     const yb = down ? rb.y : rb.y + rb.h;
     const s = down ? 1 : -1;
-    return { d: `M ${x} ${ya} L ${x} ${yb}`, a: { x, y: ya, dx: 0, dy: s }, b: { x, y: yb, dx: 0, dy: -s } };
+    return {
+      d: `M ${x} ${ya} L ${x} ${yb}`,
+      a: { x, y: ya, dx: 0, dy: s },
+      b: { x, y: yb, dx: 0, dy: -s },
+    };
   }
   const oy0 = Math.max(ra.y, rb.y);
   const oy1 = Math.min(ra.y + ra.h, rb.y + rb.h);
@@ -67,7 +155,11 @@ export function orthRoute(ra: Rect, rb: Rect, lane = 0): Route {
     const xa = right ? ra.x + ra.w : ra.x;
     const xb = right ? rb.x : rb.x + rb.w;
     const s = right ? 1 : -1;
-    return { d: `M ${xa} ${y} L ${xb} ${y}`, a: { x: xa, y, dx: s, dy: 0 }, b: { x: xb, y, dx: -s, dy: 0 } };
+    return {
+      d: `M ${xa} ${y} L ${xb} ${y}`,
+      a: { x: xa, y, dx: s, dy: 0 },
+      b: { x: xb, y, dx: -s, dy: 0 },
+    };
   }
   const right = ra.x < rb.x;
   const xa = right ? ra.x + ra.w : ra.x;
@@ -76,7 +168,11 @@ export function orthRoute(ra: Rect, rb: Rect, lane = 0): Route {
   const yb = rb.y + rb.h / 2 + lane;
   const mid = (xa + xb) / 2 + lane;
   const s = right ? 1 : -1;
-  return { d: `M ${xa} ${ya} L ${mid} ${ya} L ${mid} ${yb} L ${xb} ${yb}`, a: { x: xa, y: ya, dx: s, dy: 0 }, b: { x: xb, y: yb, dx: -s, dy: 0 } };
+  return {
+    d: `M ${xa} ${ya} L ${mid} ${ya} L ${mid} ${yb} L ${xb} ${yb}`,
+    a: { x: xa, y: ya, dx: s, dy: 0 },
+    b: { x: xb, y: yb, dx: -s, dy: 0 },
+  };
 }
 
 export interface DiagramLine {
@@ -88,11 +184,17 @@ export interface DiagramLine {
 }
 
 /** One line per cable with both ends on drawn boxes; a loop back to its own box is not drawn. */
-export function diagramLines(view: ClosetView, boxIds: ReadonlySet<string>): DiagramLine[] {
+export function diagramLines(
+  view: ClosetView,
+  boxIds: ReadonlySet<string>,
+): DiagramLine[] {
   const pairs = new Map<string, CableView[]>();
   const ends = new Map<string, [string, string]>();
   for (const cable of view.cables) {
-    const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
+    const real = cable.ends.filter(
+      (e): e is { portId: string; chassisId: string; rackId: string | null } =>
+        "portId" in e,
+    );
     if (real.length !== 2) continue;
     const [a, b] = [real[0]!.chassisId, real[1]!.chassisId];
     if (a === b || !boxIds.has(a) || !boxIds.has(b)) continue;

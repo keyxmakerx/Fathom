@@ -114,6 +114,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const leadA = data?.ends?.[0];
   const leadB = data?.ends?.[1];
   const sway = useCableSway(
+    cableId,
     style === 'physics' && data != null,
     leadA != null ? leadA.x + leadA.w / 2 : sourceX,
     leadA != null ? leadA.y : sourceY,

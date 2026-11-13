@@ -16,7 +16,12 @@ source:
     Intel, "Intel NUC 13 Pro Kit/Board/Mini-PC" Technical Product Specification
     (NUC13AN_TechProdSpec.pdf), intel.com/content/dam/support/us/en/documents/intel-nuc/,
     and dcs.dk listing for NUC13ANHi5, read 2026-10-10. 1x RJ-45 2.5GbE, back panel.
+    Size from Intel's "NUC 13 Pro Tech Specs" sheet (hosted at rutronik.com,
+    22NUC_13_Pro_Tech_Specs.pdf), "H" (tall) chassis 117 x 112 x 54 mm, read 2026-11-13.
+    The sheet does not say which of 117 and 112 is the front; 117 is recorded as the
+    width.
   read_on: "2026-10-10"
+size_mm: { width: 117, depth: 112, height: 54 }
 faceplates:
   - face: front
     port_count: 0

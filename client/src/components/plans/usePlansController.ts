@@ -51,7 +51,7 @@ import type { Mirror } from '../../engine/mirror';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
 import { buildCanon, CHECKS_DEBOUNCE_MS, isTypingTarget, standingDelay, type Canon } from '../checks/checksModel';
 import { NO_CLASHES, offerNote, type PlanClashes, type WindowText, type WorkClash } from './clashes';
-import { buildMarks, buildStep, changedMarks, EMPTY_FORM, focusKeys, planEscTarget, prefillFor, stepCheck, titleFor, type StepForm } from './plansModel';
+import { buildMarks, buildStep, changedMarks, EMPTY_FORM, focusKeys, planEscTarget, prefillFor, asksKind, stepCheck, titleFor, type StepForm } from './plansModel';
 import { createPlansStore, type PlansStore } from './plansStore';
 
 const STORAGE_KEY = 'fathom.plans.panel';
@@ -146,7 +146,8 @@ export interface PlansController {
   showChanges: boolean;
   toggleShowChanges(): void;
   /** Form values the right-click set; the add-step form starts from them. */
-  prefill: { token: number; form: StepForm } | null;
+  /** `ask`: open the form on "What kind of change?" with the thing filled in (a device, sign-off r120). */
+  prefill: { token: number; form: StepForm; ask: boolean } | null;
   planChange(elementId: string): void;
   /** One plan for the devices of a firmware upgrade (firmware): its steps are Fathom's own words, stored as given. */
   /** A firmware upgrade as a new plan, or added to `template.intoPlan`. */
@@ -267,7 +268,7 @@ export function usePlansController({
   const [why, setWhy] = useState<CheckFinding | null>(null);
   const [whyToken, setWhyToken] = useState(0);
   const [showChanges, setShowChanges] = useState(false);
-  const [prefill, setPrefill] = useState<{ token: number; form: StepForm } | null>(null);
+  const [prefill, setPrefill] = useState<{ token: number; form: StepForm; ask: boolean } | null>(null);
   const whyTrigger = useRef<HTMLElement | null>(null);
   const tokenRef = useRef(0);
   const latest = useRef({ doc, boot, mirrorNow, loadCostMs, redact, applyDocChange, actor, authorName, canEdit });
@@ -505,11 +506,12 @@ export function usePlansController({
       if (d == null || !latest.current.canEdit) return;
       const c = buildCanon(d);
       const form = { ...EMPTY_FORM, ...(prefillFor(d, c, elementId) ?? {}) };
+      const ask = asksKind(elementId);
       tokenRef.current += 1;
       const at = tokenRef.current;
       // Add to the plan being written, if there is one; else start one named for the thing.
       if (plan != null && plan.stage === 'planned') {
-        setPrefill({ token: at, form });
+        setPrefill({ token: at, form, ask });
         update({ open: true });
         setListMode(false);
         return;
@@ -519,7 +521,7 @@ export function usePlansController({
         setOpenId(made.id);
         setBandShown(true);
         setListMode(false);
-        setPrefill({ token: at, form });
+        setPrefill({ token: at, form, ask });
         update({ open: true });
         return made.doc;
       });

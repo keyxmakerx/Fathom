@@ -2,7 +2,7 @@ import type { Edge, Node } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
 
 import type { PlanMark } from '../plans/plansStore';
-import { menuItemsFor } from './contextMenuItems';
+import { DEVICE_WORDS, menuItemsFor } from './contextMenuItems';
 import { TONE_COLOUR, applyPlans, cssString, decorFor, focusMatch, ghostEdges, matchMarks, toneOf, type PortTarget } from './plansMarks';
 
 const canon = (id: string): string => (id.startsWith('port:') ? `device:${id.split(':')[1]}` : id);
@@ -188,17 +188,17 @@ describe('Do fades all but the current step', () => {
 describe('Plan a change menu item', () => {
   const base = { onSelect: () => {} };
   it('is offered on a device only when the action is given', () => {
-    expect(menuItemsFor({ kind: 'chassis', id: 'device:fw' }, base).map((i) => i.label)).not.toContain('Plan a change');
+    expect(menuItemsFor({ kind: 'chassis', id: 'device:fw' }, base).map((i) => i.label)).not.toContain(DEVICE_WORDS.planChange);
     let got = '';
     const items = menuItemsFor({ kind: 'chassis', id: 'device:fw' }, { ...base, onPlanChange: (id) => (got = id) });
-    items.find((i) => i.label === 'Plan a change')!.onSelect();
+    items.find((i) => i.label === DEVICE_WORDS.planChange)!.onSelect();
     expect(got).toBe('device:fw');
   });
 
   it('is on a free box too, but not a label or a cable', () => {
     const a = { ...base, onPlanChange: () => {} };
-    expect(menuItemsFor({ kind: 'free', id: 'x' }, a).map((i) => i.label)).toContain('Plan a change');
-    expect(menuItemsFor({ kind: 'label', id: 'x' }, a).map((i) => i.label)).not.toContain('Plan a change');
-    expect(menuItemsFor({ kind: 'cable', id: 'x' }, a).map((i) => i.label)).not.toContain('Plan a change');
+    expect(menuItemsFor({ kind: 'free', id: 'x' }, a).map((i) => i.label)).toContain(DEVICE_WORDS.planChange);
+    expect(menuItemsFor({ kind: 'label', id: 'x' }, a).map((i) => i.label)).not.toContain(DEVICE_WORDS.planChange);
+    expect(menuItemsFor({ kind: 'cable', id: 'x' }, a).map((i) => i.label)).not.toContain(DEVICE_WORDS.planChange);
   });
 });

@@ -675,3 +675,29 @@ div.vault-row {
   gap: 10px;
   margin-top: var(--s4);
 }
+
+/* SSH key logins (r117, finding 11): the private key wraps, the public key line breaks anywhere. */
+.vault-key-text {
+  font-size: var(--t-mono);
+  white-space: pre;
+  overflow-x: auto;
+}
+.vault-public-key {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  font-size: var(--t-mono);
+  user-select: all;
+}
+.vault-key-held,
+code.vault-public-key {
+  height: auto;
+  min-height: 28px;
+  padding: var(--s1) var(--s2);
+}
+.vault-key-held {
+  flex: 1;
+  min-width: 0;
+}

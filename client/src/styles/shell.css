@@ -752,6 +752,23 @@ button.shell-admin-pill {
   .shell-popover { animation: none; }
 }
 
+/* r116: no pop-over is ever taller than the window. One that hangs from the tool row starts lower than the bar's
+   own, so it is capped lower and scrolls inside itself. */
+.shell-canvas-bar .shell-popover,
+.inv-toolrow .shell-popover {
+  max-height: calc(100dvh - 124px);
+}
+.shell-popover.shell-popover--above {
+  max-height: calc(100dvh - 120px);
+}
+/* Look's widest row is the cable colour pair; it scrolls down, never sideways. */
+.shell-show[aria-label='Look of the drawing'] {
+  width: 344px;
+}
+.shell-canvas-bar .shell-popover {
+  overflow-x: hidden;
+}
+
 .shell-popover--right {
   left: auto;
   right: 0;
@@ -1142,7 +1159,8 @@ button.shell-admin-pill {
   top: var(--s2);
   left: var(--s2);
   right: var(--s2);
-  z-index: 6;
+  /* Over an opened device (--z-modal + 1): the tool row, with its Back, stays where it is inside one (r116). */
+  z-index: calc(var(--z-modal) + 2);
   display: flex;
   align-items: flex-start;
   gap: var(--s2);
@@ -1173,10 +1191,33 @@ button.shell-admin-pill {
   box-shadow: none;
 }
 .shell-canvas-bar .jump-trail {
-  position: static;
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
   pointer-events: auto;
 }
-.shell-canvas-bar__group:has(> .shell-canvas-bar__slot:empty) {
+/* r116: Back is the first thing in the tool row, not a surface of its own; its tree hangs under it. */
+.shell-canvas-bar .jump-trail__bar {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+.shell-canvas-bar .jump-tree {
+  position: absolute;
+  top: calc(100% + var(--s1));
+  left: 0;
+  z-index: 1;
+}
+.shell-canvas-bar .jump-trail:empty {
+  display: none;
+}
+.shell-canvas-bar__group:has(> .shell-canvas-bar__slot[data-slot='canvas-tools']:empty) {
   padding-left: var(--s2);
 }
 /* The colour key lives in Layers now (r30-panels): it sits in the menu, not over the drawing. */

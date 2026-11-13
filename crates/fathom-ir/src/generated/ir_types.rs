@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.39";
+    pub const SCHEMA_VERSION: &str = "0.40";
 
     /// `schema.oldest_readable`: the oldest declared version a reader still
     /// opens. Every move since is additive.
@@ -20,7 +20,7 @@ mod body {
 
     /// Every declared version from `OLDEST_READABLE_SCHEMA_VERSION` up to, not
     /// including, `SCHEMA_VERSION`: the older headers a reader accepts.
-    pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38"];
+    pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39"];
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -3591,7 +3591,7 @@ mod body {
                 EdgeKind::RelaysFor => &[],
                 EdgeKind::RelayServerIn => &[],
                 EdgeKind::FittedIn => &[],
-                EdgeKind::SitsOn => &[crate::bag::FieldKey(318)],
+                EdgeKind::SitsOn => &[crate::bag::FieldKey(318), crate::bag::FieldKey(644), crate::bag::FieldKey(645)],
                 EdgeKind::HasSurface => &[],
                 EdgeKind::FixedTo => &[crate::bag::FieldKey(323), crate::bag::FieldKey(324)],
                 EdgeKind::HasCapture => &[],
@@ -12708,13 +12708,17 @@ mod body {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum SitsOnField {
         Slot,
+        XMm,
+        YMm,
     }
 
     impl SitsOnField {
-        pub const COUNT: usize = 1;
+        pub const COUNT: usize = 3;
         /// Every field, declaration order.
-        pub const ALL: [SitsOnField; 1] = [
+        pub const ALL: [SitsOnField; 3] = [
             SitsOnField::Slot,
+            SitsOnField::XMm,
+            SitsOnField::YMm,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -12722,12 +12726,16 @@ mod body {
         pub const fn name(self) -> &'static str {
             match self {
                 SitsOnField::Slot => "slot",
+                SitsOnField::XMm => "x_mm",
+                SitsOnField::YMm => "y_mm",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
         pub const fn key(self) -> crate::bag::FieldKey {
             match self {
                 SitsOnField::Slot => crate::bag::FieldKey(318),
+                SitsOnField::XMm => crate::bag::FieldKey(644),
+                SitsOnField::YMm => crate::bag::FieldKey(645),
             }
         }
     }
@@ -12919,7 +12927,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 578] = [
+    pub const FIELD_KEYS: [(&str, u32); 580] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -13498,6 +13506,8 @@ mod body {
         ("NatPool.address", 641),
         ("NatPool.address_to", 642),
         ("NatPool.port", 643),
+        ("SitsOn.x_mm", 644),
+        ("SitsOn.y_mm", 645),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit

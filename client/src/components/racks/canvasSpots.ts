@@ -8,8 +8,7 @@ import { BOX_H, BOX_W, moveFree } from '../../document/freeform';
 import type { Document } from '../../document/model';
 import { viewOf, type ClosetView } from '../../document/view';
 import { nextFreeSpot } from '../drawing/freeLayout';
-import { U_PX } from '../drawing/geometry';
-import { RACK_NODE_WIDTH } from '../drawing/RackNode';
+import { RACK_NODE_WIDTH, U_PX } from '../drawing/geometry';
 import { closetRightPx } from '../drawing/rows';
 
 type Actor = Parameters<typeof moveFree>[2];

@@ -231,6 +231,30 @@ describe('the configuration, read over SSH (ADR-0082 §4.1)', () => {
     expect(tab).toContain('Confirm the new one');
   });
 
+  it('says a refused login waits, and while it waits offers the login, not Try again (r117)', () => {
+    const { doc, device } = srx();
+    const place: ReadingPlace = { organisation: ORG, design: DESIGN, doc, canDraw: true, onEdit: () => undefined };
+    const retryAt = Date.UTC(2026, 10, 12, 14, 5);
+    const at = new Date(retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const refused = { kind: 'failed' as const, code: 'login_refused', message: 'x', identity: null, previous: null, read: 'config' as const, retryAt };
+    seedReading(DESIGN, device, { ...chosen, panel: { status: 'ready', value: panel() }, halt: refused }, ORG, on);
+    const first = render(place, createElement(ReadingsTab, { deviceId: device }));
+    expect(first).toContain('Not read: the login was refused');
+    expect(first).toContain(`cannot lock the device’s account, Fathom sends this login to it again after ${at}`);
+    expect(first).toContain('Try again');
+
+    resetReadingStore();
+    const message = 'The device refused this login 2 times in a row. Fathom waits 15 minutes before it sends it again.';
+    const cooling = { ...refused, code: 'cooling_down', message };
+    seedReading(DESIGN, device, { ...chosen, panel: { status: 'ready', value: panel() }, halt: cooling }, ORG, on);
+    const waiting = render(place, createElement(ReadingsTab, { deviceId: device }));
+    expect(waiting).toContain('Not read: waiting after a refused login');
+    expect(waiting).toContain(message);
+    expect(waiting).toContain(`Nothing was sent. Fathom sends this login to it again after ${at}.`);
+    expect(waiting).toContain('Open the login');
+    expect(waiting).not.toContain('Try again');
+  });
+
   it('offers only read-only logins over SSH, never an SNMP one', () => {
     const e = (over: Partial<VaultEntry>): VaultEntry =>
       ({ id: 'L1', name: 'srx-ro', kind: 'login', readOnly: true, snmpAuth: null, fathom: { state: 'on' }, usedOn: [{ design: DESIGN, element: 'dev' }], ...over }) as VaultEntry;

@@ -24,3 +24,28 @@ describe('PracticeWelcome (ADR-0069)', () => {
     expect(html).toContain('Refused.');
   });
 });
+
+describe('PracticeWelcome with "Start your own network" (sign-off r123)', () => {
+  const own = { onMake: async () => false, busy: false, error: null, codePrompt: null };
+
+  it('offers its own network beside the practice lab, which keeps its place and words', () => {
+    const html = renderToStaticMarkup(createElement(PracticeWelcome, { address: 'sam@example.com', offer, onOpen: () => {}, own }));
+    expect(html.indexOf('Open the practice home lab')).toBeLessThan(html.indexOf('Start your own network'));
+    expect(html).toContain('Open practice lab');
+    expect(html).toContain('value="Home network"');
+    expect(html).toContain('Start drawing');
+    expect(html).toContain('Running this for a team?');
+    expect(html).not.toContain('When people are ready to draw for real');
+  });
+
+  it('shows no recovery key until Start drawing is pressed, so nothing is made on sight', () => {
+    const html = renderToStaticMarkup(createElement(PracticeWelcome, { address: 'a@b', offer, onOpen: () => {}, own }));
+    expect(html).not.toContain('recovery key');
+  });
+
+  it('leaves the card out where it is not offered', () => {
+    const html = renderToStaticMarkup(createElement(PracticeWelcome, { address: 'a@b', offer, onOpen: () => {} }));
+    expect(html).not.toContain('Start your own network');
+    expect(html).toContain('When people are ready to draw for real');
+  });
+});

@@ -33,7 +33,7 @@ function history(over: Partial<History> = {}): History {
 
 const render = (h: History, canDraw = true) =>
   renderToStaticMarkup(
-    createElement(HistoryPanel, { history: h, accountId: null, accountAddress: null, canDraw, restoreText: 'This will remove 1 device.', onRestore: () => {}, onClose: () => {} }),
+    createElement(HistoryPanel, { history: h, accountId: null, accountAddress: null, canDraw, restoreText: 'This will remove 1 device.', onRestore: () => {} }),
   );
 
 describe('HistoryPanel', () => {

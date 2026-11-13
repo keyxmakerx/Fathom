@@ -25,7 +25,7 @@ export function searchShouldCollapse({
 }
 
 /** How far the bar is folded: 0 is everything shown; each step folds one more
- * group (search, the action chips, the path, the lenses, then undo and zoom). */
+ * group (search, the action chips, the path, undo and zoom, then the views as one menu). */
 export const BAR_FOLD_MAX = 5;
 
 /** Pure: the next fold level. Fold one more while the row is wider than the

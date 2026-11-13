@@ -103,7 +103,7 @@ export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWai
               <p className="org-note">
                 {people.termixFetch
                   ? 'On. A check step offers Fetch from Termix: Termix runs the step’s own command, only from a fixed read-only list for the device’s platform, and the answer is redacted in the browser like a paste. Fathom never acts on what it read.'
-                  : 'Off. A check step has its paste box only. Turned on, a check step also offers Fetch from Termix, which runs only read-only commands (show and the like) and never leads Fathom to act.'}
+                  : 'Off. A check step has its paste box only. Turned on, a check step also offers Fetch from Termix, which runs only commands that read (such as show) and never changes anything.'}
               </p>
               <div className="org-actions">
                 <button type="button" className="org-btn" disabled={busy} onClick={() => onSetTermixFetch(!people.termixFetch)}>
@@ -173,7 +173,7 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
 
       {active ? (
         <>
-          <div className="home__label">Access in the folders you steward</div>
+          <div className="home__label">What they can do in the folders you look after</div>
           {person.access.length === 0 && <p className="home__muted">None.</p>}
           <ul className="org-rows">
             {person.access.map((row) => {

@@ -7,6 +7,12 @@
    is the tape that goes round the cable (`labels.ts`, `presetOf`), checked against these by a test. */
 
 @page label-tze-36 { size: 80mm 36mm; margin: 0; }
+@page label-wrap-18-slim { size: 21mm 18mm; margin: 0; }
+@page label-wrap-18-cat6 { size: 27mm 18mm; margin: 0; }
+@page label-wrap-18-cat6a { size: 34mm 18mm; margin: 0; }
+@page label-flag-18-slim { size: 113mm 18mm; margin: 0; }
+@page label-flag-18-cat6 { size: 119mm 18mm; margin: 0; }
+@page label-flag-18-cat6a { size: 126mm 18mm; margin: 0; }
 @page label-wrap-24-slim { size: 21mm 24mm; margin: 0; }
 @page label-wrap-24-cat6 { size: 27mm 24mm; margin: 0; }
 @page label-wrap-24-cat6a { size: 34mm 24mm; margin: 0; }
@@ -21,6 +27,12 @@
 @page label-a4 { size: 210mm 297mm; margin: 0; }
 
 .labels-page--tze-36 { page: label-tze-36; }
+.labels-page--wrap-18-slim { page: label-wrap-18-slim; }
+.labels-page--wrap-18-cat6 { page: label-wrap-18-cat6; }
+.labels-page--wrap-18-cat6a { page: label-wrap-18-cat6a; }
+.labels-page--flag-18-slim { page: label-flag-18-slim; }
+.labels-page--flag-18-cat6 { page: label-flag-18-cat6; }
+.labels-page--flag-18-cat6a { page: label-flag-18-cat6a; }
 .labels-page--wrap-24-slim { page: label-wrap-24-slim; }
 .labels-page--wrap-24-cat6 { page: label-wrap-24-cat6; }
 .labels-page--wrap-24-cat6a { page: label-wrap-24-cat6a; }
@@ -160,6 +172,49 @@
   box-sizing: border-box;
   border-left: 0.2mm dashed #000000;
   border-right: 0.2mm dashed #000000;
+}
+
+/* On a phone (r130, "make sure the mobile view is easy to work"): each picker gets a row of its own,
+   every control is a 44 px target (WCAG 2.5.5's size), the bar scrolls away rather than holding a
+   third of the screen, the Brother download fills its own row as the
+   likely way out from a phone, and the phone's paragraph comes before the print-dialog one. */
+@media (max-width: 640px) {
+  .labels-preview__bar {
+    position: static;
+    gap: var(--s2);
+    padding: var(--s2) var(--s3);
+  }
+  .labels-preview__bar label {
+    flex: 1 1 100%;
+  }
+  .labels-preview__bar select {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+  }
+  .labels-preview__bar button {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+  .labels-preview__bar .labels-preview__brother {
+    flex-basis: 100%;
+  }
+  .labels-preview__grow {
+    display: none;
+  }
+  .labels-preview__help {
+    margin-inline: var(--s3);
+  }
+  .labels-preview__help--brother {
+    order: 1;
+  }
+  .labels-preview__help:not(.labels-preview__help--brother) {
+    order: 2;
+  }
+  .labels-preview__pages {
+    order: 3;
+    padding: var(--s3);
+  }
 }
 
 @media print {

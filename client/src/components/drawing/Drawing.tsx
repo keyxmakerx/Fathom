@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { DragEvent, ReactNode } from 'react';
+import type { DragEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import {
   Background,
   ConnectionMode,
+  getViewportForBounds,
   ReactFlow,
   ReactFlowProvider,
   ViewportPortal,
@@ -57,6 +58,7 @@ import {
   U_PX,
   cableWidthScale,
   cameraStopAt,
+  openingFit,
   overlapsRack,
   rackAtPoint,
   snapDropToU,
@@ -82,7 +84,12 @@ import { CanvasTools, type CanvasTool } from './CanvasTools';
 import { InSideSlot } from '../shell/sideSlot';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
+import { openElsewhere } from '../../api/estate';
+import { SHOW_DETAILS_EVENT } from '../shell/useRightTab';
+import { CableRunAsk, RackSizeAsk } from './AskCard';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
+import { doubleClickAnswer } from './doubleClick';
+import { cableEndsOf, portFactsOf } from './menuFacts';
 import { holderOf } from './editorChanges';
 import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider, useLive, type LiveStore } from './liveStore';
 import { portSheathEqual } from './nodeEquality';
@@ -523,6 +530,9 @@ function DrawingInner({
   // React Flow never moves a dragged node itself here (no `onNodesChange`);
   // this override moves only the one chassis being dragged.
   const [dragOverride, setDragOverride] = useState<{ id: string; position: { x: number; y: number } } | null>(null);
+  // A rack being dragged: where it is under the pointer, so it carries its devices and their cables
+  // with it as it moves (sign-off r129), instead of jumping on drop.
+  const [rackDrag, setRackDrag] = useState<{ id: string; position: { x: number; y: number } } | null>(null);
   const [dropPreview, setDropPreview] = useState<DropPreview>({});
   const [shakingId, setShakingId] = useState<string | null>(null);
   // React Flow owns the camera; this component keeps only the stop and the
@@ -563,6 +573,9 @@ function DrawingInner({
   // choice never acts through a handler the menu opened over. A reader gets
   // only Details, the same `canDraw` gate the delete key has.
   const [menu, setMenu] = useState<{ x: number; y: number; target: MenuTarget } | null>(null);
+  // r116: "Add a rack…" and "Add a cable run…" ask their one question where the menu was, after the click.
+  const [ask, setAsk] = useState<{ x: number; y: number; kind: 'rack' } | { x: number; y: number; kind: 'run'; hostId: string } | null>(null);
+  const menuAtRef = useRef({ x: 0, y: 0 });
   // Zoom never opens a device; only Open, a double-click or "Show on rack" does.
   const [opened, setOpened] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
   // Sign-off r59: a click anywhere on a device selects it and opens its panel; the callout a click on its
@@ -632,9 +645,20 @@ function DrawingInner({
     onDuplicateFree: onDuplicateFree ? (ids) => void onDuplicateFree(ids, 24, 24) : undefined,
     onRemoveFree,
   };
+  // r116: a port's and a cable's menus read where the cable goes off this view, and the two questions open where
+  // the menu was.
+  const readMenuActions: Partial<MenuActions> = {
+    portFacts: (portId) => portFactsOf(view, portId),
+    cableEndFacts: (cableId) => cableEndsOf(view, cableId),
+    onOpenFarSite: (far) => openElsewhere(far.design, far.element),
+  };
+  const askMenuActions: Partial<MenuActions> = {
+    onAskRackSize: () => setAsk({ ...menuAtRef.current, kind: 'rack' }),
+    onAskCableRun: (hostId) => setAsk({ ...menuAtRef.current, kind: 'run', hostId }),
+  };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onOpenShelf, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions, ...holderMenuActions, ...deviceMenu }
-    : { onSelect, onOpen: openChassis, onOpenInside, onOpenShelf, onTraceFrom, ...deviceMenu };
+    ? { onSelect, onOpen: openChassis, onOpenInside, onOpenShelf, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions, ...holderMenuActions, ...readMenuActions, ...askMenuActions, ...deviceMenu }
+    : { onSelect, onOpen: openChassis, onOpenInside, onOpenShelf, onTraceFrom, ...readMenuActions, ...deviceMenu };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
     menuActionsRef.current = menuActions;
@@ -645,10 +669,11 @@ function DrawingInner({
     // Nothing to offer (a reader on the empty canvas): the browser's own menu.
     if (!rect || menuItemsFor(target, menuActionsRef.current).length === 0) return;
     event.preventDefault();
+    menuAtRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    setAsk(null);
     setMenu({ x: event.clientX - rect.left, y: event.clientY - rect.top, target });
   }, []);
-  // A shelf, tray or row label has no menu of its own yet; it offers
-  // what the empty canvas does.
+  // A row label has no menu of its own yet; it offers what the empty canvas does.
   const paneTarget = useCallback(
     (event: { clientX: number; clientY: number }): MenuTarget => {
       const rect = containerRef.current?.getBoundingClientRect();
@@ -662,6 +687,10 @@ function DrawingInner({
   const handleNodeContextMenu: NodeMouseHandler = useCallback(
     (event, node) => {
       if (node.type === 'looseCable') return openMenu(event, { kind: 'cable', id: (node.data as LooseCableNodeData).cable.id });
+      // r116: a portal tray has a menu of its own, and so has a port, not its device's.
+      if (node.type === 'tray') return openMenu(event, { kind: 'tray', far: (node.data as PortalTrayNodeType['data']).far });
+      const onPort = (event.target as Element | null)?.closest?.('[data-port-id]')?.getAttribute('data-port-id');
+      if (onPort) return openMenu(event, { kind: 'port', id: onPort });
       // A device on a shelf, wall, desk or ceiling has the same menu as one in a rack unit.
       const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis');
       if (onDevice) return openMenu(event, { kind: 'chassis', id: onDevice, on: node.id.startsWith('surface:') ? 'fixture' : 'occupant' });
@@ -898,7 +927,16 @@ function DrawingInner({
     }
     const whole = isFirstRun && fitWholeOnOpen;
     const raf = requestAnimationFrame(() => {
-      void rf.fitView(whole ? closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds) : rackFitViewOptions(view.racks, free.fitIds));
+      const wholeOptions = closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds);
+      const pane = containerRef.current;
+      // The whole closet only when its names can still be read; otherwise the racks, at their own stop.
+      let useWhole = whole;
+      if (whole && pane != null && pane.clientWidth > 0 && pane.clientHeight > 0) {
+        const bounds = rf.getNodesBounds(wholeOptions.nodes.map((n) => n.id));
+        const fit = getViewportForBounds(bounds, pane.clientWidth, pane.clientHeight, wholeOptions.minZoom, wholeOptions.maxZoom, wholeOptions.padding);
+        useWhole = openingFit(fit.zoom) === 'whole';
+      }
+      void rf.fitView(useWhole ? wholeOptions : rackFitViewOptions(view.racks, free.fitIds));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is
@@ -1213,7 +1251,7 @@ function DrawingInner({
       view,
       rowViews,
       rowLayouts,
-      rackPositions,
+      rackPositions: rackDrag != null && rackPositions[rackDrag.id] != null ? { ...rackPositions, [rackDrag.id]: rackDrag.position } : rackPositions,
       cameraStop,
       elevationFor,
       canDraw,
@@ -1661,8 +1699,26 @@ function DrawingInner({
     [onSelect, free.onNodeClick],
   );
 
+  // r116: a port or a cable has no inside, so a double-click on one opens its panel (ADR-0091 decision 3).
+  const openPanelFor = useCallback(
+    (selection: Selection) => {
+      onSelect(selection);
+      window.dispatchEvent(new CustomEvent(SHOW_DETAILS_EVENT));
+    },
+    [onSelect],
+  );
+  const handleCableDoubleClick = useCallback(
+    (event: ReactMouseEvent) => {
+      const cableId = (event.target as Element | null)?.closest?.('[data-cable-id]')?.getAttribute('data-cable-id');
+      if (cableId && doubleClickAnswer('cable') === 'panel') openPanelFor({ kind: 'cable', id: cableId });
+    },
+    [openPanelFor],
+  );
+
   const handleNodeDoubleClick: NodeMouseHandler = useCallback(
     (event, node) => {
+      const onPort = (event.target as Element | null)?.closest?.('[data-port-id]')?.getAttribute('data-port-id');
+      if (onPort && doubleClickAnswer('port') === 'panel') return openPanelFor({ kind: 'port', id: onPort });
       const freeBox = parseFreeNodeId(node.id);
       if (freeBox?.kind === 'box' && onOpenDevice) return openChassis(freeBox.id);
       if (free.onNodeDoubleClick(node)) return;
@@ -1675,16 +1731,10 @@ function DrawingInner({
       }
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
-      // A double-click on a rack glides to the rack stop, centred on that rack.
-      if (parsed?.kind === 'rack') {
-        const inner = rf.getInternalNode(node.id);
-        if (inner == null) return;
-        const w = inner.measured.width ?? RACK_NODE_WIDTH;
-        const h = inner.measured.height ?? 0;
-        void rf.setCenter(inner.internals.positionAbsolute.x + w / 2, inner.internals.positionAbsolute.y + h / 2, { zoom: CAMERA_STOPS.rack / 100, ...GLIDE });
-      }
+      // r116: a double-click on a rack fits that rack to the view.
+      if (parsed?.kind === 'rack' && doubleClickAnswer('rack') === 'fit') void rf.fitView({ nodes: [{ id: node.id }], padding: 0.1, maxZoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
     },
-    [openChassis, onOpenDevice, onOpenShelf, free.onNodeDoubleClick, rf],
+    [openChassis, onOpenDevice, onOpenShelf, openPanelFor, free.onNodeDoubleClick, rf],
   );
 
   const chassisHeightUFor = (node: FlowNode): number =>
@@ -1696,6 +1746,10 @@ function DrawingInner({
     (_event, node, dragged) => {
       if (free.onNodeDrag(node, dragged)) return;
       const parsed = parseNodeId(node.id);
+      if (parsed?.kind === 'rack') {
+        setRackDrag({ id: parsed.id, position: node.position });
+        return;
+      }
       if (parsed?.kind !== 'chassis') return;
 
       setDragOverride({ id: node.id, position: node.position });
@@ -1724,6 +1778,7 @@ function DrawingInner({
 
       if (parsed.kind === 'rack') {
         setRackPositions((prev) => ({ ...prev, [parsed.id]: node.position }));
+        setRackDrag(null);
         // Saved as seen from the front, so a row shown from the rear stores
         // the mirror of where the rack was dropped. Read-only viewers have no
         // `onMoveFree`, and their drag lasts only this session.
@@ -2095,6 +2150,7 @@ function DrawingInner({
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
+      onDoubleClick={handleCableDoubleClick}
       {...free.containerProps}
     >
       <CableCrossingKeys />
@@ -2187,6 +2243,19 @@ function DrawingInner({
       <TroubleCanvasBridge />
       {emptyHint ? (
         <EmptyHint hint={emptyHint} onAddEquipment={onAddEquipment} />
+      ) : null}
+      {ask?.kind === 'rack' ? (
+        <RackSizeAsk
+          x={ask.x}
+          y={ask.y}
+          onPick={(u) => {
+            setAsk(null);
+            onAddRack?.(u);
+          }}
+          onClose={() => setAsk(null)}
+        />
+      ) : ask?.kind === 'run' ? (
+        <CableRunAsk key={`${ask.x},${ask.y}`} x={ask.x} y={ask.y} hostId={ask.hostId} actions={menuActions} onClose={() => setAsk(null)} />
       ) : null}
       {menu ? (
         <ContextMenu

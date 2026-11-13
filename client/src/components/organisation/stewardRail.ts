@@ -46,7 +46,7 @@ export const STEWARD_RAIL: readonly StewardGroup[] = [
     ],
   },
   {
-    heading: 'Estate',
+    heading: 'Sites and devices',
     entries: [
       { page: 'folders', label: 'Folders', built: true, owner: 'built' },
       { page: 'firmware', label: 'Firmware', built: true, owner: 'built' },

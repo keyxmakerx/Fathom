@@ -8,7 +8,18 @@ import type { InvRow } from '../components/inventory/kinds';
 import { scanLink } from '../components/phone/scan';
 import type { StoreView } from '../document/stock';
 
-export type LabelPresetId = 'tze-12' | 'tze-18' | 'tze-24' | 'tze-36' | 'wrap-24' | 'flag-24' | 'ql-62' | 'ql-29' | 'a4';
+export type LabelPresetId =
+  | 'tze-12'
+  | 'tze-18'
+  | 'tze-24'
+  | 'tze-36'
+  | 'wrap-18'
+  | 'wrap-24'
+  | 'flag-18'
+  | 'flag-24'
+  | 'ql-62'
+  | 'ql-29'
+  | 'a4';
 
 /**
  * How a label goes on. `flat` sticks flat on a face. `wrap` goes round a cable: the tape's width runs
@@ -78,6 +89,22 @@ export const LABEL_PRESETS: readonly LabelPreset[] = [
     widthMm: 0,
     heightMm: 24,
     note: 'A wrap carries the name all the way round, with no code: a code curves too tightly round a cable to scan. Flexible ID tape (TZe-FX) holds best round a cable. For a code, pick Cable flag.',
+  },
+  {
+    id: 'wrap-18',
+    name: 'Cable wrap, 18 mm tape',
+    shape: 'wrap',
+    widthMm: 0,
+    heightMm: 18,
+    note: 'A wrap carries the name all the way round, with no code. 18 mm suits the handheld P-touch printers, such as the PT-E720BT. Flexible ID tape (TZe-FX) holds best round a cable.',
+  },
+  {
+    id: 'flag-18',
+    name: 'Cable flag, 18 mm tape, with code',
+    shape: 'flag',
+    widthMm: 0,
+    heightMm: 18,
+    note: 'Wrap the plain middle once round the cable, then press the two printed ends together back to back. The code comes out smaller on 18 mm; scan a test label first.',
   },
   {
     id: 'flag-24',
@@ -186,4 +213,34 @@ export function pagesOf(items: readonly LabelItem[], preset: LabelPreset): Label
   const pages: LabelItem[][] = [];
   for (let i = 0; i < items.length; i += per) pages.push(items.slice(i, i + per));
   return pages;
+}
+
+/** "P01 · 11" (how Inventory shows a cable end) as people write it on tape: "P01-11". */
+export function shortEnd(end: string): string {
+  const at = end.lastIndexOf(' · ');
+  return at < 0 ? end : `${end.slice(0, at)}-${end.slice(at + 3)}`;
+}
+
+/** The columns of the cable list for Brother's label apps, in order. */
+export const BROTHER_CSV_HEADER = ['Label', 'From', 'To', 'Cable', 'Link'] as const;
+
+/**
+ * Cables as a table for Brother's Pro Label Tool (phone) or P-touch Editor (Windows) to print from:
+ * both connect a label to a CSV and print a label per row (brothermobilesolutions.com, Pro Label
+ * Tool, read 2026-11-12; the app lists the PT-E720BT from version 1.6.1). One row per cable, with the
+ * ends as "P01-11 > SW01-11" ready to drop on a label, the ends apart for a two-line label, and the
+ * scan link for a code. Rows with no cable behind them are left out, as for printed labels.
+ */
+export function brotherCableRows(rows: readonly InvRow[], origin: string, designId: string): string[][] {
+  const out: string[][] = [[...BROTHER_CSV_HEADER]];
+  for (const row of rows) {
+    const cableId = row.ids.cableId;
+    if (cableId == null) continue;
+    const from = row.cells.endA ? shortEnd(row.cells.endA) : '';
+    const to = row.cells.endB ? shortEnd(row.cells.endB) : '';
+    const name = row.cells.name ?? '';
+    const label = [from, to].filter(Boolean).join(' > ') || name || row.title;
+    out.push([label, from, to, name, scanLink(origin, { designId, nodeId: cableId })]);
+  }
+  return out;
 }
