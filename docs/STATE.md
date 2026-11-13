@@ -587,8 +587,22 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card.
 - **Shelves** (r56, `scripts/drive-shelf-room.mjs`). A shelf draws as a tray: hairline sides, an ink lip
   the things stand on 2px clear of, its name as a caption, names whole, what does not fit folded into one
-  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens everything on it front-on,
-  slot by slot, empty slots hatched; the bar's path and Esc lead back out. Each rack line is drawn once
+  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens the shelf drawn twice,
+  lined up (sign-off shelf-view, answer C, schema 0.40): a strip seen from above (at half depth, 300 mm
+  deep) over the shelf seen from the front between the rack's posts, to scale. Dashed lines join each
+  thing's two drawings and pointing at either lights both. Each thing sits at its `SitsOn.x_mm` and
+  `SitsOn.y_mm` (back from the lip), or is packed by slot along the front until someone drags it; a writer
+  drags it left or right in either view, or back and forward in the strip (snapping to neighbours and 10 mm
+  steps, Alt to place freely, arrow keys too) and the slots follow the order. A box is the catalogue's
+  `size_mm` when its model records one (solid edge: ten desktop models so far) or a guess from its ports
+  (dashed edge). Cables hang from
+  their ports with the restored physics (`drawing/cablePhysics.ts`) and swing after a move; one leaving
+  the view runs up or down the nearer post to a tag. **Front, Right, Back and Left** walk round it (version
+  3): from an end the shelf is 300 mm across, the strip turns with the view, and side ports show there.
+  A writer runs a cable by clicking a free port, then the port at the other end on any side. An AI
+  connection reads and may propose `SitsOn.x_mm`/`y_mm` (layout), and an AI idea the ideas panel shows is
+  drawn on the shelf as it would leave it, in the plan colour, with dragging off until it is accepted. The bar's
+  path and Esc lead back out. Each rack line is drawn once
   (a shared edge between stacked devices is one line) and a device's name sits level with its U number.
 - **The panel** (r57, r60, r65). Its foot sits on the bottom edge on every tab; inside an opened device
   it says **Back** instead of Open inside. It ends with **Also in**: the plans that touch the device, its

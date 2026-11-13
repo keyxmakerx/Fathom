@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { useAiPreview } from '../ai/aiPreview';
 import { FIT_CARD_EVENT } from '../drawing/Parts';
 import { askPanel } from '../drawing/Editor';
 import { devicePaletteActions } from '../drawing/devicePaletteActions';
@@ -779,6 +780,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     () => (doc ? viewOf(doc, catalogue) : { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] }),
     [doc, catalogue],
   );
+  // An AI idea the ideas panel is showing, made on a copy: the shelf view draws a shelf as the idea would leave it.
+  const aiShown = useAiPreview();
+  const proposedView = useMemo<ClosetView | undefined>(() => (aiShown.doc != null ? viewOf(aiShown.doc, catalogue) : undefined), [aiShown.doc, catalogue]);
 
   // An empty design (no premises yet, or a premises with no racks) has
   // nothing to drop a device onto — this stand-in rack gives it one. It is
@@ -2366,6 +2370,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           onSelect={setSelection}
           onOpenDevice={(id) => handleOpenDevice(id, false, null)}
           onBack={leaveShelf}
+          onArrange={canDraw ? (id, positions) => handleEdit({ kind: 'shelf-arrange', id, positions }) ?? undefined : undefined}
+          onConnect={canDraw ? handleJotConnect : undefined}
+          proposed={proposedView}
         />
       ) : null}
       {jot != null && jotPlateList != null ? (

@@ -117,6 +117,13 @@ describe('parseCatalogueModel', () => {
     });
   });
 
+  it('reads a size when the catalogue records one, and leaves it out when not', () => {
+    expect(parseCatalogueModel(bytesOf(wellFormed)).sizeMm).toBeUndefined();
+    const sized = { ...wellFormed, size_mm: { width: 158, depth: 101, height: 25 } };
+    expect(parseCatalogueModel(bytesOf(sized)).sizeMm).toEqual({ widthMm: 158, depthMm: 101, heightMm: 25 });
+    expect(() => parseCatalogueModel(bytesOf({ ...wellFormed, size_mm: { width: 158 } }))).toThrow(/depth/);
+  });
+
   it('parses card slots when the model has them, and leaves them out when not', () => {
     const body = { ...wellFormed, card_slots: [{ name: 'FPC 0', face: 'front' }] };
     expect(parseCatalogueModel(bytesOf(body)).cardSlots).toEqual([{ name: 'FPC 0', face: 'front' }]);

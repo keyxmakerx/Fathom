@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.39";
+export const SCHEMA_VERSION = "0.40";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -491,7 +491,7 @@ export const DERIVED_EDGE_KINDS: readonly DerivedEdgeKind[] = [
 /** `schema.oldest_readable`. Mirrors `fathom_ir::generated::OLDEST_READABLE_SCHEMA_VERSION`. */
 export const OLDEST_READABLE_SCHEMA_VERSION = "0.10";
 /** The older headers a reader accepts. Mirrors `fathom_ir::generated::ACCEPTED_OLDER_SCHEMA_VERSIONS`. */
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38"];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39"];
 /** The minor that first declared a node kind (`since:`); absent when as old as the oldest readable. */
 export const NODE_KIND_SINCE: Readonly<Partial<Record<NodeKind, number>>> = {
   NatPool: 39,
@@ -1331,4 +1331,6 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "NatPool.address": 641,
   "NatPool.address_to": 642,
   "NatPool.port": 643,
+  "SitsOn.x_mm": 644,
+  "SitsOn.y_mm": 645,
 };

@@ -270,6 +270,8 @@ export type EditorChange =
   | { kind: 'free-remove'; id: string }
   /** A shelf's height in units or its slot count, from the details panel. */
   | { kind: 'shelf-size'; id: string; heightU?: number; slots?: number }
+  /** Sign-off shelf-view: where things sit along a shelf, in millimetres from its inside left edge. */
+  | { kind: 'shelf-arrange'; id: string; positions: ReadonlyArray<{ itemId: string; xMm: number; yMm?: number }> }
   /** Round 15: a port's MAC address (`document/edit.ts`'s `setPortMac`), any common spelling. ADR-0080
    * decision 10: a console port's speed (`setPortConsoleBaud`), in bits per second. */
   | { kind: 'port'; id: string; field: 'mac' | 'console_baud'; value: string | null }

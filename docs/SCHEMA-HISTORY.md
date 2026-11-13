@@ -145,3 +145,7 @@ The two are declared BEFORE `other` rather than appended after it, and that is d
 ## 0.39
 
 0.39 is NAT on firewalls (sign-off r104, round 3 of the routing build order, 2026-11-02): one new kind, NatPool (a source or destination NAT pool, which NatAction::Pool names), its containment edge HasNatPool, and one optional field on NatRule, match_destination_port. Six field keys (638-643). 62 §16.2: a new node kind, a new edge kind and an optional field are each minor. Whole change = MINOR. The reader still opens 0.10 to 0.38.
+
+## 0.40
+
+0.40 is where a thing sits on a shelf (sign-off shelf-view, 2026-11-12 and 2026-11-13): two optional fields, SitsOn.x_mm, millimetres from the shelf's inside left edge, and SitsOn.y_mm, millimetres back from its front lip, set by dragging a device in the shelf view's front view and its strip seen from above (field keys 644 and 645). The slot stays the left-to-right order. Nothing removed, retyped or reordered. 62 §16.2: a new optional field is minor, twice. Whole change = MINOR. The reader still opens 0.10 to 0.39.
