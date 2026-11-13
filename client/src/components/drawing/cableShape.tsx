@@ -1,16 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { cableLeadCubic, leadsFor, type Leads, type PortPoint } from './cableEnds';
+import { leadsFor, type Leads, type PortPoint } from './cableEnds';
 import {
-  cubicPoints,
   fadeTips,
   laneOffsetPx,
-  offsetCubic,
   roundedPath,
   squarePoints,
-  swayAt,
-  swayKick,
-  SWAY_SETTLE_MS,
   throughTies,
   tiedPoints,
   type Pt,
@@ -19,48 +14,38 @@ import {
 } from './cableRoute';
 import type { CableStyle } from './cableStyle';
 import type { CableKind } from './contract';
-import { cableSagCubic, cubicPath } from './geometry';
+import { CABLE_SLACK, cableSwings, hangCable } from './cablePhysics';
 import { prefersReducedMotion } from './motion';
 
 const ZERO: Pt = { x: 0, y: 0 };
 
 /** Physics: the slack lags when a device moves its ends, swings back past rest and settles.
- * Re-renders only this cable, only while it swings; never under reduced motion. */
-export function useCableSway(enabled: boolean, ax: number, ay: number, bx: number, by: number): Pt {
-  const prev = useRef<{ ax: number; ay: number; bx: number; by: number } | null>(null);
-  const kick = useRef<{ amp: Pt; at: number } | null>(null);
+ * Re-renders only this cable, only while it swings; never under reduced motion. `id` lets a cable
+ * whose edge React Flow remakes in the moment its device lands keep swinging (`CableSwings`). */
+export function useCableSway(id: string, enabled: boolean, ax: number, ay: number, bx: number, by: number): Pt {
   const frame = useRef<number | null>(null);
   const [, setTick] = useState(0);
   useEffect(() => {
-    const was = prev.current;
-    prev.current = { ax, ay, bx, by };
-    if (!enabled || was == null || prefersReducedMotion() || typeof requestAnimationFrame !== 'function') return;
-    const moved = { x: (ax - was.ax + (bx - was.bx)) / 2, y: (ay - was.ay + (by - was.by)) / 2 };
-    if (Math.abs(moved.x) < 0.5 && Math.abs(moved.y) < 0.5) return;
     const now = performance.now();
-    const current = kick.current != null ? swayAt(kick.current.amp, now - kick.current.at) : ZERO;
-    kick.current = { amp: swayKick(current, moved), at: now };
-    if (frame.current != null) return;
+    const moving = enabled && !prefersReducedMotion() && typeof requestAnimationFrame === 'function';
+    cableSwings.see(id, { ax, ay, bx, by }, now, moving);
+    if (!moving || !cableSwings.swinging(id, now) || frame.current != null) return;
     const loop = () => {
-      const k = kick.current;
-      if (k == null || performance.now() - k.at >= SWAY_SETTLE_MS) {
-        kick.current = null;
-        frame.current = null;
-      } else {
-        frame.current = requestAnimationFrame(loop);
-      }
+      if (cableSwings.swinging(id, performance.now())) frame.current = requestAnimationFrame(loop);
+      else frame.current = null;
       setTick((t) => t + 1);
     };
     frame.current = requestAnimationFrame(loop);
-  }, [enabled, ax, ay, bx, by]);
+  }, [id, enabled, ax, ay, bx, by]);
   useEffect(
     () => () => {
       if (frame.current != null) cancelAnimationFrame(frame.current);
+      frame.current = null;
+      cableSwings.gone(id, performance.now());
     },
-    [],
+    [id],
   );
-  const k = kick.current;
-  return enabled && k != null ? swayAt(k.amp, performance.now() - k.at) : ZERO;
+  return enabled ? cableSwings.offset(id, performance.now()) : ZERO;
 }
 
 export interface CableShapeInput {
@@ -86,9 +71,15 @@ export interface CableShapeResult {
 export function cableShape({ style, id, kind, ends, source, target, tied, waypoints, sway }: CableShapeInput): CableShapeResult {
   const leads = ends != null && (ends[0] != null || ends[1] != null) ? leadsFor(ends[0], ends[1], source, target) : null;
   if (style === 'physics') {
-    const base = leads != null ? cableLeadCubic(leads, kind) : cableSagCubic(source.x, source.y, target.x, target.y, kind);
-    const c = offsetCubic(base, sway ?? ZERO);
-    return { d: cubicPath(c), points: cubicPoints(c), leads };
+    // A real cable hangs between its ports under gravity (`cablePhysics.ts`). Power carries a little
+    // more slack, so a power lead and a data lead between the same two places never draw as one line.
+    const hung = hangCable({
+      a: leads != null ? leads.a : source,
+      b: leads != null ? leads.b : target,
+      slack: kind === 'power' ? CABLE_SLACK + 0.03 : CABLE_SLACK,
+      sway,
+    });
+    return { d: hung.d, points: hung.points, leads };
   }
   const square = leads ?? leadsFor(null, null, source, target);
   const points =
