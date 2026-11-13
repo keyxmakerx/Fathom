@@ -530,6 +530,9 @@ function DrawingInner({
   // React Flow never moves a dragged node itself here (no `onNodesChange`);
   // this override moves only the one chassis being dragged.
   const [dragOverride, setDragOverride] = useState<{ id: string; position: { x: number; y: number } } | null>(null);
+  // A rack being dragged: where it is under the pointer, so it carries its devices and their cables
+  // with it as it moves (sign-off r129), instead of jumping on drop.
+  const [rackDrag, setRackDrag] = useState<{ id: string; position: { x: number; y: number } } | null>(null);
   const [dropPreview, setDropPreview] = useState<DropPreview>({});
   const [shakingId, setShakingId] = useState<string | null>(null);
   // React Flow owns the camera; this component keeps only the stop and the
@@ -1248,7 +1251,7 @@ function DrawingInner({
       view,
       rowViews,
       rowLayouts,
-      rackPositions,
+      rackPositions: rackDrag != null && rackPositions[rackDrag.id] != null ? { ...rackPositions, [rackDrag.id]: rackDrag.position } : rackPositions,
       cameraStop,
       elevationFor,
       canDraw,
@@ -1743,6 +1746,10 @@ function DrawingInner({
     (_event, node, dragged) => {
       if (free.onNodeDrag(node, dragged)) return;
       const parsed = parseNodeId(node.id);
+      if (parsed?.kind === 'rack') {
+        setRackDrag({ id: parsed.id, position: node.position });
+        return;
+      }
       if (parsed?.kind !== 'chassis') return;
 
       setDragOverride({ id: node.id, position: node.position });
@@ -1771,6 +1778,7 @@ function DrawingInner({
 
       if (parsed.kind === 'rack') {
         setRackPositions((prev) => ({ ...prev, [parsed.id]: node.position }));
+        setRackDrag(null);
         // Saved as seen from the front, so a row shown from the rear stores
         // the mirror of where the rack was dropped. Read-only viewers have no
         // `onMoveFree`, and their drag lasts only this session.
