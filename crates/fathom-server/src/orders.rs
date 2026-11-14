@@ -1714,6 +1714,7 @@ pub fn definition_json(def: &Definition) -> Json {
                             ("name", Json::Str(lane.name.clone())),
                             ("starts_after", opt_str(&lane.starts_after)),
                             ("implicit", Json::Bool(lane.implicit)),
+                            ("line", Json::Int(lane.line as i64)),
                             (
                                 "stages",
                                 Json::Arr(

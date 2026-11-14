@@ -67,6 +67,27 @@ fn fresh_key() -> ([u8; 32], SoftwareKey) {
     (scalar, key)
 }
 
+/// Piece 3's clock, seen at once: due as soon as it is ready, shown to the lead, then handed on.
+const OUTAGE: &str = "fathom: order-definition/1
+id: outage
+name: Outage follow-up
+number: OUT
+fields:
+  - { use: customer-details }
+stages:
+  - id: look
+    name: Look into it
+    jobs:
+      - id: cause
+        name: Find the cause
+        team: network-design
+        steps: [Cause written down]
+        due: 0m
+        overdue:
+          - { after: 0m, escalate: lead }
+          - { after: 0m, reassign: ip-design }
+";
+
 #[tokio::test]
 async fn seed_for_the_orders_drive() {
     let master_spec =
@@ -227,6 +248,7 @@ async fn seed_for_the_orders_drive() {
     for (key, source) in [
         ("dia", include_str!("../../../corpus/orders/dia.yaml")),
         ("site", include_str!("../../../corpus/orders/site-build.yaml")),
+        ("outage", OUTAGE),
     ] {
         let req = TypeRequest { id: None, source: source.to_string(), field_sets: vec![set.clone()], teams: BTreeMap::new() };
         let t = as_who(&pool, &ring, organisation, sam_account, |tx, auth| Box::pin(async move { orders::save_type(tx, auth, req).await.map(|t| t.id) })).await;
@@ -248,12 +270,42 @@ async fn seed_for_the_orders_drive() {
         let bea = members["order-desk"];
         async move { as_who(pool, ring, organisation, bea, |tx, auth| Box::pin(async move { orders::open_order(tx, auth, &ty, a).await.map(|v| v.id) })).await }
     };
+    // ADR-0084 decision 18: a design with a plan on edge-rt1's Et49, the port Harbour Clinic's order
+    // holds once its port job is done. Built by the client's own commands (`drive-lib/clash_design.test.ts`).
+    let clash_line = std::fs::read_to_string(std::env::var("CLASH_DESIGN").expect("CLASH_DESIGN (the clash design's file)")).expect("read CLASH_DESIGN");
+    let clash: Vec<&str> = clash_line.trim().split('\t').collect();
+    assert_eq!(clash.len(), 5, "CLASH_DESIGN: minor, payload, device, port, plan");
+    let text = |i: usize| clash[i].to_string();
+    let minor: i32 = clash[0].parse().expect("CLASH_DESIGN's minor");
+    let network = repo::create_scope(&pool, organisation, steward_account, None, repo::ScopeKind::Network, &unique("Harbour"))
+        .await
+        .expect("a site for the clash design")
+        .id;
+    let design = fathom_server::designs::create_design(&pool, organisation, steward_account, network).await.expect("the clash design");
+    fathom_server::designs::write_version(&pool, &ring, organisation, steward_account, design, &unhex(&text(1)), minor)
+        .await
+        .expect("its first version");
+    let edge_port = Json::Obj(
+        [("design", design.to_string()), ("device", text(2)), ("port", text(3))]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), Json::Str(v)))
+            .collect(),
+    );
     let w1 = open(saved["dia"].clone(), answers("Riverside Council", &[("bandwidth", "10G")])).await;
-    let w2 = open(saved["dia"].clone(), answers("Harbour Clinic", &[("bandwidth", "1G")])).await;
+    let mut harbour = answers("Harbour Clinic", &[("bandwidth", "1G")]);
+    harbour.insert("edge_port".into(), edge_port);
+    let w2 = open(saved["dia"].clone(), harbour).await;
     let mut site = answers("Riverside depot build", &[("ship_to", "Riverside depot, Dock Road")]);
     site.insert("racks".into(), Json::Int(2));
     let w3 = open(saved["site"].clone(), site).await;
     let _ = w3;
+    // Piece 3: an order whose job is due at once, so the clock has shown it to the lead and handed it
+    // to IP design by the time anyone looks.
+    let outage: BTreeMap<String, Json> = [("customer", "Quay Street Dental"), ("contact_name", "Rae Moss")]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), Json::Str(v.to_string())))
+        .collect();
+    let w4 = open(saved["outage"].clone(), outage).await;
 
     // W1: the order desk checks it; Design is under way, and Ann's team has a job.
     finish_job(&pool, &ring, organisation, members["order-desk"], &w1, "check", 3).await;
@@ -263,7 +315,8 @@ async fn seed_for_the_orders_drive() {
     finish_job(&pool, &ring, organisation, members["ip-design"], &w2, "addresses", 0).await;
     finish_job(&pool, &ring, organisation, members["network-design"], &w2, "port", 1).await;
 
-    let json = format!("{{\"steward\": \"{steward_address}\", \"w1\": \"{w1}\", \"w2\": \"{w2}\"}}\n");
+    let plan = text(4);
+    let json = format!("{{\"steward\": \"{steward_address}\", \"w1\": \"{w1}\", \"w2\": \"{w2}\", \"w4\": \"{w4}\", \"design\": \"{design}\", \"plan\": \"{plan}\"}}\n");
     let mut file = std::fs::File::create(&output_path).expect("create SEED_OUTPUT");
     file.write_all(json.as_bytes()).expect("write SEED_OUTPUT");
 }

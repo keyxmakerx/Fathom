@@ -16,7 +16,8 @@ import {
   type OrderTypeLine,
   type TeamNames,
 } from '../../api/orders';
-import { OrderBoard } from './OrderBoard';
+import { addJob, addStage, moveJob, moveStage, type Edit } from './boardEdit';
+import { OrderBoard, type BoardEdit } from './OrderBoard';
 import { KIND_WORDS, fileNameOf, matchTeams, setIdOf, setsUsed, whenWords } from './orderModel';
 import { BLANK, STARTERS, STARTER_SETS } from './starters';
 import './orders.css';
@@ -216,6 +217,9 @@ function TypeEditor({
   const [saveProblem, setSaveProblem] = useState<string | null>(null);
   const [lastGood, setLastGood] = useState<CheckAnswer | null>(null);
   const [focusLine, setFocusLine] = useState<number | null>(null);
+  const [checkedSource, setCheckedSource] = useState<string | null>(null);
+  const [boardNote, setBoardNote] = useState<string | null>(null);
+  const [undo, setUndo] = useState<string | null>(null);
   const changed = source !== editing.source || JSON.stringify(picked) !== JSON.stringify(editing.teams);
 
   const fieldSets = useMemo(() => setsFor(source, editing.fieldSets), [source, editing.fieldSets]);
@@ -227,6 +231,7 @@ function TypeEditor({
         (value) => {
           if (!live) return;
           setCheck({ status: 'ready', value });
+          setCheckedSource(source);
           if (value.definition) setLastGood(value);
         },
         (e: unknown) => live && setCheck({ status: 'error', message: message(e) }),
@@ -272,6 +277,27 @@ function TypeEditor({
       },
     );
   };
+
+  // The board edits the file only while what it shows is this very text checked (r142): its lines are the file's.
+  const boardDef = answer?.definition && checkedSource === source ? answer.definition : null;
+  const fromBoard = (e: Edit) => {
+    if (!e.ok) {
+      setBoardNote(e.why);
+      return;
+    }
+    setBoardNote(null);
+    if (e.source === source) return;
+    setUndo(source);
+    setSource(e.source);
+  };
+  const boardEdit: BoardEdit | null = boardDef
+    ? {
+        moveJob: (line, to) => fromBoard(moveJob(source, boardDef, line, to)),
+        moveStage: (line, to) => fromBoard(moveStage(source, boardDef, line, to)),
+        addJob: (stageLine) => fromBoard(addJob(source, boardDef, stageLine)),
+        addStage: (laneLine) => fromBoard(addStage(source, boardDef, laneLine)),
+      }
+    : null;
 
   const download = () => {
     const url = URL.createObjectURL(new Blob([source], { type: 'text/yaml' }));
@@ -356,22 +382,48 @@ function TypeEditor({
         shown?.definition ? (
           <>
             {problems.length > 0 ? <p className="org-sub">The file has problems now; the board shows it as it last checked out.</p> : null}
+            {boardNote ? (
+              <p className="home__error" role="alert" data-testid="board-note">
+                {boardNote}
+              </p>
+            ) : null}
             <OrderBoard
               definition={shown.definition}
               teams={teams}
               matched={matched}
+              edit={boardEdit}
               onPick={(line) => {
                 setFocusLine(line);
                 setTab('file');
               }}
             />
-            <p className="org-sub">Choose a job to see it in the file. To change the board, change the file: the board redraws as you type.</p>
+            <p className="org-sub">
+              Drag a job to another stage or place, or a stage along its lane (or use Alt and the arrow keys); + Job and + Stage add one. Each change rewrites the file, keeping everything else in it, and
+              the board redraws from the file’s check. Choose a job to see it in the file, to rename it or say more.
+              {undo !== null ? (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="btn-quiet"
+                    onClick={() => {
+                      setSource(undo);
+                      setUndo(null);
+                      setBoardNote(null);
+                    }}
+                    data-testid="board-undo"
+                  >
+                    Undo the last change
+                  </button>
+                </>
+              ) : null}
+            </p>
           </>
         ) : (
           <p className="home__muted">{check.status === 'loading' ? 'Checking…' : 'The file has problems, so there is nothing to draw yet. See the File tab.'}</p>
         )
       ) : null}
-      {tab === 'file' ? <FileTab source={source} onChange={setSource} problems={problems} focusLine={focusLine} onFocused={() => setFocusLine(null)} /> : null}
+      {tab === 'file' ? <FileTab source={source} onChange={(v) => { setSource(v); setUndo(null); }} problems={problems} focusLine={focusLine} onFocused={() => setFocusLine(null)} /> : null}
       {tab === 'fields' && shown?.definition ? <FieldsTab answer={shown} /> : null}
       <p className="org-sub">Saving makes a new version. Orders already open carry on with the version they were opened from.</p>
     </section>

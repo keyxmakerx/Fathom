@@ -55,6 +55,19 @@
 .order-board__job-team { font-size: var(--t-micro); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--muted); }
 .order-board__job-facts, .order-board__job-waits, .order-board__job-back { font-size: var(--t-micro); color: var(--muted); }
 .order-board__job-waits { color: var(--ink); }
+/* Dragging the board (r142): a line where the drop lands, the lifted card dimmed. */
+.order-board--edit .order-board__job { cursor: grab; }
+.order-board--edit .order-board__stage-head { cursor: grab; }
+.order-board__job--lifted { opacity: 0.45; }
+.order-board__job.order-board--drop-before { box-shadow: 0 -3px 0 0 var(--ink); }
+.order-board__job.order-board--drop-after { box-shadow: 0 3px 0 0 var(--ink); }
+.order-board__stage.order-board--drop-before { box-shadow: -4px 0 0 0 var(--ink); }
+.order-board__stage.order-board--drop-after { box-shadow: 4px 0 0 0 var(--ink); }
+.order-board__stage-head:focus-visible, .order-board__job:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.order-board__grip { color: var(--muted); letter-spacing: -2px; }
+.order-board__add { font: inherit; font-size: var(--t-micro); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--muted); background: transparent; border: 1px dashed var(--hairline); padding: var(--s1) var(--s2); cursor: pointer; text-align: left; }
+.order-board__add:hover { color: var(--ink); border-color: var(--ink); }
+.order-board__add--stage { align-self: start; }
 .order-board__key { margin: 0; font-size: var(--t-micro); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--muted); }
 
 /* The file, with line numbers and its problems under it. */

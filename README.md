@@ -26,7 +26,7 @@ clicks into a dead end without being told:
 | **IP plan** | Steward, Work, IP plan | The server keeps the organisation's plan and hands out the next free prefix, address, VLAN or AS number | No screens, no check against a design, no NetBox files (a design's own Prefixes and VLANs tables are finished) |
 | **Mail** | Steward, Work, Mail; the operator console's Mail form; the forgotten-password page | An operator can save mail settings, sealed | Nothing is sent: no reset or notice by mail, and invitations are handed over by the Steward |
 
-Orders work end to end (order types, opening an order, jobs and sign-offs), but an overdue job is only marked, nothing moves it by itself yet, and the order-type board is drawn from the file rather than dragged. Also not in the alpha: sending mail, passkeys, signed equipment packs, and the scale and high-availability
+Orders work end to end: order types (built by dragging the board or written in the file), opening an order, jobs and sign-offs, a job's overdue rules carried out by Fathom, and what an open order holds shown beside plans on the same devices. Also not in the alpha: sending mail, passkeys, signed equipment packs, and the scale and high-availability
 design. `docs/STATE.md` has the full list. Use the images tagged for the alpha, not `latest`, once a release
 is tagged.
 

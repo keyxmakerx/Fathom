@@ -95,6 +95,8 @@ export interface LaneDef {
   /** The file said `stages:` at the top: one lane with no name of its own. */
   implicit: boolean;
   stages: StageDef[];
+  /** Its line in the file: the first stage's for a file that says `stages:`. */
+  line: number;
 }
 
 export interface Definition {
@@ -188,6 +190,7 @@ export function parseDefinition(v: unknown): Definition {
         name: s(x.name),
         startsAfter: os(x.starts_after),
         implicit: x.implicit === true,
+        line: n(x.line),
         stages: arr(x.stages).map((st) => {
           const y = rec(st);
           return { id: s(y.id), name: s(y.name), approval: os(y.approval), jobs: arr(y.jobs).map(parseJob), line: n(y.line) };
