@@ -1494,6 +1494,8 @@ pub struct CredentialStore {
     ring: Arc<KeyRing>,
     deployment: String,
     reset_lifetime: Duration,
+    /// ADR-0085: where reset links point. `None` writes no reset mail.
+    mail: Option<Arc<crate::mail::Mail>>,
 }
 
 /// Whether this deployment's first operator has finished setting up.
@@ -1693,7 +1695,16 @@ impl CredentialStore {
             ring,
             deployment,
             reset_lifetime,
+            mail: None,
         }
+    }
+
+    /// Write a reset mail with every reset token issued to an account whose sign-in is an
+    /// email address (ADR-0055 decision 7, ADR-0085). Without this, or without
+    /// `FATHOM_PUBLIC_URL`, the token is drawn and stored and no mail is written, as before.
+    pub fn with_mail(mut self, mail: Arc<crate::mail::Mail>) -> Self {
+        self.mail = Some(mail);
+        self
     }
 
     pub fn pool(&self) -> &Pool {
@@ -2347,6 +2358,25 @@ impl CredentialStore {
                 ],
             )
             .await?;
+
+            // ADR-0085: the mail goes to the address of record, which is the address that
+            // matched, and is written in this transaction so it exists exactly when the token
+            // does. A sign-in name that is not an address (a Steward-invited person's) gets no
+            // mail; they ask a Steward, as before. The worker sends it later, so the request
+            // does not wait on the relay.
+            if let Some(link) = self.mail.as_ref().and_then(|m| m.reset_link(&token)) {
+                if crate::mail::message::plausible_address(address) {
+                    let draft = crate::mail::reset_draft(
+                        address,
+                        &link,
+                        expires,
+                        (self.reset_lifetime.as_secs() / 3600).max(1) as i64,
+                    );
+                    crate::mail::outbox::enqueue(&tx, &self.ring, &draft)
+                        .await
+                        .map_err(|_| CredentialError::Corrupt("reset mail"))?;
+                }
+            }
             issued = Some(token.to_vec());
         } else {
             // The other half of the equalisation: the same round trips, key and seal, over

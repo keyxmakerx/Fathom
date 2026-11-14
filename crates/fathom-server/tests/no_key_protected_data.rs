@@ -650,6 +650,20 @@ const TABLES: &[TableClaim] = &[
               entry applied it -- is the audit trail of the change and is meant to be read.",
     },
     TableClaim {
+        name: "mail_outbox",
+        protection: Protection::KeyProtected {
+            columns: &["summary_ct", "body_ct"],
+            under: "a subkey of the site chain key (`fathom/mail/outbox/v1`), derived from the \
+                  chain master behind ADR-0043's provider interface and never in PostgreSQL. \
+                  The AAD names the row id and the part, so a summary does not open as a body.",
+        },
+        why: "ADR-0085 decision 7's outbox. The recipient's address and a few words of what the \
+              mail is are sealed in `summary_ct`; the whole message, which may hold a reset or \
+              invitation link, is sealed in `body_ct` and removed once the mail is sent or \
+              fails. In the clear: the kind (reset or invitation), the state, the tries, the \
+              times, and the mail server's own reply, which is what Steward › Mail shows.",
+    },
+    TableClaim {
         name: "operator_requests",
         protection: Protection::NoKeyProtectedMaterial,
         why: "§5.5's two operator assertions for creating an operator: a display name, the two \

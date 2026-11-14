@@ -3638,6 +3638,69 @@ impl OperatorStore {
         Ok(answer)
     }
 
+    /// The value a **pending** change carries, for the console's test send (ADR-0055 decision
+    /// 11): an operator tests the settings during the delay, before they take effect.
+    ///
+    /// The row's own seal is checked before the value is opened, as `resolve_candidate` does;
+    /// there is no sealed applied entry yet to check against. A cancelled change, or one for a
+    /// different key, is `NotFound`.
+    pub async fn pending_setting_value(
+        &self,
+        change: &str,
+        key: &str,
+    ) -> Result<Vec<u8>, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        let row = self.read_setting_row(&tx, change).await?;
+        if row.facts.key != key || row.facts.cancelled_at_unix != 0 {
+            leave_custody(&tx).await?;
+            return Err(OperatorError::NotFound("pending change"));
+        }
+        let recomputed = self
+            .setting_seal(&tx, &row.facts.as_ref(), row.chain_seq, row.row_version)
+            .await?;
+        if row.stored_seal != recomputed {
+            leave_custody(&tx).await?;
+            return Err(OperatorError::Unverifiable("settings row seal"));
+        }
+        let sealing_key = self.settings_key(&tx).await?;
+        let nonce: [u8; crypto::NONCE_LEN] = row
+            .value_nonce
+            .as_slice()
+            .try_into()
+            .map_err(|_| OperatorError::Corrupt("settings value nonce"))?;
+        let aad = self.settings_aad(&row.facts.id, &row.facts.key, row.value_key_epoch);
+        let value = crypto::open(&sealing_key, &nonce, &row.value_ct, &aad)?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(value)
+    }
+
+    /// An operator's own address: the email of the account bound to them
+    /// (`operator_account_bindings`, `0019` §A). The test send's only destination, so the
+    /// route has no field to abuse as an open relay probe (ADR-0055 decision 11).
+    pub async fn operator_address(&self, operator: &str) -> Result<Option<String>, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await?;
+        let row = tx
+            .query_opt(
+                "SELECT a.email FROM operator_account_bindings b \
+                   JOIN accounts a ON a.id = b.account_id \
+                  WHERE b.operator_id = $1 AND a.disabled_at IS NULL",
+                &[&operator],
+            )
+            .await?;
+        tx.execute("SELECT set_config('app.session_custody', 'no', true)", &[])
+            .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(row.map(|r| r.get(0)))
+    }
+
     /// One candidate row, checked against its own sealed entry.
     async fn resolve_candidate(
         &self,

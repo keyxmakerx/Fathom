@@ -14,14 +14,16 @@ import '../styles/signin.css';
  * address and "no such account" for another would undo the route's whole
  * point.
  *
- * It also says plainly that mail is not set up yet, because on this build it
- * is not: no SMTP client exists (ADR-0055 cost/order item 5), so nothing is
- * actually sent, and a screen that implied otherwise would leave a person
- * waiting for a message that is not coming.
+ * Since the mail stream landed (ADR-0085), the route writes a reset mail when
+ * the address belongs to an account whose sign-in is an email address and this
+ * site knows its own address (`FATHOM_PUBLIC_URL`). The screen cannot know
+ * whether either holds without saying which addresses have accounts, so it
+ * says what happens when they do and what to do when nothing arrives.
  */
 export const RESET_ANSWER =
-  'If that address has an account, a reset link goes to the address of record — once this site’s mail is set ' +
-  'up in the console. Nothing is sent before then, and this answer is the same whatever was typed.';
+  'If that address has a Fathom account, a link to choose a new password is on its way to it. It works once, for 24 ' +
+  'hours. If nothing comes within a few minutes, this site may not send mail yet, or your sign-in is not an email ' +
+  'address: ask a Steward. This answer is the same whatever was typed.';
 
 export interface ResetProps {
   /** Back to the ordinary door. */

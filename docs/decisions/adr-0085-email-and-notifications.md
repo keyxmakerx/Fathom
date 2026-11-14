@@ -2,7 +2,27 @@
 
 **Status:** accepted 2026-11-02. The owner approved Sign-offs card r85-email with every pick as
 recommended (no AMP, links open Fathom, the least in a mail, all six mails, account holders only,
-`lettre`), and in the project chat: *"i'm gonna be honest i want it all lol"*. Nothing is built.
+`lettre`), and in the project chat: *"i'm gonna be honest i want it all lol"*.
+
+**Part one built 2026-11-14** (the alpha card, v2: Key Maker ticked Mail to finish before alpha):
+the sealed outbox and its worker (decision 7, migration 0079), the password reset by mail
+(ADR-0055 decision 7), a real console test send, an invitation link a Steward chooses to mail,
+and Steward › Mail listing each organisation's mail with the relay's reply. The SMTP client is
+`lettre`, as decision 9 says: a client of Fathom's own was built first and offered on Sign-offs
+card r141, and the owner picked `lettre` (B, 2026-11-14). It runs with only its SMTP transport
+over the rustls already here; Fathom writes the message itself (`deps/decisions/lettre.md`). Two
+things differ from the text below, both on card r141 and approved there as built:
+
+- **Certificates are checked against Mozilla's roots plus `FATHOM_SMTP_CA`**, not the system
+  roots (decision 10): the same as the outside-vault client, and no new crate to read the
+  system's store.
+- **An invitation mail goes to the contact email the Steward typed**, which is not a confirmed
+  address (decision 5). It carries the link and never the sign-in name, so it is not a way in
+  by itself, and only goes when the Steward ticks it.
+
+Not built yet: the other security mails (device approval, a new sign-in, an AI key disabled),
+the work and order notices, the digest and each person's choices, the titles switch, and
+`List-Unsubscribe` (which only the work and order mails need).
 
 **Builds on:** ADR-0055 (the `smtp` console setting, sealed, and decision 7's reset by mail),
 ADR-0065 decision 6 (device approval by mail), the r75 work plan item 8 (approved 2026-11-02).

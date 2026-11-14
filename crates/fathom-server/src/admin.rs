@@ -997,38 +997,23 @@ async fn cancel_setting(
 // ---------------------------------------------------------------------------
 
 /// `POST /admin/settings/{change}/test-send` — decision 11's *"a test-send
-/// goes to the requesting operator's own address, rate-limited, sealed"*.
+/// goes to the requesting operator's own address, rate-limited, sealed"*, now
+/// real (ADR-0085 decision 7: *"The console's test send becomes real"*).
 ///
-/// Body: empty. Answer: **503 and one sentence**, because **no SMTP client
-/// ships in this phase** (ADR-0055's own cost list item 5 puts the client,
-/// reset-by-mail and the notices in the last session). A route that pretended
-/// to send would be worse than one that says it cannot: an operator who reads
-/// "sent" and receives nothing learns the wrong thing about their
-/// configuration.
+/// Body: empty. It tests the **pending** change named in the path, so an
+/// operator learns whether the settings work during the delay, before they take
+/// effect. The destination is never in the request (decision 11: *"no field to
+/// abuse as an open relay probe"*): it is the operator's own address, through
+/// `operator_account_bindings`.
 ///
-/// What it DOES do before answering, because those halves are testable now
-/// and are the ones that protect the deployment:
+/// Answers 200 and one sentence holding the relay's reply when the relay took
+/// the mail, and 502 and one sentence when it did not or could not be reached.
+/// It sends at once rather than through the outbox: the operator is waiting for
+/// the answer, and the answer is the point.
 ///
-/// * it needs a live operator session, like every other console route;
-/// * it spends a per-operator budget of one per five minutes in the SAME
-///   `sign_in_attempts` table §13 item 7 keeps
-///   (`placement::take_test_send_budget`), so an operator cannot hammer it.
-///   **Not the per-source bucket as well**: `api::Signed` has consumed the
-///   request by the time a handler runs, so this function cannot see the
-///   headers the address is derived from, and counting every test-send into
-///   one `unknown` bucket would be a limit in name only;
-/// * it is recorded on the site chain — as `operator_read` of the surface
-///   `settings/smtp/test-send`, which is sampled once per session per
-///   surface. **A dedicated entry type would need a migration**, and a
-///   migration that rewrites `chain_entries_type_belongs_to_kind` today would
-///   drop the types the other two ADR-0055 streams are adding in parallel.
-///   Reported rather than forced: the proper `smtp_test_send` type belongs
-///   with the SMTP client.
-///
-/// The destination is never in the request body (decision 11: *"no field to
-/// abuse as an open relay probe"*); it is the operator's own address through
-/// `operator_account_bindings`, which is stream (b)'s table and is read the
-/// day there is something to send.
+/// Before sending, as before: a live operator session; a per-operator budget of
+/// one per five minutes (`placement::take_test_send_budget`); and an
+/// `operator_read` entry of `settings/smtp/test-send` on the site chain.
 async fn test_send_setting(
     State(state): State<AdminState>,
     Path(change): Path<String>,
@@ -1058,15 +1043,49 @@ async fn test_send_setting(
         .record_read(&session, "settings/smtp/test-send")
         .await
         .map_err(AdminRefusal)?;
-    tracing::info!(
-        change = %change,
-        "an operator asked for an SMTP test send; no mail client ships in this phase"
-    );
-    Ok((
-        StatusCode::SERVICE_UNAVAILABLE,
-        "mail sending is not built yet\n",
+
+    let value = state
+        .operators
+        .pending_setting_value(&change, "smtp")
+        .await
+        .map_err(AdminRefusal)?;
+    let settings = crate::placement::parse_smtp_value(&value).map_err(AdminRefusal)?;
+    let Some(to) = state
+        .operators
+        .operator_address(&operator)
+        .await
+        .map_err(AdminRefusal)?
+        .filter(|a| crate::mail::message::plausible_address(a))
+    else {
+        return Ok((
+            StatusCode::BAD_GATEWAY,
+            "Your operator account has no email address to send a test to.\n",
+        )
+            .into_response());
+    };
+    let id = format!("mail_{}", crate::ids::new_ulid());
+    let tls = crate::mail::tls();
+    let answer = crate::mail::deliver(
+        &settings,
+        &tls,
+        &id,
+        &to,
+        "Fathom test message",
+        "This is a test message from Fathom's operator console. If you can read it, the mail \
+         settings you saved work.\n",
+        "<p>This is a test message from Fathom's operator console. If you can read it, the \
+         mail settings you saved work.</p>",
     )
-        .into_response())
+    .await;
+    tracing::info!(change = %change, sent = answer.is_ok(), "an operator sent an SMTP test message");
+    Ok(match answer {
+        Ok(reply) => (
+            StatusCode::OK,
+            format!("Sent to {to}. The mail server answered: {reply}\n"),
+        )
+            .into_response(),
+        Err(e) => (StatusCode::BAD_GATEWAY, format!("Not sent. {}\n", e.reply)).into_response(),
+    })
 }
 
 // ---------------------------------------------------------------------------

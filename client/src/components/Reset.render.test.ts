@@ -22,8 +22,8 @@ describe('forgot my password', () => {
   });
 
   it('does not promise mail this build cannot send', () => {
-    expect(RESET_ANSWER).toMatch(/once this site’s mail is set up/);
-    expect(RESET_ANSWER).toMatch(/Nothing is sent before then/);
+    expect(RESET_ANSWER).toMatch(/is on its way to it/);
+    expect(RESET_ANSWER).toMatch(/ask a Steward/);
   });
 });
 

@@ -1485,9 +1485,10 @@ async fn a_placement_is_refused_unless_the_operator_signed_exactly_it() {
 // ---------------------------------------------------------------------------
 
 /// **The `smtp` value envelope is checked before it is sealed**, and a test
-/// send says plainly that mail is not built yet rather than pretending.
+/// send really sends, with the pending change's settings, to the operator's
+/// own address and nowhere else (ADR-0085, ADR-0055 decision 11).
 #[tokio::test]
-async fn the_smtp_envelope_is_checked_and_a_test_send_says_mail_is_not_built_yet() {
+async fn the_smtp_envelope_is_checked_and_a_test_send_really_sends_to_the_operator() {
     let _serial = SERIAL.lock().await;
     let pool = deployment().await;
     let ring = ring();
@@ -1585,22 +1586,82 @@ async fn the_smtp_envelope_is_checked_and_a_test_send_says_mail_is_not_built_yet
     .await;
     assert_eq!(status, "200", "other settings are not SMTP envelopes");
 
-    // The test send: rate-limited, recorded, and honest.
+    // The test send is real (ADR-0085): a pending change pointed at a relay on loopback, with
+    // no TLS (allowed only there), sends to the operator's own address and answers the relay's
+    // reply. The relay is a few lines of script, so what it saw can be checked.
+    let relay = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a relay");
+    let relay_port = relay.local_addr().expect("its port").port();
+    let relay_saw = tokio::spawn(async move {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let (s, _) = relay.accept().await.expect("the server connects");
+        let (r, mut w) = s.into_split();
+        let mut lines = BufReader::new(r).lines();
+        let mut saw = String::new();
+        w.write_all(b"220 relay.test ESMTP\r\n").await.unwrap();
+        let mut in_data = false;
+        while let Ok(Some(line)) = lines.next_line().await {
+            saw.push_str(&line);
+            saw.push('\n');
+            let answer: &[u8] = if in_data {
+                if line != "." {
+                    continue;
+                }
+                in_data = false;
+                b"250 2.0.0 Ok: queued as T3ST\r\n"
+            } else if line.starts_with("EHLO") {
+                b"250-relay.test\r\n250 8BITMIME\r\n"
+            } else if line == "DATA" {
+                in_data = true;
+                b"354 go ahead\r\n"
+            } else if line == "QUIT" {
+                w.write_all(b"221 bye\r\n").await.unwrap();
+                break;
+            } else {
+                b"250 ok\r\n"
+            };
+            w.write_all(answer).await.unwrap();
+        }
+        saw
+    });
+    let loopback = placement::smtp_value_bytes(
+        "127.0.0.1",
+        relay_port,
+        TlsMode::None,
+        "",
+        "",
+        "fathom@example.test",
+    );
+    let (status, answer) =
+        settings_request(addr, &operator, &store, &deployment_id, "smtp", &loopback).await;
+    assert_eq!(
+        status, "200",
+        "a loopback relay with no TLS is a valid form"
+    );
+    let loopback_id = String::from_utf8(read_lp_fields(&answer, 1)[0].clone()).unwrap();
     let (status, body) = signed_request(
         addr,
         "POST",
-        &format!("/admin/settings/{id}/test-send"),
+        &format!("/admin/settings/{loopback_id}/test-send"),
         "anything.example.test",
         b"",
         &operator,
         &store,
     )
     .await;
-    assert_eq!(status, "503");
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
     assert_eq!(
         String::from_utf8_lossy(&body),
-        "mail sending is not built yet\n"
+        "Sent to operator@example.test. The mail server answered: 250 2.0.0 Ok: queued as T3ST\n"
     );
+    let saw = relay_saw.await.expect("the relay finished");
+    assert!(saw.contains("MAIL FROM:<fathom@example.test>"), "{saw}");
+    assert!(
+        saw.contains("RCPT TO:<operator@example.test>"),
+        "only the operator's own address: {saw}"
+    );
+    assert!(saw.contains("Auto-Submitted: auto-generated"), "{saw}");
     let (status, _) = signed_request(
         addr,
         "POST",

@@ -27,7 +27,8 @@ describe('Add someone', () => {
     for (const word of ['Read', 'Draw', 'Steward']) expect(out).toContain(`<strong>${word}</strong>`);
     expect(out).toContain('LON1');
     expect(out).toContain('Whole organisation (Northwind)');
-    expect(out).toContain('Fathom does not send anything to it');
+    expect(out).toContain('The person does not sign in with it');
+    expect(out).not.toContain('Email them the link');
     expect(out).toContain('They have this access as soon as you add them');
     expect(out).toContain('>Add<');
   });
@@ -36,7 +37,7 @@ describe('Add someone', () => {
     const token = `inv_${'a'.repeat(64)}`;
     const out = html(
       createElement(LinkCard, {
-        invitation: { invitation: 'I', account: 'A', signInName: 'jo-kim-abcd1234', token, linkPath: `/invite#${token}`, expiresAtUnix: 1_800_259_200 },
+        invitation: { invitation: 'I', account: 'A', signInName: 'jo-kim-abcd1234', token, linkPath: `/invite#${token}`, expiresAtUnix: 1_800_259_200, mailed: 'no' },
         access: 'Draw · LON1',
         name: 'Jo Kim',
         added: true,
@@ -55,7 +56,7 @@ describe('Add someone', () => {
     const token = `inv_${'a'.repeat(64)}`;
     const out = html(
       createElement(LinkCard, {
-        invitation: { invitation: 'I', account: 'A', signInName: 'jo-kim-abcd1234', token, linkPath: `/invite#${token}`, expiresAtUnix: 1_800_259_200 },
+        invitation: { invitation: 'I', account: 'A', signInName: 'jo-kim-abcd1234', token, linkPath: `/invite#${token}`, expiresAtUnix: 1_800_259_200, mailed: 'no' },
         access: 'Draw · LON1',
         name: 'Jo Kim',
         added: false,
@@ -74,7 +75,7 @@ describe('Add someone', () => {
     const token = `inv_${'a'.repeat(64)}`;
     const out = html(
       createElement(LinkCard, {
-        invitation: { invitation: 'I', account: 'A', signInName: 'jo-kim-abcd1234', token, linkPath: `/invite#${token}`, expiresAtUnix: 1_800_259_200 },
+        invitation: { invitation: 'I', account: 'A', signInName: 'jo-kim-abcd1234', token, linkPath: `/invite#${token}`, expiresAtUnix: 1_800_259_200, mailed: 'no' },
         access: 'Draw · LON1',
         name: 'Jo Kim',
         added: false,
@@ -86,7 +87,7 @@ describe('Add someone', () => {
     );
     expect(out).toContain(`https://fathom.example/invite#${token}`);
     expect(out).toContain('jo-kim-abcd1234');
-    expect(out).toContain('Fathom does not email this.');
+    expect(out).toContain('Fathom has not mailed this.');
     expect(out).toContain('You send it yourself');
     expect(out).toContain('will not be shown this link again');
     expect(out).toContain('The link works once');

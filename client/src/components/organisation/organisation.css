@@ -433,3 +433,87 @@
 .org-scroll .org-table td:not(:first-child) {
   text-align: center;
 }
+
+/* Steward › Mail (ADR-0085, the alpha card's Mail). */
+.org-mail__kinds td:first-child {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.org-mail__later td {
+  color: var(--muted);
+}
+
+.org-mail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.org-mail__when {
+  white-space: nowrap;
+}
+
+.org-mail__state--failed {
+  color: var(--danger);
+}
+
+.org-mail__list td {
+  text-align: left;
+  vertical-align: top;
+}
+
+.org-mail__to,
+.org-mail__reply {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.875em;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* On a phone the two columns of what Fathom mails stack, so neither runs off the side. */
+@media (max-width: 720px) {
+  .org-mail__kinds,
+  .org-mail__kinds tbody,
+  .org-mail__kinds tr,
+  .org-mail__kinds td {
+    display: block;
+    width: auto;
+  }
+
+  .org-mail__kinds td:first-child {
+    white-space: normal;
+    width: auto;
+    padding-bottom: 0;
+  }
+
+  /* The sent list too: each mail becomes a short block, its date first. */
+  .org-mail__list,
+  .org-mail__list tbody,
+  .org-mail__list tr,
+  .org-mail__list td {
+    display: block;
+    width: auto;
+  }
+
+  .org-mail__list thead {
+    display: none;
+  }
+
+  .org-mail__list tr {
+    border-bottom: var(--rule-hair) solid var(--hairline);
+    padding: var(--s2) 0;
+  }
+
+  .org-mail__list td {
+    border: 0;
+    padding: 2px 0;
+  }
+
+  .org-mail__list .org-mail__when {
+    color: var(--muted);
+    font-size: 0.875em;
+  }
+}

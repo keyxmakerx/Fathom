@@ -485,6 +485,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0078_device_read_refusals.sql",
         sql: include_str!("../migrations/0078_device_read_refusals.sql"),
     },
+    // The mail outbox: written with the act that causes a mail, sent later by a worker
+    // (ADR-0085 decision 7, the alpha card's Mail, 2026-11-14).
+    Migration {
+        version: 79,
+        name: "0079_mail_outbox.sql",
+        sql: include_str!("../migrations/0079_mail_outbox.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

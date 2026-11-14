@@ -222,6 +222,7 @@ pub fn router(state: DesignApiState) -> Router {
             "/organisations/{organisation}/grants/{grant}/second",
             get(second_view_any_scope_handler).post(second_grant_any_scope_handler),
         )
+        .route("/organisations/{organisation}/mail", get(mail_page_handler))
         .route(
             "/organisations/{organisation}/invitations",
             get(list_invitations_handler).post(issue_invitation_handler),
@@ -2074,7 +2075,8 @@ async fn revoke_share_handler(
 // caller's authority checked before any row is read.
 
 /// `POST /organisations/{organisation}/invitations`: body `LP(display_name) ‖
-/// LP(contact_email or "") ‖ LP(capability) ‖ LP(scope_id or "")`. There is no
+/// LP(contact_email or "") ‖ LP(capability) ‖ LP(scope_id or "")`, and an optional
+/// `LP("mail")` to mail the link to the contact email too (answered as `mail`). There is no
 /// account field. Answers the link once, with the sign-in name to hand over beside
 /// it.
 async fn issue_invitation_handler(
@@ -2083,7 +2085,7 @@ async fn issue_invitation_handler(
     signed: Signed,
 ) -> Result<Response, RouteError> {
     let tenant = parse_organisation(&organisation)?;
-    let request = invitations::parse_issue_body(&signed.body)?;
+    let (request, mail) = invitations::parse_issue_body_with_mail(&signed.body)?;
 
     let mut client = state
         .sessions
@@ -2112,6 +2114,11 @@ async fn issue_invitation_handler(
         &state.invitation_limits,
     )
     .await?;
+    let mailed = if mail {
+        invitations::mail_link(&tx, &state.ring, &tenant.to_string(), &request, &issued).await?
+    } else {
+        invitations::Mailed::No
+    };
     tx.commit().await.map_err(SessionError::Db)?;
 
     let mut map = BTreeMap::new();
@@ -2123,10 +2130,98 @@ async fn issue_invitation_handler(
         Json::Str(format!("/invite#{}", issued.token)),
     );
     map.insert("token".to_string(), Json::Str(issued.token));
+    map.insert("mail".to_string(), Json::Str(mailed.as_str().to_string()));
     map.insert(
         "expires_at_unix".to_string(),
         Json::Int(issued.expires_at_unix),
     );
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `GET /organisations/{organisation}/mail`: the Steward's Mail page (ADR-0085 decision 7's
+/// Admin › Mail, for one organisation). **Requires `steward` at the organisation's root.**
+///
+/// Answers whether mail can go out (`set_up`, `links`, `from_address`, `problem`) and the
+/// newest 100 mails of this organisation: what, to whom, sent, waiting or failed, with the mail
+/// server's own reply. Never a body, and never the mail settings' password or user.
+async fn mail_page_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    grants::authorise_account(&tx, &auth, None, Capability::Steward)
+        .await
+        .map_err(SessionError::Authority)?;
+    let rows = crate::mail::outbox::list_for_organisation(
+        &tx,
+        &state.ring,
+        &ctx.tenant().to_string(),
+        100,
+    )
+    .await
+    .map_err(|_| SessionError::Corrupt("mail outbox"))?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let status = match crate::mail::installed() {
+        Some(m) => m.status().await,
+        None => crate::mail::Status {
+            links: false,
+            from_address: None,
+            problem: Some(
+                "This server's mail is not set up. An operator sets it in the console.".to_string(),
+            ),
+        },
+    };
+    let opt_int = |v: Option<i64>| v.map(Json::Int).unwrap_or(Json::Null);
+    let opt_str = |v: Option<String>| v.map(Json::Str).unwrap_or(Json::Null);
+    let mail = rows
+        .into_iter()
+        .map(|r| {
+            let mut m = BTreeMap::new();
+            m.insert("id".to_string(), Json::Str(r.id));
+            m.insert("kind".to_string(), Json::Str(r.kind.as_str().to_string()));
+            m.insert("state".to_string(), Json::Str(r.state.to_string()));
+            m.insert("to".to_string(), Json::Str(r.to));
+            m.insert("what".to_string(), Json::Str(r.what));
+            m.insert("attempts".to_string(), Json::Int(r.attempts as i64));
+            m.insert("created_at_unix".to_string(), Json::Int(r.created_at_unix));
+            m.insert(
+                "next_attempt_at_unix".to_string(),
+                opt_int(r.next_attempt_at_unix),
+            );
+            m.insert("finished_at_unix".to_string(), opt_int(r.finished_at_unix));
+            m.insert("last_reply".to_string(), opt_str(r.last_reply));
+            Json::Obj(m)
+        })
+        .collect();
+    let mut map = BTreeMap::new();
+    map.insert(
+        "set_up".to_string(),
+        Json::Bool(status.problem.is_none() && status.links),
+    );
+    map.insert("links".to_string(), Json::Bool(status.links));
+    map.insert("from_address".to_string(), opt_str(status.from_address));
+    map.insert("problem".to_string(), opt_str(status.problem));
+    map.insert("mail".to_string(), Json::Arr(mail));
     Ok(json_response(Json::Obj(map)))
 }
 
