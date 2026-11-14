@@ -318,6 +318,10 @@ async fn main() -> ExitCode {
         .with_address_check(config.session_address_check),
     );
     let watch = Arc::new(fathom_server::grants::EpochWatch::new());
+    // ADR-0092: the overdue clock also runs on a timer, so an order's overdue rules are carried
+    // out when nobody is signed in. It reads only each order's plain next-due time, and opens an
+    // order as the system account once that time has passed.
+    fathom_server::orders::spawn_clock(pool.clone(), Arc::clone(&ring), Arc::clone(&watch));
     // One address policy for every route that counts one
     // (`src/client_address.rs`). Parsed from text the config already validated, so
     // the `expect` cannot fire.

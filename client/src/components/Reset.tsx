@@ -3,6 +3,7 @@ import { useState, type FormEvent } from 'react';
 import { redeemReset, requestReset } from '../api/credentials';
 import { MalformedTokenError, parseToken } from '../api/enrolment';
 import { describe } from './Account';
+import { NotFinishedMark } from './ui/NotFinished';
 import '../styles/signin.css';
 
 /**
@@ -219,7 +220,9 @@ export function Reset({ onUseSignIn, initialToken }: ResetProps) {
     <div className="signin">
       <form className="signin__card" onSubmit={handleAsk}>
         <h1 className="signin__title">Fathom</h1>
-        <p className="signin__subtitle">Forgotten your password?</p>
+        <p className="signin__subtitle">
+          Forgotten your password? <NotFinishedMark />
+        </p>
 
         <div className="signin__field">
           <label className="signin__label" htmlFor="reset-address">

@@ -405,8 +405,8 @@ async fn authorise(
 
 /// **The pinned tenant.** §4: *"the tenant key is pinned from the authenticated
 /// request context for the request's lifetime, and never taken from the row being
-/// read."* Made a type: fields are private, [`open_tenant_context`] is the only
-/// constructor, and `keys` and `designs` take one instead of an `OrganisationId`,
+/// read."* Made a type: fields are private, [`open_tenant_context`] is the
+/// constructor (with one exception, [`open_clock_context`], argued in ADR-0092), and `keys` and `designs` take one instead of an `OrganisationId`,
 /// so no signature in the key hierarchy can be handed an id read out of a row.
 #[derive(Clone, Copy, Debug)]
 pub struct TenantContext {
@@ -547,6 +547,45 @@ pub(crate) async fn set_custody_tenant(
     tx.execute("SELECT set_config('app.tenant_id', $1, true)", &[&tenant])
         .await?;
     Ok(())
+}
+
+/// The context the overdue clock acts in when nobody is signed in (ADR-0092): one
+/// organisation, the system account (`0074`) as the actor, and no membership,
+/// because the system account never holds one.
+///
+/// **A second door to a tenant key that is not a membership row, and ADR-0092 is its
+/// argument.** `docs/PHASE-2-STORAGE-DESIGN.md` §4 pins the tenant from the request;
+/// here there is no request. What keeps it narrow:
+///
+///  - the only caller is `orders::clock_one`, unreachable from any route, and the
+///    organisation comes from `0081`'s clock door in an earlier transaction, where
+///    only orders whose plain next-due time has passed are listed;
+///  - `app.design_capability` is set to its refusal FIRST and never to anything else
+///    on this path, so no design payload is reachable;
+///  - `app.account_id` is empty ([`set_custody_tenant`]), which every policy treats as
+///    a refusal, so nothing that checks a member's own rows is reachable;
+///  - nothing it opens is shown to anyone: the clock writes what it decides back into
+///    the same organisation's order history, which is what §4's pinning protects;
+///  - every row it reads or writes is still matched to the organisation by the tenant
+///    predicate, and each order event's AAD names its organisation, so an event moved
+///    under another one fails to open.
+///
+/// Its role is `Member`: it is never a Steward, so it can save no order type.
+pub(crate) async fn open_clock_context(
+    tx: &Transaction<'_>,
+    tenant: OrganisationId,
+) -> Result<TenantContext, RepoError> {
+    tx.execute(
+        "SELECT set_config('app.design_capability', 'no', true)",
+        &[],
+    )
+    .await?;
+    set_custody_tenant(tx, &tenant.to_string()).await?;
+    Ok(TenantContext {
+        tenant,
+        actor: crate::system_account::system_account(),
+        role: Role::Member,
+    })
 }
 
 // ---- Accounts ----

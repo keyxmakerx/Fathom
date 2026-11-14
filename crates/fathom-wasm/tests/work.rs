@@ -463,3 +463,59 @@ fn running_lists_a_plan_in_do_with_its_finished_steps_on_that_device() {
     assert!(rows(&shell.handle(OP_WORK_CLASHES, &[7, b'x'])).is_empty());
     assert!(rows(&shell.handle(OP_WORK_CLASHES, &[])).is_empty());
 }
+
+fn clashes_holding(
+    shell: &mut Shell,
+    plan: &str,
+    held: &[(&str, Option<&str>)],
+) -> Vec<(u8, Vec<String>)> {
+    let mut req = vec![2u8];
+    req.extend_from_slice(plan.as_bytes());
+    for (device, port) in held {
+        req.extend_from_slice(format!("\n{device}\t{}", port.unwrap_or("")).as_bytes());
+    }
+    rows(&shell.handle(OP_WORK_CLASHES, &req))
+}
+
+/// ADR-0084 decision 18: what an open order holds meets a plan on the same device, whatever the
+/// window, and names the shared port; a hold elsewhere, or naming nothing here, does not.
+#[test]
+fn a_port_an_open_order_holds_clashes_with_a_plan_on_its_device() {
+    let (mut shell, a, b, _cable, pa, pb) = lab();
+    let ids = add(
+        &mut shell,
+        &[plan(
+            "Move uplinks",
+            "2026-11-04T22:00",
+            "2026-11-05T00:00",
+            vec![(vec![pa.clone()], false)],
+        )],
+        &[],
+    );
+    let got = clashes_holding(
+        &mut shell,
+        &ids[0],
+        &[
+            (b.as_str(), Some(pb.as_str())),
+            (a.as_str(), Some(pa.as_str())),
+            ("device:nothing-here", None),
+            (a.as_str(), None),
+        ],
+    );
+    // The head, then two order rows each with its empty who row: index 1 (the port) and 3 (the device).
+    assert_eq!(got.len(), 5, "{got:?}");
+    assert_eq!(got[0].0, FACE_CLASH_HEAD);
+    assert_eq!(got[1].0, FACE_CLASH);
+    assert_eq!(got[1].1[..4], ["order", "1", "", "open"]);
+    assert_eq!(got[1].1[4], format!("{a}\tsw-a"));
+    assert!(
+        got[1].1[5].starts_with(&format!("{pa}\tsw-a ")),
+        "{:?}",
+        got[1].1[5]
+    );
+    assert_eq!(got[2].0, FACE_CLASH_WHO);
+    assert_eq!(got[3].1[..4], ["order", "3", "", "open"]);
+    assert_eq!(got[3].1[5], "", "a device hold shares no port");
+    // Mode 0 asks nothing of orders.
+    assert_eq!(clashes(&mut shell, &ids[0]).len(), 1);
+}

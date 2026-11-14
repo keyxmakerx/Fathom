@@ -433,3 +433,10 @@
 .org-scroll .org-table td:not(:first-child) {
   text-align: center;
 }
+
+/* The "Not finished" mark sits under the name in the rail, for all three alike. */
+.org-rail__item .not-finished {
+  display: block;
+  width: max-content;
+  margin: var(--s1) 0 0;
+}

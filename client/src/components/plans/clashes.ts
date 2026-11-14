@@ -1,13 +1,53 @@
 // Work that lands on the same devices (sign-off r105). The engine decides what clashes and what time is free
 // (`fathom_inventory::work`, asked through `OP_WORK_CLASHES`); this file only words it for the page and turns the
 // engine's ids back into the plans the page already reads. Nothing here decides a clash.
-import type { PlanClashes, RunningHere as EngineRunning, WindowText, WorkClash } from '../../engine/engine';
+import type { HeldThing, PlanClashes, RunningHere as EngineRunning, WindowText, WorkClash } from '../../engine/engine';
+import type { OrderHold } from '../../api/orders';
 import type { Document } from '../../document/model';
 import { readPlan, type Plan, type PlanStep } from '../../document/plans';
 
-export type { PlanClashes, WindowText, WorkClash };
+export type { HeldThing, PlanClashes, WindowText, WorkClash };
 
 export const NO_CLASHES: PlanClashes = { mineFree: null, clashes: [] };
+
+/** What open orders hold on this design, as the engine is asked it (ADR-0084 decision 18). */
+export function heldOn(holds: readonly OrderHold[], designId: string): { holds: OrderHold[]; things: HeldThing[] } {
+  const here = holds.filter((h) => h.design === designId);
+  return { holds: here, things: here.map((h) => ({ device: h.device, port: h.port })) };
+}
+
+/** The engine's order rows as the orders they are: it names a hold by its index in what it was asked, and the page
+ * already has the order's number, type and job. Several holds of one job on the same devices read as one line. */
+export function withOrders(reply: PlanClashes, holds: readonly OrderHold[]): PlanClashes {
+  const seen = new Map<string, WorkClash>();
+  const out: WorkClash[] = [];
+  for (const c of reply.clashes) {
+    if (c.kind !== 'order') {
+      out.push(c);
+      continue;
+    }
+    const h = holds[Number(c.id)];
+    if (h == null) continue;
+    const id = `${h.order}/${h.job}`;
+    const had = seen.get(id);
+    if (had) {
+      const add = <T extends { id: string }>(a: T[], b: T[]) => [...a, ...b.filter((x) => !a.some((y) => y.id === x.id))];
+      had.devices = add(had.devices, c.devices);
+      had.ports = add(had.ports, c.ports);
+      continue;
+    }
+    const clash: WorkClash = {
+      ...c,
+      id,
+      title: `${h.code ? `W-${h.number} · ${h.code}` : `W-${h.number}`} ${h.name}: ${h.jobName}`,
+      team: h.team,
+      order: { id: h.order, number: h.number, code: h.code, name: h.name, job: h.job, jobName: h.jobName },
+    };
+    seen.set(id, clash);
+    out.push(clash);
+  }
+  return { ...reply, clashes: out };
+}
 
 /** A plan under way on a device, for It's down: the plan, and its finished steps there, newest first. */
 export interface RunningHere {
@@ -56,7 +96,8 @@ const where = (c: WorkClash): string =>
 /** The note Start anyway leaves on the plan: one line naming each clash. */
 export function clashNote(clashes: readonly WorkClash[]): string {
   const one = (c: WorkClash): string => {
-    const what = c.kind === 'issue' ? `It's down "${c.title}"` : `plan "${c.title}" (${c.stage === 'doing' ? 'under way' : 'planned'})`;
+    const what =
+      c.kind === 'issue' ? `It's down "${c.title}"` : c.kind === 'order' ? `order ${c.title}` : `plan "${c.title}" (${c.stage === 'doing' ? 'under way' : 'planned'})`;
     return `${what} on ${where(c)}`;
   };
   return `Started anyway while other work was open on these devices: ${clashes.map(one).join('; ')}.`;

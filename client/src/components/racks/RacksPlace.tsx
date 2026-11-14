@@ -166,6 +166,7 @@ import { EMPTY_HINT, autoOpenEquipment } from './emptyHints';
 import { cameraStopAt } from '../drawing/geometry';
 import { siteLinkTouching } from '../../document/siteLinks';
 import { useSiteLinkFindings } from '../checks/siteLinkChecks';
+import { fetchOrderHolds } from '../../api/orders';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
 // re-exported here unchanged, so the two
@@ -548,6 +549,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     const engine = engineRef.current;
     return engine == null ? null : (t: string) => engine.redactText(t).text;
   }, [engineRef]);
+  const holdsOrg = session.organisationId;
+  const loadOrderHolds = useMemo(() => (holdsOrg ? () => fetchOrderHolds(holdsOrg) : undefined), [holdsOrg]);
   const plans = usePlansController({
     doc,
     boot: ensureMirror,
@@ -562,6 +565,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     findings: checks.result?.findings ?? null,
     onTroubleshoot: (from) => troubleRef.current?.start(from.deviceId, { stepId: from.stepId, said: from.said }),
     onOpenIssue: (id) => troubleRef.current?.openIssue(id),
+    // ADR-0084 decision 18: what open orders hold shows beside the plan's other work.
+    loadHolds: loadOrderHolds,
+    designId: session.designId,
   });
   // "It's down" (ADR-0061 troubleshooting): the draft stays in memory; Plan a fix opens the plan in the plans surface.
   const trouble = useTroubleController({

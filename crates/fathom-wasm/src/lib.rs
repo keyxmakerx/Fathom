@@ -419,8 +419,11 @@ pub const OP_VAULT_KDF: u32 = 37;
 /// and `running_on`. Request: one mode byte, then a display id. Mode 0, a plan: one
 /// `FACE_CLASH_HEAD` (a free window for the plan, or two empty strings), then for each clash a
 /// `FACE_CLASH` followed by its `FACE_CLASH_WHO`. Mode 1, a device: one `FACE_RUNNING` per plan in
-/// Do whose steps touch it. An id that is not a live plan or device, or another mode, answers with
-/// no rows. Never writes.
+/// Do whose steps touch it. Mode 2 is mode 0 with what open orders hold (ADR-0084 decision 18)
+/// after the plan id, each on its own line as `device id TAB port id` (the port may be empty):
+/// after the plan's clashes, one `FACE_CLASH` of kind `order` and an empty `FACE_CLASH_WHO` for
+/// each hold that lands on the plan's devices. An id that is not a live plan or device, or another
+/// mode, answers with no rows. Never writes.
 pub const OP_WORK_CLASHES: u32 = 38;
 
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a

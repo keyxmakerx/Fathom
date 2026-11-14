@@ -664,8 +664,9 @@ export interface WindowText {
 
 /** `FACE_CLASH` and its `FACE_CLASH_WHO` (`OP_WORK_CLASHES`, sign-off r105). */
 export interface WorkClash {
-  kind: 'plan' | 'issue';
-  /** The other plan or issue. */
+  kind: 'plan' | 'issue' | 'order';
+  /** The other plan or issue. For an order, the engine gives the hold's index as asked; the page
+   * puts the order's own id here and fills `order` (`clashes.ts`, `withOrders`). */
   id: string;
   title: string;
   /** 'planned' or 'doing' for a plan; 'open' for an issue. */
@@ -682,6 +683,14 @@ export interface WorkClash {
   author: string;
   /** A window for the other plan from when this one ends, the same length: what this plan's owner can offer. */
   theirsAfterMine: WindowText | null;
+  /** The open order that holds these devices (ADR-0084 decision 18), filled by the page. */
+  order?: { id: string; number: number; code: string | null; name: string; job: string; jobName: string };
+}
+
+/** A device, or a port on it, that an open order holds: what mode 2 of `OP_WORK_CLASHES` is asked with. */
+export interface HeldThing {
+  device: string;
+  port: string | null;
 }
 
 /** `OP_WORK_CLASHES` on a plan, decoded. */
@@ -715,7 +724,7 @@ function readClashesReply(rows: FaceRow[]): PlanClashes {
     const s = c.strings;
     const w = who.strings;
     clashes.push({
-      kind: s[0] === 'issue' ? 'issue' : 'plan',
+      kind: s[0] === 'issue' || s[0] === 'order' ? s[0] : 'plan',
       id: s[1],
       title: s[2],
       stage: s[3],
@@ -740,7 +749,10 @@ function readRunningReply(rows: FaceRow[]): RunningHere[] {
   });
 }
 
-const workFrame = (mode: 0 | 1, id: string): Uint8Array => concatBytes(new Uint8Array([mode]), new TextEncoder().encode(id));
+const workFrame = (mode: 0 | 1 | 2, id: string, held: readonly HeldThing[] = []): Uint8Array => {
+  const tail = held.map((h) => `\n${h.device}\t${h.port ?? ''}`).join('');
+  return concatBytes(new Uint8Array([mode]), new TextEncoder().encode(id + tail));
+};
 
 function readChecksReply(rows: FaceRow[]): ChecksResult {
   const head = rows[0];
@@ -1018,8 +1030,9 @@ export class Engine {
   }
 
   /** `OP_WORK_CLASHES` on a plan: other open work on its devices at an overlapping time. Never writes. */
-  workClashes(planId: string): PlanClashes {
-    return readClashesReply(this.callFaces(OPCODES.OP_WORK_CLASHES, workFrame(0, planId)));
+  workClashes(planId: string, held: readonly HeldThing[] = []): PlanClashes {
+    const frame = held.length > 0 ? workFrame(2, planId, held) : workFrame(0, planId);
+    return readClashesReply(this.callFaces(OPCODES.OP_WORK_CLASHES, frame));
   }
 
   /** `OP_WORK_CLASHES` on a device (or a port on it): the plans under way there. Never writes. */

@@ -915,6 +915,23 @@ pub async fn work(
     open_rows(tx, keys, organisation, &pairs).await
 }
 
+/// One element's row, opened, or `None` when the index holds no such row (or it no longer opens).
+/// An order's `makes: plan` job asks whether its plan is recorded (ADR-0084 piece 4).
+pub async fn one_row(
+    tx: &Transaction<'_>,
+    keys: &IndexKeys,
+    organisation: &str,
+    design: &str,
+    element: &str,
+) -> Result<Option<Json>, String> {
+    let pairs = [(design.to_string(), element.to_string())];
+    Ok(open_rows(tx, keys, organisation, &pairs)
+        .await?
+        .into_iter()
+        .next()
+        .map(|h| h.row))
+}
+
 /// One result, opened.
 #[derive(Clone, Debug)]
 pub struct Hit {

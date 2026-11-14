@@ -10,14 +10,23 @@
 //!   With `id`, a new version of that type. Answers the saved type as `GET` below does.
 //!   Refusals a Steward can act on are JSON: `{"error": "problems", "problems": [{line,
 //!   message}]}`, `{"error": "unmatched_teams", "slugs": [..]}`, `{"error": "looks_secret"}`.
+//! - `POST /organisations/{o}/order-types/check`: body `{"source", "field_sets"?}`. A Steward's.
+//!   Saves nothing: `{"problems": [{line, message}], "definition": {..} | null, "slugs": [..],
+//!   "teams": {id: {slug, name}}}`, what the board draws and the File tab marks as it is typed.
 //! - `GET  /organisations/{o}/order-types/{t}`: `{id, version, name, code, file_id, saved_by,
-//!   saved_at, source, field_sets, teams}`.
+//!   saved_at, source, field_sets, teams, definition, live_teams}`.
 //! - `GET  /organisations/{o}/orders` (open) and `.../orders/finished`: `{"orders": [{id, number,
-//!   type, type_version, opened_by, opened_at, status, updated_at}]}`, newest first.
+//!   type, type_version, opened_by, opened_at, status, updated_at}], "people": {id: name}}`,
+//!   newest first.
+//! - `GET  /organisations/{o}/orders/holds`: `{"holds": [{order, number, code, name, job,
+//!   job_name, team, field, design, device, port}]}`, what the open orders
+//!   hold (decision 18), for the work-clash check beside a plan.
 //! - `POST /organisations/{o}/orders`: body `{"type", "answers"}`, answers keyed by field.
 //!   Answers the order as `GET` below does.
 //! - `GET  /organisations/{o}/orders/{id}`: the order as it stands: answers, lanes with their
-//!   stages and jobs, holds, and its history.
+//!   stages and jobs, holds, its history, its definition as asked, the caller's standing on its
+//!   teams (`you`), and the names of its people and teams. A `makes: plan` job whose plan is now
+//!   recorded is finished by the engine first.
 //! - `POST /organisations/{o}/orders/{id}/act`: body `{"action", ..}` with the action's own
 //!   keys (`job`, `step`, `done`, `field`, `value`, `reason`, `stage`, `design`, `plan`).
 //!   Answers the order. The engine's refusal is `409 {"error": "refused", "message"}`.
@@ -46,6 +55,10 @@ pub(super) fn routes() -> Router<DesignApiState> {
             get(types_handler).post(save_type_handler),
         )
         .route(
+            "/organisations/{organisation}/order-types/check",
+            post(check_type_handler),
+        )
+        .route(
             "/organisations/{organisation}/order-types/{id}",
             get(type_handler),
         )
@@ -56,6 +69,10 @@ pub(super) fn routes() -> Router<DesignApiState> {
         .route(
             "/organisations/{organisation}/orders/finished",
             get(finished_orders_handler),
+        )
+        .route(
+            "/organisations/{organisation}/orders/holds",
+            get(holds_handler),
         )
         .route(
             "/organisations/{organisation}/orders/{id}",
@@ -290,11 +307,38 @@ async fn type_handler(
     PathExtractor((organisation, id)): PathExtractor<(String, String)>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
-    let ty = in_org!(state, signed, organisation, |tx, auth| orders::get_type(
-        &tx, &auth, &id, None
+    let (ty, teams) = in_org!(state, signed, organisation, |tx, auth| async {
+        let ty = orders::get_type(&tx, &auth, &id, None).await?;
+        let teams = orders::live_teams(&tx, &auth).await?;
+        Ok::<_, OrderError>((ty, teams))
+    }
+    .await);
+    let Json::Obj(mut m) = type_json(&ty, true) else {
+        unreachable!("an order type is an object")
+    };
+    m.insert("definition".into(), orders::definition_json(&ty.definition));
+    m.insert("live_teams".into(), teams);
+    Ok(json_response(Json::Obj(m)))
+}
+
+async fn check_type_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(&signed.body, &["source", "field_sets"])?;
+    let Some(Json::Str(source)) = m.remove("source") else {
+        return Err(malformed());
+    };
+    let field_sets = strings(m.remove("field_sets"))?;
+    let answer = in_org!(state, signed, organisation, |tx, auth| orders::check_type(
+        &tx,
+        &auth,
+        &source,
+        &field_sets
     )
     .await);
-    Ok(json_response(type_json(&ty, true)))
+    Ok(json_response(answer))
 }
 
 async fn list(
@@ -303,30 +347,38 @@ async fn list(
     signed: Signed,
     done: bool,
 ) -> Result<Response, RouteError> {
-    let lines = in_org!(state, signed, organisation, |tx, auth| orders::list_orders(
-        &tx, &auth, done, 200
-    )
+    let (lines, names) = in_org!(state, signed, organisation, |tx, auth| async {
+        let lines = orders::list_orders(&tx, &auth, done, 200).await?;
+        let names = orders::opener_names(&tx, &auth, &lines).await?;
+        Ok::<_, OrderError>((lines, names))
+    }
     .await);
-    Ok(json_response(obj(vec![(
-        "orders",
-        Json::Arr(
-            lines
-                .into_iter()
-                .map(|l| {
-                    obj(vec![
-                        ("id", Json::Str(l.id)),
-                        ("number", Json::Int(l.number)),
-                        ("type", Json::Str(l.type_id)),
-                        ("type_version", Json::Int(i64::from(l.type_version))),
-                        ("opened_by", Json::Str(l.opened_by)),
-                        ("opened_at", Json::Int(l.opened_at)),
-                        ("status", Json::Str(l.status)),
-                        ("updated_at", Json::Int(l.updated_at)),
-                    ])
-                })
-                .collect(),
+    Ok(json_response(obj(vec![
+        (
+            "people",
+            Json::Obj(names.into_iter().map(|(k, v)| (k, Json::Str(v))).collect()),
         ),
-    )])))
+        (
+            "orders",
+            Json::Arr(
+                lines
+                    .into_iter()
+                    .map(|l| {
+                        obj(vec![
+                            ("id", Json::Str(l.id)),
+                            ("number", Json::Int(l.number)),
+                            ("type", Json::Str(l.type_id)),
+                            ("type_version", Json::Int(i64::from(l.type_version))),
+                            ("opened_by", Json::Str(l.opened_by)),
+                            ("opened_at", Json::Int(l.opened_at)),
+                            ("status", Json::Str(l.status)),
+                            ("updated_at", Json::Int(l.updated_at)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ])))
 }
 
 async fn open_orders_handler(
@@ -345,6 +397,40 @@ async fn finished_orders_handler(
     list(state, organisation, signed, true).await
 }
 
+async fn holds_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let held = in_org!(state, signed, organisation, |tx, auth| orders::held(
+        &tx, &auth
+    )
+    .await);
+    let opt = |v: Option<String>| v.map_or(Json::Null, Json::Str);
+    Ok(json_response(obj(vec![(
+        "holds",
+        Json::Arr(
+            held.into_iter()
+                .map(|h| {
+                    obj(vec![
+                        ("order", Json::Str(h.order)),
+                        ("number", Json::Int(h.number)),
+                        ("code", opt(h.code)),
+                        ("name", Json::Str(h.name)),
+                        ("job", Json::Str(h.job)),
+                        ("job_name", Json::Str(h.job_name)),
+                        ("team", Json::Str(h.team)),
+                        ("field", Json::Str(h.field)),
+                        ("design", Json::Str(h.design)),
+                        ("device", Json::Str(h.device)),
+                        ("port", opt(h.port)),
+                    ])
+                })
+                .collect(),
+        ),
+    )])))
+}
+
 async fn open_order_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,
@@ -359,11 +445,12 @@ async fn open_order_handler(
         Some(Json::Obj(a)) => a,
         Some(_) => return Err(malformed()),
     };
-    let view = in_org!(state, signed, organisation, |tx, auth| orders::open_order(
-        &tx, &auth, &type_id, answers
-    )
+    let view = in_org!(state, signed, organisation, |tx, auth| async {
+        let view = orders::open_order(&tx, &auth, &type_id, answers).await?;
+        orders::describe(&tx, &auth, &view).await
+    }
     .await);
-    Ok(json_response(view.to_json()))
+    Ok(json_response(view))
 }
 
 async fn order_handler(
@@ -371,11 +458,12 @@ async fn order_handler(
     PathExtractor((organisation, id)): PathExtractor<(String, String)>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
-    let view = in_org!(state, signed, organisation, |tx, auth| orders::get_order(
-        &tx, &auth, &id
-    )
+    let view = in_org!(state, signed, organisation, |tx, auth| async {
+        let view = orders::get_order(&tx, &auth, &id).await?;
+        orders::describe(&tx, &auth, &view).await
+    }
     .await);
-    Ok(json_response(view.to_json()))
+    Ok(json_response(view))
 }
 
 async fn act_handler(
@@ -392,9 +480,10 @@ async fn act_handler(
     let Some(Json::Str(word)) = m.remove("action") else {
         return Err(malformed());
     };
-    let view = in_org!(state, signed, organisation, |tx, auth| orders::act(
-        &tx, &auth, &id, &word, m
-    )
+    let view = in_org!(state, signed, organisation, |tx, auth| async {
+        let view = orders::act(&tx, &auth, &id, &word, m).await?;
+        orders::describe(&tx, &auth, &view).await
+    }
     .await);
-    Ok(json_response(view.to_json()))
+    Ok(json_response(view))
 }

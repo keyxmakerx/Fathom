@@ -249,7 +249,8 @@ pub const FACE_VAULT_KEY: u8 = 38;
 /// same length, that meets no other open plan on its devices: `<start> <end>`, both empty when
 /// there is none to offer.
 pub const FACE_CLASH_HEAD: u8 = 39;
-/// One clash: `<plan or issue> <display id> <title> <stage> <devices: display id TAB name, one per
+/// One clash: `<plan, issue or order> <display id, or for an order the hold's index as asked>
+/// <title> <stage> <devices: display id TAB name, one per
 /// line> <ports, the same> <window start> <window end>`.
 pub const FACE_CLASH: u8 = 40;
 /// Who has the clash before it, and what the plan's owner can offer them: `<team id>
@@ -1687,7 +1688,10 @@ pub struct RedactReply<'a> {
 }
 
 /// `OP_WORK_CLASHES` on a plan.
-pub fn encode_clashes_reply(c: &fathom_inventory::PlanClashes) -> Vec<u8> {
+pub fn encode_clashes_reply(
+    c: &fathom_inventory::PlanClashes,
+    held: &[fathom_inventory::HeldClash],
+) -> Vec<u8> {
     let mut blob = Blob::default();
     let mut records: Vec<u8> = Vec::new();
     let pair = |p: &Option<(String, String)>| p.clone().unwrap_or_default();
@@ -1727,6 +1731,22 @@ pub fn encode_clashes_reply(c: &fathom_inventory::PlanClashes) -> Vec<u8> {
             5,
             &[&x.team, &x.assigned_to, &x.author, &ts, &te],
         );
+        write_face_record(&mut records, &rec);
+        count += 2;
+    }
+    // What open orders hold here (mode 2): kind `order`, the hold's index as asked for its id, and
+    // the devices and ports both touch. The page names the order from its own list.
+    for h in held {
+        let index = h.index.to_string();
+        let (devices, ports) = (joined(&h.devices), joined(&h.ports));
+        let rec = face_slots(
+            &mut blob,
+            FACE_CLASH,
+            8,
+            &["order", &index, "", "open", &devices, &ports, "", ""],
+        );
+        write_face_record(&mut records, &rec);
+        let rec = face_slots(&mut blob, FACE_CLASH_WHO, 5, &["", "", "", "", ""]);
         write_face_record(&mut records, &rec);
         count += 2;
     }

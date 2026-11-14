@@ -15,7 +15,8 @@ import { addSketchPort, createSketchDevice } from '../../document/commands';
 import { closeIssue, createIssue, TYPED_AS_WRITTEN as ISSUE_TYPED } from '../../document/issues';
 import { edgesOut, emptyDocument, type Document } from '../../document/model';
 import { addStep, createPlan, markDone, startPlan, TYPED_AS_WRITTEN, type StepEdit } from '../../document/plans';
-import { clashNote, offerNote, runningFrom, windowWords, type PlanClashes } from './clashes';
+import { clashNote, heldOn, offerNote, runningFrom, windowWords, withOrders, type PlanClashes } from './clashes';
+import type { OrderHold } from '../../api/orders';
 
 const WASM = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../public/engine/fathom_wasm.wasm');
 
@@ -114,6 +115,36 @@ describe('the engine finds the clashes the page shows', () => {
     expect(clashes.map((x) => x.title)).toEqual(['Running one', 'Planned one']);
     expect(clashNote(clashes)).toBe(
       'Started anyway while other work was open on these devices: plan "Running one" (under way) on core-sw1; plan "Planned one" (planned) on the same port core-sw1 Gi1/0/47.',
+    );
+  });
+
+  it('a port an open order holds clashes with a plan on its device, named by the order and its job (ADR-0084 decision 18)', () => {
+    const l = lab();
+    const a = plan(l.doc, 'Move uplinks', [{ t: 'cable', a: l.p2, b: l.p3 }], '2026-11-04T22:00', '2026-11-05T02:00');
+    const hold = (over: Partial<OrderHold>): OrderHold => ({
+      order: 'ord-1', number: 12, code: 'DIA', name: 'Dedicated internet', job: 'patch', jobName: 'Patch the port', team: 'team-9',
+      field: 'edge_port', design: 'here', device: l.sw1, port: l.p2, ...over,
+    });
+    const holds = [
+      hold({}),
+      hold({ field: 'edge_device', port: null }),
+      hold({ order: 'ord-2', number: 13, design: 'elsewhere' }),
+      hold({ order: 'ord-3', number: 14, device: l.sw1, port: l.p1, job: 'other', jobName: 'Survey' }),
+    ];
+    const held = heldOn(holds, 'here');
+    expect(held.holds).toHaveLength(3);
+    mirror.load(a.doc);
+    const got = withOrders(mirror.workClashes(a.id, held.things), held.holds);
+    expect(got.clashes.map((c) => [c.kind, c.id, c.title, c.team, c.ports.map((p) => p.name)])).toEqual([
+      // Two holds of one job on the same device read as one line, with the shared port.
+      ['order', 'ord-1/patch', 'W-12 · DIA Dedicated internet: Patch the port', 'team-9', ['core-sw1 Gi1/0/48']],
+      // Another port on the same device: the device clashes, no port is shared.
+      ['order', 'ord-3/other', 'W-14 · DIA Dedicated internet: Survey', 'team-9', []],
+    ]);
+    expect(got.clashes[0].order).toMatchObject({ id: 'ord-1', job: 'patch' });
+    expect(got.mineFree).toBeNull();
+    expect(clashNote(got.clashes)).toBe(
+      'Started anyway while other work was open on these devices: order W-12 · DIA Dedicated internet: Patch the port on the same port core-sw1 Gi1/0/48; order W-14 · DIA Dedicated internet: Survey on core-sw1.',
     );
   });
 

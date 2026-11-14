@@ -48,6 +48,6 @@ pub use rack::{elevation, rack_label, Elevation, Slot};
 pub use render::field_text;
 pub use trace::{trace, trace_in, Flow, Hop, PolicyLine, Trace};
 pub use work::{
-    plan_clashes, plan_span, running_on, window_span, window_text, Clash, ClashKind, PlanClashes,
-    Running, Span,
+    held_clashes, plan_clashes, plan_span, running_on, window_span, window_text, Clash, ClashKind,
+    Held, HeldClash, PlanClashes, Running, Span,
 };

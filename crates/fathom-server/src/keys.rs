@@ -430,7 +430,8 @@ fn org_content_key_aad(tenant: &str, epoch: i32) -> Vec<u8> {
 /// **The organisation id comes from `ctx` and nowhere else**: not from a row,
 /// not from a handler's parameter. [`TenantContext`] is built only by
 /// `repo::open_tenant_context`, after the database has confirmed a membership
-/// row under the acting account's identity.
+/// row under the acting account's identity, and by `repo::open_clock_context` for
+/// the overdue clock alone (ADR-0092, where the argument for it is).
 pub async fn tenant_key(
     tx: &Transaction<'_>,
     ring: &KeyRing,

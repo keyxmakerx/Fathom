@@ -6,6 +6,11 @@
  * giving `OrganisationTab` a body for it; nobody reorders another thread's
  * entry. An entry that is not built is not shown, and a group with nothing
  * shown has no heading.
+ *
+ * Alpha (owner's pick, 2026-11-12): nothing is hidden. A part with server work and
+ * no screen is `built` and `notFinished`: it is listed with the "Not finished"
+ * mark and opens a page that says what is there and what is not. Its owner
+ * removes `notFinished` when the real screen lands.
  */
 
 /** Every Steward page, built or reserved. */
@@ -17,6 +22,7 @@ export type StewardPage =
   | 'firmware'
   | 'device-reading'
   | 'order-types'
+  | 'ip-plan'
   | 'mail'
   | 'passwords'
   | 'ai'
@@ -29,6 +35,8 @@ export interface StewardEntry {
   built: boolean;
   /** Who builds it, so a thread knows whose line it is (ADR-0088's table). */
   owner: string;
+  /** True while the page only says it is not finished (alpha). Drawn with the "Not finished" mark. */
+  notFinished?: boolean;
 }
 
 export interface StewardGroup {
@@ -56,8 +64,9 @@ export const STEWARD_RAIL: readonly StewardGroup[] = [
   {
     heading: 'Work',
     entries: [
-      { page: 'order-types', label: 'Order types', built: false, owner: 'ADR-0084 orders' },
-      { page: 'mail', label: 'Mail', built: false, owner: 'ADR-0085 email' },
+      { page: 'order-types', label: 'Order types', built: true, owner: 'ADR-0084 orders' },
+      { page: 'ip-plan', label: 'IP plan', built: true, notFinished: true, owner: 'ADR-0083 IP plan' },
+      { page: 'mail', label: 'Mail', built: true, notFinished: true, owner: 'ADR-0085 email' },
     ],
   },
   {

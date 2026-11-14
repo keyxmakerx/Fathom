@@ -1937,15 +1937,35 @@ impl Shell {
         let Some(estate) = self.estate.as_ref() else {
             return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
         };
-        let Some((&mode, id)) = req.split_first() else {
+        let Some((&mode, rest)) = req.split_first() else {
             return protocol::encode_running_reply(&[]);
         };
-        let node = core::str::from_utf8(id)
-            .ok()
-            .and_then(|id| self.resolve_node(id));
+        let Ok(rest) = core::str::from_utf8(rest) else {
+            return protocol::encode_running_reply(&[]);
+        };
+        // Mode 2 is mode 0 with what open orders hold after the plan id: one `device\tport` a line.
+        let (id, held_lines) = rest.split_once('\n').unwrap_or((rest, ""));
+        let node = self.resolve_node(id);
         match (mode, node) {
             (0, Some(n)) if n.kind == NodeKind::MaintenancePlan => {
-                protocol::encode_clashes_reply(&fathom_inventory::plan_clashes(estate, n))
+                protocol::encode_clashes_reply(&fathom_inventory::plan_clashes(estate, n), &[])
+            }
+            (2, Some(n)) if n.kind == NodeKind::MaintenancePlan => {
+                let held: Vec<fathom_inventory::Held> = held_lines
+                    .split('\n')
+                    .filter(|l| !l.is_empty())
+                    .map(|l| {
+                        let (device, port) = l.split_once('\t').unwrap_or((l, ""));
+                        fathom_inventory::Held {
+                            device: device.to_owned(),
+                            port: (!port.is_empty()).then(|| port.to_owned()),
+                        }
+                    })
+                    .collect();
+                protocol::encode_clashes_reply(
+                    &fathom_inventory::plan_clashes(estate, n),
+                    &fathom_inventory::held_clashes(estate, n, &held),
+                )
             }
             (1, Some(n)) => {
                 protocol::encode_running_reply(&fathom_inventory::running_on(estate, n))

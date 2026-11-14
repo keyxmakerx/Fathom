@@ -14,7 +14,7 @@
 // `InsideStop.tsx`. This file only forwards to it, the same as `load`/
 // `pasteInto` above forward to `engine.ts`'s other doors; it does not
 // decode `OP_INSIDE` itself.
-import { Engine, EngineError, EngineTrap, ERRORS, type CableEnd, type CheckFinding, type ChecksResult, type InsideFaces, type PasteResult, type PlanClashes, type PlanStepPreview, type RunningHere, type TraceResult } from './engine';
+import { Engine, EngineError, EngineTrap, ERRORS, type CableEnd, type CheckFinding, type ChecksResult, type HeldThing, type InsideFaces, type PasteResult, type PlanClashes, type PlanStepPreview, type RunningHere, type TraceResult } from './engine';
 import type { PastePlatform } from './frames';
 import { errorName } from './protocol.constants';
 import { readPlain, writeDelta, writePlain } from '../document/plain';
@@ -160,8 +160,8 @@ export class Mirror {
   }
 
   /** `OP_WORK_CLASHES` on a plan, over the estate `load` last put in the module. */
-  workClashes(planId: string): PlanClashes {
-    return this.engine.workClashes(planId);
+  workClashes(planId: string, held: readonly HeldThing[] = []): PlanClashes {
+    return this.engine.workClashes(planId, held);
   }
 
   /** `OP_WORK_CLASHES` on a device, over the estate `load` last put in the module. */
