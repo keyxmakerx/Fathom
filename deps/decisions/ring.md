@@ -33,7 +33,7 @@ get their own records when the client is built.
 **Built 2026-11-14, without `lettre` so far.** `src/mail/smtp.rs` is a small SMTP client over the
 `tokio-rustls` already here, because `lettre` 0.11.23 with only its SMTP parts measured 34 new
 crates (`cargo tree`, Linux, normal edges, 2026-11-14), most of them `idna` and its ICU tables.
-It adds no crate and does not change `wrappers`. Sign-offs card r139 asks the owner whether to
+It adds no crate and does not change `wrappers`. Sign-offs card r141 asks the owner whether to
 keep it or move to `lettre`; if `lettre`, its records and the closure list come with that move.
 
 

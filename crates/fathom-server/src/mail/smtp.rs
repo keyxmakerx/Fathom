@@ -6,7 +6,7 @@
 //! normal edges), `lettre` 0.11.23 with only `smtp-transport`, `builder`, `tokio1-rustls` and
 //! `ring` adds 34 crates the lockfile does not hold, most of them `idna` and the ICU tables under
 //! it, five with proc macros. This needs none: it is tokio, plus the rustls already approved for
-//! the outside-vault client. The owner's pick on Sign-offs card r139 decides which stays.
+//! the outside-vault client. The owner's pick on Sign-offs card r141 decides which stays.
 //!
 //! **C7's one exception reaches here**, as widened on 2026-11-02 (`deps/decisions/ring.md`,
 //! "Widened 2026-11-02: SMTP to the operator's relay"): this module and

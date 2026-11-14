@@ -12,7 +12,7 @@
 // not run it beside the test suite. The seed is drive-lib/seed_people.rs (Ann, with a key made in
 // her own browser), copied under crates/fathom-server/tests for the run and deleted.
 //
-// Screenshots: FATHOM_SHOTS (default /mnt/project-files/briefs/r139/). The server is killed BY
+// Screenshots: FATHOM_SHOTS (default /mnt/project-files/briefs/r141/). The server is killed BY
 // PORT, never by name.
 
 import { execFileSync, spawn } from 'node:child_process';
@@ -29,7 +29,7 @@ const ROOT = process.env.FATHOM_ROOT || resolve(dirname(fileURLToPath(import.met
 const CHROME = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
 const TARGET_DIR = process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target');
 const SERVER_BIN = process.env.FATHOM_SERVER_BIN ?? resolve(TARGET_DIR, 'debug', 'fathom-server');
-const SHOTS = (process.env.FATHOM_SHOTS ?? '/mnt/project-files/briefs/r139') + '/';
+const SHOTS = (process.env.FATHOM_SHOTS ?? '/mnt/project-files/briefs/r141') + '/';
 const WORK = process.env.FATHOM_DRIVE_DIR ?? join(process.env.TMPDIR ?? '/tmp', 'fathom-drive-mail');
 mkdirSync(SHOTS, { recursive: true });
 mkdirSync(WORK, { recursive: true });
@@ -175,7 +175,7 @@ async function main() {
     await openMail(A);
     check('M1. Mail is in the Steward list under Work, with no Not finished mark', (await A.locator('.org-rail__item', { hasText: 'Mail' }).innerText()).trim() === 'Mail');
     check('M1. it says nothing is mailed until mail is set up', await A.getByTestId('steward-mail-not-set-up').isVisible());
-    await A.screenshot({ path: `${SHOTS}r139-mail-not-set-up.png` });
+    await A.screenshot({ path: `${SHOTS}r141-mail-not-set-up.png` });
 
     // 2. Add Jo with the link mailed.
     await A.locator('.org-rail__item', { hasText: 'People' }).click();
@@ -184,12 +184,12 @@ async function main() {
     await form.locator('input.org-input').nth(0).fill('Jo Kim');
     await form.locator('input.org-input').nth(1).fill('jo@northwind.example');
     await A.getByTestId('invite-mail-tick').locator('input').check();
-    await A.screenshot({ path: `${SHOTS}r139-add-someone-tick.png` });
+    await A.screenshot({ path: `${SHOTS}r141-add-someone-tick.png` });
     await form.getByRole('button', { name: 'Add' }).click();
     await A.getByTestId('invite-link-card').waitFor({ timeout: 20000 });
     const card = (await A.getByTestId('invite-mailed').innerText()).replace(/\s+/g, ' ');
     check('M2. the link card says the link is on its way and the sign-in name is the Steward’s to give', /on its way by mail/.test(card) && /sign-in name yourself/.test(card), card);
-    await A.screenshot({ path: `${SHOTS}r139-link-card-mailed.png` });
+    await A.screenshot({ path: `${SHOTS}r141-link-card-mailed.png` });
     await A.getByRole('button', { name: 'Done' }).click();
 
     // 3. The worker tries it within a tick; with no settings it fails and says why.
@@ -206,7 +206,7 @@ async function main() {
     const wide = A.viewportSize();
     await A.setViewportSize({ width: wide.width, height: 1150 });
     await sleep(300);
-    await A.screenshot({ path: `${SHOTS}r139-mail-not-sent.png` });
+    await A.screenshot({ path: `${SHOTS}r141-mail-not-sent.png` });
 
     // 4. As it looks once mail is set up (the one route stubbed), light and dark, and at phone width.
     await A.route('**/organisations/*/mail', (route) =>
@@ -215,16 +215,16 @@ async function main() {
     await A.getByTestId('steward-mail-refresh').click();
     await A.getByTestId('steward-mail-ready').waitFor({ timeout: 10000 });
     check('M4. once set up, it names the from address and lists sent, waiting and failed mail', (await A.locator('[data-testid="steward-mail-list"] tbody tr').count()) === 3);
-    await A.screenshot({ path: `${SHOTS}r139-mail-set-up.png` });
+    await A.screenshot({ path: `${SHOTS}r141-mail-set-up.png` });
     await A.emulateMedia({ colorScheme: 'dark' });
     await A.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
     await sleep(300);
-    await A.screenshot({ path: `${SHOTS}r139-mail-set-up-dark.png` });
+    await A.screenshot({ path: `${SHOTS}r141-mail-set-up-dark.png` });
     await A.evaluate(() => document.documentElement.removeAttribute('data-theme'));
     await A.emulateMedia({ colorScheme: 'light' });
     await A.setViewportSize({ width: 390, height: 2200 });
     await sleep(400);
-    await A.screenshot({ path: `${SHOTS}r139-mail-phone.png` });
+    await A.screenshot({ path: `${SHOTS}r141-mail-phone.png` });
   } finally {
     await browser.close();
     if (serverProc) serverProc.kill();

@@ -8,7 +8,7 @@ recommended (no AMP, links open Fathom, the least in a mail, all six mails, acco
 the sealed outbox and its worker (decision 7, migration 0079), the password reset by mail
 (ADR-0055 decision 7), a real console test send, an invitation link a Steward chooses to mail,
 and Steward › Mail listing each organisation's mail with the relay's reply. Three things differ
-from the text below, each on Sign-offs card r139 with a recommended pick:
+from the text below, each on Sign-offs card r141 with a recommended pick:
 
 - **The client is our own, not `lettre`** (decision 9's other way). `lettre` 0.11.23 with only its
   SMTP, builder and tokio-rustls features adds 34 crates (`cargo tree`, 2026-11-14), most of them
