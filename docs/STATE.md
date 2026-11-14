@@ -332,7 +332,7 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   (`GET /admin/activity`, `ActivityPanel.tsx`).
 - **Mail, part one (ADR-0085, migration 0079, 2026-11-14).** `src/mail/`: a sealed outbox written in the
   same transaction as what causes a mail, a worker every 20 seconds with retries (1, 5, 30 minutes, 2
-  and 12 hours, then failed), and an SMTP client of its own over the approved rustls (`mail/smtp.rs`;
+  and 12 hours, then failed), and `lettre` for SMTP over the approved rustls (`mail/smtp.rs`, picked on Sign-offs card r141;
   STARTTLS never falls back to plain, `none` only to loopback). Two mails: the password reset, to an
   account whose sign-in is an email address, and an invitation link a Steward ticks to mail (link only,
   never the sign-in name). Links come from `FATHOM_PUBLIC_URL` only. The console's test send is real.

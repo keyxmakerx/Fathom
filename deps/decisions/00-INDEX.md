@@ -26,6 +26,7 @@ approval is **an owner act**.
 | `ring` | rustls's crypto: **C7's one exception**, under rustls only | 2026-10-26 | RUSTSEC-2025-0009 patched below the pin; two informational notices |
 | `aes` | AES-256 under Bitwarden's type-2 values | 2026-10-26 | None |
 | `cbc` | CBC and PKCS#7 for the same, opened only after the MAC | 2026-10-26 | None |
+| `lettre` | The SMTP client, SMTP transport only, over the rustls above (ADR-0085 d9) | 2026-11-14 | Three historic: RUSTSEC-2026-0141 (`boring-tls` only, off here), 2021-0069 and 2020-0069 (both patched long before 0.11.23) |
 
 **Four rows above were missing until 2026-09-12** — `hkdf`, `hmac`, `sha2` and `getrandom` had
 records on disk since the key hierarchy landed and no line here. The gate reads the files, not this

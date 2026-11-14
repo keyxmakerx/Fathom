@@ -119,6 +119,10 @@ crate = "getrandom@0.2.17"
 reason = "Reached only through ring 0.17.14 (the outside-vault exception above), which has not moved to getrandom 0.3+; the server's own randomness is getrandom 0.4.3. Approved with the outside-vault crates (sign-off card r34-vault-crates24, 2026-10-26)."
 
 [[bans.skip]]
+crate = "base64@0.22.1"
+reason = "Reached only through postgres-protocol 0.6.12 under tokio-postgres; lettre 0.11.23 (the SMTP client, Sign-offs card r141, 2026-11-14) is on base64 0.23.1, the current minor. Both are pure Rust and linked; the driver has not moved yet. Remove this entry when postgres-protocol does."
+
+[[bans.skip]]
 crate = "windows-sys@0.52.0"
 reason = "Reached only through ring 0.17.14, and with windows-targets 0.52 and its eight windows_* crates compiled only for Windows targets; absent from the Linux server and the wasm client (`cargo tree --target x86_64-unknown-linux-gnu`, 2026-10-26)."
 
@@ -143,7 +147,7 @@ name = "ring"
 # dependency of rustls and rustls-webpki (rustls's certificate checker, which
 # ring's provider brings) and of nothing else, so a second parent fails the build.
 wrappers = ["rustls", "rustls-webpki"]
-reason = "C7. ring carries C and assembly. WO-11 §7 trigger 4 says C7 is a decision and not a detail; this line is that trigger made mechanical, so a crypto provider cannot arrive under any other parent without failing the build. Allowed under rustls for outside vaults (ADR-0071 part four) and SMTP to the operator's relay (widened 2026-11-02, ADR-0085 decision 9), and nothing else (deps/decisions/ring.md)."
+reason = "C7. ring carries C and assembly. WO-11 §7 trigger 4 says C7 is a decision and not a detail; this line is that trigger made mechanical, so a crypto provider cannot arrive under any other parent without failing the build. Allowed under rustls for outside vaults (ADR-0071 part four) and SMTP to the operator's relay through lettre (widened 2026-11-02, ADR-0085 decision 9; lettre picked on card r141, 2026-11-14), and nothing else (deps/decisions/ring.md)."
 
 [[bans.deny]]
 name = "aws-lc-sys"
