@@ -195,6 +195,11 @@ jobs:
           target: server
           platforms: linux/amd64
           push: true
+          # "About this Fathom" (cards r134, r135): the commit and its date, so a running server
+          # and its page can say which build they are. `deploy/Dockerfile` reads both as ARGs.
+          build-args: |
+            FATHOM_COMMIT=${{ github.sha }}
+            FATHOM_BUILT=${{ github.event.head_commit.timestamp }}
           tags: ${{ steps.meta_server.outputs.tags }}
           labels: ${{ steps.meta_server.outputs.labels }}
           provenance: false
@@ -226,6 +231,10 @@ jobs:
           target: backup
           platforms: linux/amd64
           push: true
+          # The same stamp as the server's, so both reuse one compile of `fathom-server`.
+          build-args: |
+            FATHOM_COMMIT=${{ github.sha }}
+            FATHOM_BUILT=${{ github.event.head_commit.timestamp }}
           tags: ${{ steps.meta_backup.outputs.tags }}
           labels: ${{ steps.meta_backup.outputs.labels }}
           provenance: false

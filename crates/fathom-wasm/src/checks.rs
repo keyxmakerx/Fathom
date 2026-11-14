@@ -32,6 +32,10 @@ pub const RULES: &[(&str, &str)] = &[
         include_str!("../../../corpus/rules/ip.address.same-on-link/rule.yaml"),
     ),
     (
+        "ip.dhcp.two-servers-one-vlan",
+        include_str!("../../../corpus/rules/ip.dhcp.two-servers-one-vlan/rule.yaml"),
+    ),
+    (
         "l2.vlan.access-mismatch",
         include_str!("../../../corpus/rules/l2.vlan.access-mismatch/rule.yaml"),
     ),
@@ -62,6 +66,10 @@ pub const RULES: &[(&str, &str)] = &[
     (
         "power.psu.single-fed",
         include_str!("../../../corpus/rules/power.psu.single-fed/rule.yaml"),
+    ),
+    (
+        "sec.mgmt.plaintext",
+        include_str!("../../../corpus/rules/sec.mgmt.plaintext/rule.yaml"),
     ),
     (
         "stock.level.below-minimum",

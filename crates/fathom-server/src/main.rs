@@ -1125,6 +1125,31 @@ async fn main() -> ExitCode {
     // ADR-0072 decision 2. Account-plane, on every host; a separate router so its surface
     // is one file.
     .merge(fathom_server::ai_api::router(ai_api))
+    // Cards r134 and r135: `GET /about`, the build and which outside connections are on.
+    // Account-plane, on every host, so everyone signed in can see where their data may go.
+    .merge(fathom_server::about::router(
+        fathom_server::about::AboutState {
+            sessions: Arc::clone(&sessions),
+            client_address: client_address.clone(),
+            connections: fathom_server::about::Connections {
+                device_read: device_reader.is_some(),
+                outside_vaults: config
+                    .outside_vault_hosts
+                    .as_ref()
+                    .is_some_and(|h| !h.is_empty()),
+                passbolt: config.passbolt_helper.is_some(),
+                offsite_backup: false,
+                audit_syslog: config.audit_syslog.is_some(),
+                access_syslog: config.access_syslog.is_some(),
+                termix: config.termix.is_some(),
+            },
+            reader: device_reader.clone(),
+            backup_dir: std::env::var("FATHOM_BACKUP_DIR")
+                .ok()
+                .filter(|d| !d.trim().is_empty())
+                .map(std::path::PathBuf::from),
+        },
+    ))
     .merge(admin_router);
     if let Some(store) = firmware {
         app = app.merge(fathom_server::firmware::router(

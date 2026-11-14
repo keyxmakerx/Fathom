@@ -43,3 +43,18 @@ entries:
         - { as: n0, kind: Vlan, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier }, { field: description, from: "$d", scalar: Text } ] }
     versions: "*"
     reviewed_by: <named human>
+
+  # `vlans <name> l3-interface irb.<n>`: the routed interface of the VLAN, the SVI edge
+  # (L3Interface) EOS's `interface VlanN` draws. Read 2026-11-14 from Juniper's
+  # "Configuring Integrated Routing and Bridging Interfaces (CLI Procedure)" (ELS),
+  # step 4: `set vlans vlan-name l3-interface irb.logical-interface-number`;
+  # https://juniper.net/documentation/en_US/junos13.2/topics/task/configuration/bridging-integrated-routing-briding-interfaces-ex-series-cli-els.html
+  - id: junos-ex/vlans.l3-interface
+    path: [vlans, "$v", l3-interface, "$ifl"]
+    binds:
+      nodes:
+        - { as: n0, kind: Vlan, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier } ] }
+      edges:
+        - { kind: L3Interface, from: n0, to: { interface_unit: "$ifl" } }
+    versions: "*"
+    reviewed_by: <named human>

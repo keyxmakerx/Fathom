@@ -8,7 +8,9 @@ use fathom_wasm::protocol::{
     decode_reply, ReplyView, ERR_NOT_INITIALISED, FACE_CHECK, FACE_CHECK_HEAD, FACE_INV, FACE_PORT,
 };
 use fathom_wasm::shell::Shell;
-use fathom_wasm::{OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_INV_ROWS};
+use fathom_wasm::{
+    OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_INV_ROWS, OP_PASTE,
+};
 
 mod common;
 
@@ -383,5 +385,120 @@ fn a_cat6_lead_into_a_cage_known_empty_is_refused_ahead_of_time() {
     assert!(
         none.iter().all(|r| r.rule != "phy.cable.copper-in-cage"),
         "no media, no claim"
+    );
+}
+
+/// Sign-off r137: a pasted Junos config that turns telnet on is a warning with its fix, and
+/// one that offers only SSH and HTTPS says nothing.
+#[test]
+fn a_pasted_telnet_service_is_a_plaintext_management_warning() {
+    let mut shell = common::booted_shell();
+    let pasted = shell.handle(
+        OP_PASTE,
+        &paste_frame(
+            1_700_000_000_000,
+            0x137,
+            "set system host-name edge-1\nset system services ssh\nset system services telnet\n",
+        ),
+    );
+    assert_eq!(
+        error_code(&pasted),
+        None,
+        "the paste was refused: {pasted:?}"
+    );
+    let found = rows(&shell.handle(OP_CHECKS, &[]));
+    let hit = found
+        .iter()
+        .find(|r| r[0] == "sec.mgmt.plaintext")
+        .unwrap_or_else(|| panic!("no plaintext finding in {found:?}"));
+    assert_eq!(hit[1], "warn");
+    assert!(!hit[3].is_empty(), "a warning carries its fix");
+
+    let mut clean = common::booted_shell();
+    let pasted = clean.handle(
+        OP_PASTE,
+        &paste_frame(
+            1_700_000_000_000,
+            0x138,
+            "set system host-name edge-2\nset system services ssh\nset system services web-management https system-generated-certificate\n",
+        ),
+    );
+    assert_eq!(error_code(&pasted), None);
+    assert!(!rows(&clean.handle(OP_CHECKS, &[]))
+        .iter()
+        .any(|r| r[0] == "sec.mgmt.plaintext"));
+}
+
+/// A paste frame that names its platform: the flag byte's bits 1..=4 are the
+/// platform's place in `PASTE_PLATFORMS`, counted from 1.
+fn paste_frame_as(at_ms: u64, entropy: u128, platform: &str, text: &str) -> Vec<u8> {
+    let code = fathom_wasm::protocol::PASTE_PLATFORMS
+        .iter()
+        .position(|p| *p == platform)
+        .expect("a platform this build knows") as u8
+        + 1;
+    let mut v = paste_frame(at_ms, entropy, text);
+    v[24] = code << 1;
+    v
+}
+
+const EOS_SERVES_VLAN_10: &str = "hostname core-1\n\
+vlan 10\n\
+   name users\n\
+!\n\
+interface Vlan10\n\
+   ip address 10.0.10.1/24\n\
+   dhcp server ipv4\n\
+!\n";
+
+/// Sign-off r145: an Arista switch with `dhcp server ipv4` on `interface Vlan10` and a
+/// Junos switch with `dhcp-local-server` on the irb unit that `vlans users l3-interface`
+/// names, both answering VLAN 10, is a warning on each side. Serving different VLANs is
+/// quiet.
+#[test]
+fn two_pasted_switches_serving_dhcp_on_one_vlan_is_a_warning() {
+    let junos = |vlan: u16| {
+        format!(
+            "set system host-name core-2\n\
+             set vlans users vlan-id {vlan}\n\
+             set vlans users l3-interface irb.{vlan}\n\
+             set interfaces irb unit {vlan} family inet address 10.0.{vlan}.2/24\n\
+             set system services dhcp-local-server group g1 interface irb.{vlan}\n"
+        )
+    };
+    let paste_both = |vlan: u16| {
+        let mut shell = common::all_booted_shell();
+        for (i, (platform, text)) in [
+            ("eos", EOS_SERVES_VLAN_10.to_owned()),
+            ("junos-ex", junos(vlan)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let pasted = shell.handle(
+                OP_PASTE,
+                &paste_frame_as(
+                    1_700_000_000_000 + i as u64,
+                    0x145 + i as u128,
+                    platform,
+                    &text,
+                ),
+            );
+            assert_eq!(error_code(&pasted), None, "{platform} refused: {pasted:?}");
+        }
+        rows(&shell.handle(OP_CHECKS, &[]))
+    };
+    let found = paste_both(10);
+    let hits: Vec<_> = found
+        .iter()
+        .filter(|r| r[0] == "ip.dhcp.two-servers-one-vlan")
+        .collect();
+    assert_eq!(hits.len(), 2, "one finding per switch's VLAN 10: {found:?}");
+    assert!(hits.iter().all(|r| r[1] == "warn" && !r[3].is_empty()));
+
+    let found = paste_both(20);
+    assert!(
+        !found.iter().any(|r| r[0] == "ip.dhcp.two-servers-one-vlan"),
+        "VLAN 10 and VLAN 20 each have one server: {found:?}"
     );
 }

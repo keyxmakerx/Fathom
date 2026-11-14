@@ -168,7 +168,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // (MaintenancePlan, Note), (Issue, Note) and (StockItem, Note), +3.
     // 165 -> 167 (NAT pools, schema 0.39): `HasNatPool` (Device, NatPool), +1; `NatPool` joins
     // `Placeable`, +1 (its pin).
-    assert_eq!(resolved, 167, "the containment pair set moved");
+    // 167 -> 169 (DHCP servers, schema 0.41): `HasDhcpServer` (Device, DhcpServer), +1;
+    // `DhcpServer` joins `Placeable`, +1 (its pin). `ServesDhcpOn` is REFERENCE.
+    assert_eq!(resolved, 169, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -211,7 +213,8 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 75 (spares and stores, schema 0.30): `HasStore`, `HasStock`, `HasStockLevel` (root ->
     // Store, StockItem, StockLevel). `InStore`, `ReservedFor`, `ForIssue` are REFERENCE.
     // 76 (NAT pools, schema 0.39): `HasNatPool` (Device -> NatPool).
-    assert_eq!(containment, 76);
+    // 77 (DHCP servers, schema 0.41): `HasDhcpServer` (Device -> DhcpServer).
+    assert_eq!(containment, 77);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {

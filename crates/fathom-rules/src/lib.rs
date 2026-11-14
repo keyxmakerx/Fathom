@@ -17,6 +17,7 @@
 //! - the builtin table is the first rule set's (`compile::Builtin`), and grows with rules;
 //! - a binding may be `all: Kind`, every live node of a kind (card many), for facts held
 //!   once per design rather than reached by an edge, such as a firmware target;
+//!   with `via` it walks on from each of them (every VLAN's DHCP servers), merged;
 //! - invalidation is per rule, by read set (`engine`), not per instance.
 
 #![forbid(unsafe_code)]

@@ -1,4 +1,5 @@
-//! The `all: Kind` binding: every live node of a kind, not reached by an edge.
+//! The `all: Kind` binding: every live node of a kind, not reached by an edge, and what
+//! a walk from each of them reaches.
 
 use fathom_rules::engine::Delta;
 use fathom_rules::eval::eval_rule;
@@ -86,7 +87,38 @@ fn a_malformed_all_binding_is_refused() {
     )
     .err()
     .expect("refused");
-    assert!(e.contains("no `via`"), "{e}");
+    assert!(e.contains("does not leave a FirmwareTarget"), "{e}");
+}
+
+/// `all` with `via` walks on from every node of the kind: here every device's chassis,
+/// merged, so each device sees the models of the whole estate and not only its own.
+#[test]
+fn all_with_via_binds_what_every_start_reaches() {
+    let estate = "nodes:
+  - { id: d1, kind: Device, set: { hostname: a, platform: eos } }
+  - { id: d2, kind: Device, set: { hostname: b, platform: eos } }
+  - { id: d3, kind: Device, set: { hostname: c, platform: eos } }
+  - { id: c1, kind: Chassis, set: { member_index: 0, model: m1 } }
+  - { id: c2, kind: Chassis, set: { member_index: 0, model: m1 } }
+edges:
+  - { kind: HasChassis, from: d1, to: c1 }
+  - { kind: HasChassis, from: d2, to: c2 }
+";
+    let bind = "{ all: Device, via: HasChassis, card: many }";
+    // Two chassis reached, from two of the three devices; every device is an anchor.
+    let r = load(bind, "count(targets) == 2").unwrap();
+    assert_eq!(anchors(&r, estate), 3);
+    let r = load(bind, "targets.count(c, c.model == \"m1\") > 1").unwrap();
+    assert_eq!(anchors(&r, estate), 3);
+    // The walk is read: a new HasChassis edge touches the rule.
+    let root = parse_profile(estate, Profile::Corpus).unwrap();
+    let (g, _) = build(&root).unwrap();
+    assert!(delta_since(&g, 0).touches(&r.reads));
+    // A card other than many is still refused, walk or no walk.
+    let e = load("{ all: Device, via: HasChassis, card: optional }", "true")
+        .err()
+        .expect("refused");
+    assert!(e.contains("card many"), "{e}");
 }
 
 #[test]

@@ -61,3 +61,114 @@
   cursor: pointer;
   box-shadow: none;
 }
+
+/* "About this Fathom" (card r135): the build, its own checks, the outside connections. */
+
+.about-sheet {
+  max-height: 86vh;
+}
+
+.about-sheet__body {
+  overflow-y: auto;
+  padding: var(--s3) var(--s4) var(--s4);
+}
+
+.about-server {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.about-server__heading {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.about-server__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.about-server__note {
+  font-size: var(--t-small);
+  margin-top: var(--s1);
+}
+
+.about-server__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  margin-top: var(--s1);
+}
+
+.about-server__facts dd {
+  margin: 0;
+}
+
+.about-server__facts dt {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.about-checks,
+.about-conns {
+  list-style: none;
+  margin: var(--s1) 0 0;
+  padding: 0;
+}
+
+.about-check,
+.about-conn {
+  display: grid;
+  grid-template-columns: 7.5em 1fr;
+  column-gap: var(--s2);
+  padding: var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+}
+
+.about-check__mark,
+.about-conn__state {
+  grid-row: span 2;
+  align-self: start;
+  font-weight: 600;
+}
+
+.about-check__label,
+.about-conn__label {
+  font-weight: 600;
+}
+
+.about-check__detail {
+  color: var(--muted);
+}
+
+.about-check--pass .about-check__mark,
+.about-conn__state--on {
+  color: var(--safe);
+}
+
+.about-check--fail .about-check__mark {
+  color: var(--danger);
+}
+
+.about-check--skip .about-check__mark,
+.about-conn__state--off {
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  .about-check,
+  .about-conn {
+    grid-template-columns: 1fr;
+  }
+  .about-check__mark,
+  .about-conn__state {
+    grid-row: auto;
+  }
+}

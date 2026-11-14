@@ -55,6 +55,7 @@ import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
 import type { PaletteAction } from '../shell/palette';
 import { PaletteRegistryContext, createPaletteRegistry } from '../shell/paletteRegistry';
+import { AboutSheet } from '../about/AboutSheet';
 import { ShortcutsSheet } from '../shell/ShortcutsSheet';
 import { isTypingTarget, matches, shortcutText } from '../shell/shortcuts';
 import { createThingsFinder } from '../shell/thingsSearch';
@@ -267,6 +268,8 @@ export function DesignPlace(props: DesignPlaceProps) {
 
   // "?" opens the list of keyboard shortcuts, anywhere but in a field.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // r135: "About" in Ctrl K opens the same sheet as the account menu's row.
+  const [aboutOpen, setAboutOpen] = useState(false);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!matches(event, 'shortcuts') || isTypingTarget(event.target)) return;
@@ -858,6 +861,7 @@ export function DesignPlace(props: DesignPlaceProps) {
       { id: 'racks', label: 'Show Racks', keywords: ['canvas', 'drawing'], disabled: props.place === 'racks' ? 'Already showing' : undefined, run: () => onPlaceChange('racks') },
       { id: 'inventory', label: 'Show Inventory', keywords: ['list', 'table'], disabled: props.place === 'inventory' ? 'Already showing' : undefined, run: () => onPlaceChange('inventory') },
       { id: 'shortcuts', label: 'Show keyboard shortcuts', hint: shortcutText('shortcuts'), keywords: ['keys', 'help'], run: () => setShortcutsOpen(true) },
+      { id: 'about', label: 'About this Fathom', keywords: ['about', 'version', 'build', 'connections', 'self-test', 'check'], run: () => setAboutOpen(true) },
       {
         id: 'theme',
         label: 'Toggle theme',
@@ -1264,6 +1268,7 @@ export function DesignPlace(props: DesignPlaceProps) {
       )}
       {printMode === 'preview' && printJob && <PrintPreview job={printJob} onClose={closePrint} />}
       {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
+      {aboutOpen && <AboutSheet onClose={() => setAboutOpen(false)} />}
       {phone && printMode === 'closed' && (
         <PhoneTabs
           place={props.place}

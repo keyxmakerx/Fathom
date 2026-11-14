@@ -1,0 +1,7 @@
+# A Junos switch with `set system services telnet`.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: access-sw-01, platform: junos-ex, role: switch } }
+  - { id: s1, kind: SystemSettings, set: { telnet_enabled: true } }
+edges:
+  - { kind: HasSystemSettings, from: d1, to: s1 }
+anchor: s1

@@ -1,0 +1,7 @@
+# An SRX with `set system services web-management http`, telnet off.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: edge-fw-01, platform: junos-srx, role: firewall } }
+  - { id: s1, kind: SystemSettings, set: { telnet_enabled: false, http_enabled: true } }
+edges:
+  - { kind: HasSystemSettings, from: d1, to: s1 }
+anchor: s1

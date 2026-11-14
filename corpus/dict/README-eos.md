@@ -34,6 +34,16 @@ native vlan` as VLAN membership; `interface VlanN` as the SVI routing VLAN N, wi
 form as a route in that VRF's table (AVD writes `ip route vrf MGMT 0.0.0.0/0 172.16.1.1` on every device of
 the example, `dc1-leaf1a.cfg` line 250, read 2026-11-02). The path trace keeps each VRF's table apart.
 
+`management telnet` with `no shutdown` (telnet on) or `shutdown` (off), for the check
+`sec.mgmt.plaintext` (sign-off r137; Arista's "Connection Management": "By default, EOS disables
+Telnet.", read 2026-11-14).
+
+`dhcp server ipv4` under `interface VlanN`, for the check `ip.dhcp.two-servers-one-vlan` (sign-off
+r145). Arista's DHCP overview shows the interface form only for IPv6; the IPv4 line is the one Arista's
+own AVD generator writes (`vlan-interfaces.j2`, and SVIs in its `cv-pathfinder` example config, read
+2026-11-14 via GitHub code search). Routed Ethernet ports with the same line are not read: the check
+compares VLANs, and a routed port has none.
+
 ## Not read, on purpose
 
 - A VRF's routes leaked to another (`ip route vrf A … egress-vrf B …`, route maps between VRFs): residue.

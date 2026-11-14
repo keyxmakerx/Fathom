@@ -235,6 +235,12 @@ pub const EOS: Dialect = Dialect {
             words: &["vlan"],
             exact: false,
         },
+        // Sign-off r137: `management telnet` holds `shutdown` / `no shutdown`
+        // (Arista's "Connection Management", read 2026-11-14).
+        Opener {
+            words: &["management", "telnet"],
+            exact: true,
+        },
     ],
     nests_by_indent: true,
     svi_prefix: Some("Vlan"),

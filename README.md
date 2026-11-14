@@ -71,6 +71,15 @@ The server holds the keys that encrypt designs and says so (ADR-0040). `CLAUDE.m
 four sentences that stay forbidden until customer-held keys are real; `scripts/forbidden-claims.sh`
 enforces it.
 
+## Is it safe to point at my network?
+
+Fathom can read a device with a read-only login you chose; it never changes one. Reading is SNMPv3
+authPriv only, sends only Get requests, goes only to addresses a Steward listed, and is off until both
+the operator and a Steward turn it on. It never sweeps a network, and the server opens no connection
+the operator did not configure: no telemetry and no update check. **`docs/IS-IT-SAFE.md`** lists every
+connection Fathom can make, where credentials go, what it does not read (overlays, flow data, vendor
+APIs, SNMP v1 and v2c), and how to check that an image really came from this repository.
+
 ## Roadmap
 
 The full list is [issue #61](https://github.com/keyxmakerx/Fathom/issues/61) and the open issues.
@@ -105,6 +114,7 @@ tasks on what main supports: `docs/EXAMPLES.md`. To connect Termix, set `FATHOM_
 | `CLAUDE.md` | Rules that bind every session; the pointer page |
 | `docs/STATE.md` | What is built right now |
 | `docs/RUNNING-IT.md`, `docs/OPERATING.md` | Running it; keys, backups, restore, rekey |
+| `docs/IS-IT-SAFE.md` | What it reads, every connection it makes, what it does not read, checking a release |
 | `docs/EXAMPLES.md` | Short worked tasks on what main supports |
 | `docs/UPGRADING-A-JUNIPER.md`, `docs/UPGRADING-A-CISCO-OR-ARISTA.md` | Firmware upgrades by hand, the steps Fathom's plans carry |
 | `docs/UI-SPEC.md` | The interface, approved |

@@ -1,3 +1,4 @@
+import { ThisServer } from './AboutSheet';
 import licences from './licences.json';
 import './about.css';
 
@@ -29,6 +30,8 @@ export function About({ onBack }: AboutProps) {
       <h1 id="about-title" className="about__title">
         About Fathom
       </h1>
+      <ThisServer />
+      <h2 className="about-server__heading">Open-source libraries</h2>
       <p className="about__lede">
         The web app is built on these open-source libraries. Each one is free to use, in a business too, under the
         licence named beside it.

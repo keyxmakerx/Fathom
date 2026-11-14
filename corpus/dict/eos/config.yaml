@@ -155,6 +155,32 @@ entries:
     versions: "*"
     reviewed_by: <named human>
 
+  # `dhcp server ipv4` inside `interface VlanN`: the switch answers DHCP on this VLAN --
+  # sign-off r145 (the check ip.dhcp.two-servers-one-vlan). Arista's DHCP overview
+  # (https://www.arista.com/en/um-eos/eos-dhcp-overview, read 2026-11-14) shows the
+  # interface form only for IPv6 (`dhcp server ipv6`) and says DHCPv4 server can be
+  # configured on routed, VLAN, LAG and sub-interfaces. The IPv4 line is read from
+  # Arista's own AVD generator, read 2026-11-14 via GitHub code search:
+  # python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/vlan-interfaces.j2 writes
+  # `   dhcp server ipv4` under the interface when `dhcp_server_ipv4` is true, and its
+  # example config cv-pathfinder/intended/configs/inet-cloud.cfg holds it under SVIs.
+  # (`dhcp server ipv4 <address>` under `address locking` is another statement in
+  # another block; this path starts at `interface`, so it cannot match.)
+  - id: eos/svi.dhcp-server-ipv4
+    path: [interface, "$i", Vlan, "$v", dhcp, server, ipv4]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+        - { as: n2, kind: LogicalUnit, owner: n1, fields: [ { field: index, const_enum: "u32.0" } ] }
+        - { as: n3, kind: Vlan, key: "$v", fields: [ { field: vlan_id, from: "$v", scalar: VlanId } ] }
+        - { as: n4, kind: DhcpServer, owner: n0, key: "$i" }
+      edges:
+        - { kind: L3Interface, from: n3, to: { node: n2 } }
+        - { kind: ServesDhcpOn, from: n4, to: { node: n2 } }
+    versions: "*"
+    reviewed_by: <named human>
+
   - id: eos/svi.description
     path: [interface, "$i", Vlan, "$v", description, "$d"]
     binds:
@@ -313,5 +339,32 @@ entries:
           fields:
             - { field: destination, from: "$dest", scalar: IpPrefix }
             - { field: next_hop, next_hop_const: discard }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # ---- management telnet -- sign-off r137 (the check sec.mgmt.plaintext). Read
+  # 2026-11-14 from Arista's EOS User Manual, "Connection Management":
+  # "By default, EOS disables Telnet." It is turned on in `management telnet` mode with
+  # `no shutdown`, and off again with `shutdown`.
+  # https://www.arista.com/en/um-eos/eos-connection-management
+  # A running config shows `no shutdown` only when telnet was turned on, so no block, or a
+  # block without it, binds nothing. Plain-HTTP eAPI (`management api http-commands` with
+  # `protocol http`) is NOT read yet: whether it is serving depends on a second line in the
+  # block, and one statement here cannot see both. No finding is better than a wrong one.
+  - id: eos/management.telnet.no-shutdown
+    path: [management, telnet, "no", shutdown]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SystemSettings, owner: n0, fields: [ { field: telnet_enabled, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: eos/management.telnet.shutdown
+    path: [management, telnet, shutdown]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SystemSettings, owner: n0, fields: [ { field: telnet_enabled, const_bool: false } ] }
     versions: "*"
     reviewed_by: <named human>

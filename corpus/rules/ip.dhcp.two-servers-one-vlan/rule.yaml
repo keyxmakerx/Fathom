@@ -1,0 +1,29 @@
+id: ip.dhcp.two-servers-one-vlan
+rule_version: 1.0.0
+status: active
+severity: warn
+category: correctness
+title: "Two devices run a DHCP server on the same VLAN"
+why: >
+  Two DHCP servers answer on the same VLAN. A client takes whichever offer it chooses, usually the first to arrive, so which server a host gets is chance. If the two give out overlapping addresses, two hosts can end up with the same one; if they hand out different gateways or DNS servers, some hosts get the wrong ones. Fathom matches VLANs by number, so this assumes VLAN 10 means the same VLAN on every switch.
+fix: >
+  Turn the DHCP server off on all but one device for this VLAN, or set the servers up as a deliberate failover pair that split one range between them.
+concept: check.ip.dhcp-servers
+acceptable_when: >
+  A deliberate failover pair whose ranges do not overlap and whose options agree, or two VLANs that share a number but are separate networks that never meet.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-11-14
+sources:
+  - { publisher: "IETF", doc: "RFC 2131, Dynamic Host Configuration Protocol (March 1997), §3.1 step 3: the client 'chooses one server from which to request configuration parameters'", url: "https://www.rfc-editor.org/rfc/rfc2131", read_on: 2026-11-14, note: "Several servers may answer one DISCOVER; nothing in the protocol makes them agree with each other." }
+  - { publisher: "Juniper Networks", doc: "Configuring a Switch as a DHCP Server (CLI Procedure), ELS: `set system services dhcp-local-server group server1 interface irb.301` and `set vlans server l3-interface irb.301`", url: "https://juniper.net/documentation/en_US/junos13.2/topics/task/configuration/dhcp-server-cli-els.html", read_on: 2026-11-14, note: "What the reader takes as a Junos switch serving DHCP on a VLAN." }
+  - { publisher: "Arista Networks", doc: "Arista Validated Designs, eos_cli_config_gen template vlan-interfaces.j2: writes `dhcp server ipv4` under `interface VlanN`", url: "https://github.com/aristanetworks/avd", read_on: 2026-11-14, note: "Read through GitHub code search. Arista's DHCP overview (https://www.arista.com/en/um-eos/eos-dhcp-overview) shows only the IPv6 interface form; the IPv4 line is Arista's own generator's." }
+applies_to:
+  kind: Vlan
+  with:
+    mine: { via: [L3Interface, { role: ServesDhcpOn, reverse: true }], card: many }
+    served: { all: DhcpServer, via: [ServesDhcpOn, { role: L3Interface, reverse: true }], card: many }
+# `served` is every VLAN any DHCP server in the design answers on, merged; the anchor is
+# in it when `mine` is not empty. More than one with this number means another device's.
+condition: >
+  count(mine) > 0 && has(vlan_id) && served.count(v, has(v.vlan_id) && v.vlan_id == vlan_id) > 1
+involves: [mine]

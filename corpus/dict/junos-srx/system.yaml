@@ -131,3 +131,37 @@ entries:
     secret: { label: snmp-community }
     versions: "*"
     reviewed_by: <named human>
+
+  # `system services telnet` and `system services web-management http` -- sign-off r137
+  # (the check sec.mgmt.plaintext). Read 2026-11-14 from Juniper's CLI reference:
+  # "services (System Services)", Hierarchy Level `[edit system]`, whose syntax block holds
+  # `telnet { connection-limit limit; rate-limit limit; }` and
+  # `web-management { http { interfaces [ names ]; port port; } https { ... } }`;
+  # https://juniper.net/documentation/en_US/junos13.2/topics/reference/configuration-statement/services-edit-system.html
+  # and "http (System Services)", Hierarchy Level `[edit system services web-management]`:
+  # "Configure the port and interfaces for HTTP service, which is unencrypted."
+  # https://juniper.net/documentation/en_US/junos13.2/topics/reference/configuration-statement/http-edit-system.html
+  # These are OS-level statements, the same across the product line.
+  #
+  # `partial` because a limit or a port may follow on the same line
+  # (`set system services telnet connection-limit 5`); any such line still means the
+  # service is configured. Only https is encrypted, so `web-management https` binds nothing.
+  - id: junos-srx/system.services.telnet
+    path: [system, services, telnet]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SystemSettings, owner: n0, fields: [ { field: telnet_enabled, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/system.services.web-management.http
+    path: [system, services, web-management, http]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SystemSettings, owner: n0, fields: [ { field: http_enabled, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
