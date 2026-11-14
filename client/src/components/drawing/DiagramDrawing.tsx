@@ -41,6 +41,7 @@ import { overlayShapes } from './overlayDraw';
 import { OverlayCard, OverlayLayer } from './OverlayLayer';
 import type { RoutingMarks, RoutingWord } from './routingLens';
 import { speedText, speedWidth, TRUNK_MIN_W, type LinksLine, type LinksMarks } from './linksLens';
+import { CELL_LABEL_W, diagramStrips, type StripCell } from './portStrip';
 
 /** The Routing lens's table picker: the tables to choose from, the lit one, and what it lights. */
 export interface TableChoice {
@@ -73,10 +74,30 @@ interface BoxData extends Record<string, unknown> {
   lens: RoutingWord[];
   /** A trace stopped short here: the box takes the caution edge. */
   stopped: boolean;
+  /** A switch's port strip (sign-off r109): its data ports along the bottom edge, where its lines leave. */
+  strip: StripCell[] | null;
+}
+
+function PortStrip({ cells }: { cells: StripCell[] }) {
+  return (
+    <span className="drawing-port-strip" data-testid="diagram-port-strip" aria-hidden="true">
+      {cells.map((c) => (
+        <span
+          key={c.portId}
+          className={c.cabled ? 'drawing-port-strip__port drawing-port-strip__port--cabled' : 'drawing-port-strip__port'}
+          style={{ left: c.x, top: c.y, width: c.w, height: c.h }}
+          title={c.label}
+          data-testid="diagram-strip-port"
+        >
+          {c.w >= CELL_LABEL_W ? c.label : null}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function DiagramBoxNode({ data }: NodeProps<Node<BoxData, 'diagramBox'>>) {
-  const cls = ['drawing-diagram-box', data.icon != null && 'drawing-diagram-box--icon', data.selected && 'drawing-diagram-box--selected', data.stopped && 'drawing-diagram-box--stop'].filter(Boolean).join(' ');
+  const cls = ['drawing-diagram-box', data.icon != null && 'drawing-diagram-box--icon', data.strip != null && 'drawing-diagram-box--strip', data.selected && 'drawing-diagram-box--selected', data.stopped && 'drawing-diagram-box--stop'].filter(Boolean).join(' ');
   return (
     <div className={cls}>
       {data.icon != null && <DeviceIcon kind={data.icon} />}
@@ -89,6 +110,7 @@ function DiagramBoxNode({ data }: NodeProps<Node<BoxData, 'diagramBox'>>) {
         ))}
         {data.words.length > 0 && <span className="drawing-diagram-box__words">{data.words.join(' · ')}</span>}
       </span>
+      {data.strip != null && <PortStrip cells={data.strip} />}
       <CheckBadge id={data.deviceId} />
       <Handle type="source" position={Position.Right} className="drawing-diagram-box__handle" isConnectable={false} />
       <Handle type="target" position={Position.Left} className="drawing-diagram-box__handle" isConnectable={false} />
@@ -252,6 +274,8 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     [view, style],
   );
   const selectedId = selected?.kind === 'chassis' ? selected.id : null;
+  // A switch drawn as a box shows its port strip; one drawn as an icon does not.
+  const strips = useMemo(() => diagramStrips(view, boxes.filter((b) => b.w === BOX_W && b.h === BOX_H)), [view, boxes]);
 
   // A path trace (r101): what the walk touches stays; the rest fades; each hop is numbered. While it plays,
   // only the hops lit so far count.
@@ -286,9 +310,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         height: b.h,
         draggable: false,
         className: (trace != null && !trace.boxes.has(b.id)) || (table != null && !table.lit.chassis.has(b.id)) ? 'trace-faded' : undefined,
-        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(b.role) : null, lens: routing?.devices.get(b.id) ?? [], stopped: trace?.stop?.boxId === b.id } satisfies BoxData,
+        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(b.role) : null, lens: routing?.devices.get(b.id) ?? [], stopped: trace?.stop?.boxId === b.id, strip: strips.get(b.id) ?? null } satisfies BoxData,
       })),
-    [boxes, selectedId, words, style, routing, trace, table],
+    [boxes, selectedId, words, style, routing, trace, table, strips],
   );
 
   const litId = selectedCableId ?? hoverId;
@@ -299,7 +323,13 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   }, [view]);
   // Every line's route, worked out together so no two share a run and none crosses a box; panning does not redo it.
   const lines = useMemo(() => diagramLines(view, new Set(boxes.map((b) => b.id))), [view, boxes]);
-  const routes = useMemo(() => routeDiagram(boxes, lines.map((l) => ({ id: l.cable.id, a: l.a, b: l.b }))), [boxes, lines]);
+  const routes = useMemo(() => {
+    const portOf = (l: (typeof lines)[number], i: 0 | 1) => {
+      const e = l.cable.ends.filter((x): x is { portId: string; chassisId: string; rackId: string | null } => 'portId' in x)[i];
+      return e?.portId;
+    };
+    return routeDiagram(boxes, lines.map((l) => ({ id: l.cable.id, a: l.a, b: l.b, portA: portOf(l, 0), portB: portOf(l, 1) })), strips);
+  }, [boxes, lines, strips]);
   const edges: Edge[] = useMemo(() => {
     const byId = new Map(boxes.map((b) => [b.id, b]));
     // Two lines meeting a box at one spot would print their speed tags over each other: the second goes on the other side.

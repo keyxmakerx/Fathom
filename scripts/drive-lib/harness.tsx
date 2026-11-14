@@ -26,6 +26,7 @@ import {
   seedShowScene,
   seedRoutingScene,
   seedLinksScene,
+  seedStripScene,
   seedRoutingVrfScene,
   seedRoutingNatScene,
   seedConflictingChange,
@@ -191,6 +192,7 @@ async function main() {
   else if (scene === 'show') doc = seedShowScene(catalogue, ME);
   else if (scene === 'routing') doc = seedRoutingScene(catalogue, ME);
   else if (scene === 'links') doc = seedLinksScene(catalogue, ME);
+  else if (scene === 'strip') doc = seedStripScene(catalogue, ME);
   else if (scene === 'routing-vrf') doc = seedRoutingVrfScene(catalogue, ME);
   else if (scene === 'routing-nat') doc = seedRoutingNatScene(catalogue, ME);
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);

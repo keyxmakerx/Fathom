@@ -29,7 +29,7 @@ import { tagObject } from './document/tags';
 import { addEdge, addNode, begin, createFreeBox, finish, setNodeField } from './document/freeform';
 import { setFirmwareHold, setTarget } from './document/firmware';
 import { newUlid } from './document/ulid';
-import { naturalLabelCompare, viewOf } from './document/view';
+import { naturalLabelCompare, viewOf, type PortView } from './document/view';
 
 export function catalogueFrom(cat: { models: Record<string, unknown> }): CatalogueModel[] {
   return Object.values(cat.models).map((m) =>
@@ -1050,6 +1050,38 @@ export function seedLinksScene(catalogue: CatalogueModel[], me: string): Documen
     [nas[0]!, '1G'],
   ];
   for (const [port, speed] of speeds) working = setPortSpeed(working, port.id, speed, { actor: me });
+  return working;
+}
+
+/** The port strip (sign-off r109, item 4): two racks. A-04 holds edge-fw and two switches, core-sw (48 ports)
+ * and acc-sw1 (24); B-01 holds two servers and a NAS. The switches carry role switch, so the Diagram draws
+ * their strips; six cables leave them from scattered ports, to the box beside, below and across. */
+export function seedStripScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId, premisesId } = oneRack(catalogue, me, 20);
+  const find = (model: string) => catalogue.find((c) => c.model === model)!;
+  let working = createRack(doc, premisesId, { label: 'B-01', heightU: 20, unitNumbering: 'ascending', actor: me });
+  const rackB = viewOf(working, catalogue).racks.find((r) => r.id !== rackId)!.id;
+  working = place(working, catalogue, rackId, find('SRX300'), 1, 'edge-fw', me);
+  working = place(working, catalogue, rackId, find('EX4300-48P'), 3, 'core-sw', me);
+  working = place(working, catalogue, rackId, find('USW-24-PoE'), 5, 'acc-sw1', me);
+  working = place(working, catalogue, rackB, find('R740xd'), 8, 'srv-01', me);
+  working = place(working, catalogue, rackB, find('R740xd'), 5, 'srv-02', me);
+  working = place(working, catalogue, rackB, find('RS822+'), 2, 'nas-01', me);
+  const all = () => viewOf(working, catalogue).racks.flatMap((r) => r.chassis);
+  const ch = (host: string) => all().find((c) => c.hostname === host)!;
+  for (const host of ['core-sw', 'acc-sw1']) working = setDeviceField(working, ch(host).deviceId, 'role', 'switch', { actor: me });
+  const rj = (host: string) =>
+    ch(host).ports.filter((p) => p.connector.toLowerCase() === 'rj45').sort((x, y) => naturalLabelCompare(x.label, y.label));
+  const [fw, core, acc, s1, s2, nas] = ['edge-fw', 'core-sw', 'acc-sw1', 'srv-01', 'srv-02', 'nas-01'].map(rj) as PortView[][];
+  const link = (a: string, b: string) => {
+    working = connectPorts(working, a, b, { sheath: 'blue' }, { actor: me });
+  };
+  link(fw![1]!.id, core![0]!.id);
+  link(core![5]!.id, acc![0]!.id);
+  link(core![12]!.id, s1![0]!.id);
+  link(core![30]!.id, s2![0]!.id);
+  link(acc![7]!.id, nas![0]!.id);
+  link(acc![15]!.id, s1![1]!.id);
   return working;
 }
 
