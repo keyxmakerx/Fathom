@@ -717,6 +717,13 @@ migration 0074 creates once. The first is turning an old Link into a cable (sign
 happens the first time someone who may draw opens a design that still holds one, and the change's
 note says who opened it. Someone who may only read opens the design unchanged.
 
+The second is the orders overdue clock (ADR-0092). Once a minute the server looks for open orders
+whose next overdue rule has fallen due, using only a plain time kept on each order, and carries
+the rule out as this account: shown to the lead, handed back to the queue, handed to another team,
+or an optional job moved on. It reaches no design. If it cannot open an order it logs `the overdue
+clock could not carry out a due rule on this order` with the order's id and tries again a minute
+later; anyone opening the order carries the rule out too.
+
 **It cannot sign in.** It has no password, passkey, second factor, AI key or Termix setting, and
 the database refuses any row that would give it one, a session, a membership, a grant, a team seat
 or a signature (a trigger on each of those tables, so it holds for every role, superuser

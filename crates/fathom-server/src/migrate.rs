@@ -492,6 +492,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0080_order_overdue.sql",
         sql: include_str!("../migrations/0080_order_overdue.sql"),
     },
+    // The overdue clock on a timer too, reading only each order's next due time (ADR-0092).
+    Migration {
+        version: 81,
+        name: "0081_order_clock.sql",
+        sql: include_str!("../migrations/0081_order_clock.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

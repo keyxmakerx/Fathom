@@ -679,6 +679,8 @@ fn an_overdue_job_is_escalated_then_handed_back_to_its_team() {
         },
     );
 
+    // The server's clock keeps the time the first rule falls due (ADR-0092).
+    assert_eq!(run.order.next_overdue(), Some(1000 + DAY));
     // Before it's due, nothing is listed, and the engine can't jump the gun.
     assert!(run.order.overdue_due(1000 + DAY - 1).is_empty());
     assert!(run
@@ -697,6 +699,8 @@ fn an_overdue_job_is_escalated_then_handed_back_to_its_team() {
     assert_eq!(st.escalated.as_deref(), Some("lead"));
     assert_eq!(st.picked_by.as_deref(), Some("ann@order-desk"));
 
+    // The next rule's time is the one kept now.
+    assert_eq!(run.order.next_overdue(), Some(1000 + 3 * DAY));
     // Two days later: `reassign: team` takes it off Ann and back to the queue.
     assert_eq!(run.clock(1000 + 3 * DAY), vec![("check".to_owned(), 1)]);
     let st = run.order.job("check").unwrap();
@@ -704,6 +708,7 @@ fn an_overdue_job_is_escalated_then_handed_back_to_its_team() {
     assert_eq!(run.status("check"), JobStatus::Ready);
     // Every rule fires once.
     assert!(run.clock(1000 + 30 * DAY).is_empty());
+    assert_eq!(run.order.next_overdue(), None);
     assert!(run
         .refused("engine", overdue("check", 1))
         .contains("already"));

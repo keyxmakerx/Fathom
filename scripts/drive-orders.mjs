@@ -18,7 +18,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { migrateUrl, runtimeUrl } from './drive-lib/db.mjs';
+import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 import { check, fails } from './drive-lib/kit.mjs';
 
 const pw = await import(process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js');
@@ -122,6 +122,14 @@ async function main() {
     });
     const seed = JSON.parse(readFileSync(SEED_OUT, 'utf8'));
     await startServer();
+    // ADR-0092: the server's timer carries out W-4's due rules before anyone signs in. Read as the
+    // database superuser, which sees the stored rows without opening anything.
+    let fired = 0;
+    for (let i = 0; i < 40 && fired < 2; i += 1) {
+      fired = Number(sh('psql', [superuserUrl(DB_NAME), '-tAc', "SELECT count(*) FROM order_events WHERE action = 'overdue' AND by_account IS NULL"]).trim());
+      if (fired < 2) await sleep(1500);
+    }
+    check('T1. with nobody signed in, the server\'s timer carried out W-4\'s two due rules', fired === 2, `overdue events: ${fired}`);
     await runProof(browser, ctxA, seed);
   } finally {
     await browser.close();

@@ -455,6 +455,13 @@ impl Order {
         out
     }
 
+    /// When the next overdue rule falls due, if any is waiting: the time the server's clock keeps
+    /// beside the sealed order so it knows when to open it (ADR-0092). A job that isn't ready has
+    /// no clock yet; it gets one when it becomes ready, which is an act that stores this again.
+    pub fn next_overdue(&self) -> Option<u64> {
+        self.overdue_due(u64::MAX).first().map(|d| d.2)
+    }
+
     /// What this order holds right now (decision 18): each `holds` field of a
     /// job that has become ready, while the order is open. Sorted.
     pub fn holds(&self) -> Vec<Hold> {

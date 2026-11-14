@@ -35,8 +35,9 @@ use crate::chain::EntryType;
 use crate::chains;
 use crate::crypto::{self, now_unix};
 use crate::designs::DesignError;
-use crate::grants::{entry_metadata, Authority, AuthorityError};
+use crate::grants::{entry_metadata, Authority, AuthorityError, EpochWatch};
 use crate::keys;
+use crate::keys::KeyRing;
 use crate::roles::Power;
 use crate::teams::{self, OrderPeople};
 
@@ -976,6 +977,8 @@ pub struct OrderView {
     pub type_version: i32,
     pub opened_at: i64,
     pub order: Order,
+    /// The next-due time stored beside the order when it was loaded (ADR-0092).
+    next_kept: Option<i64>,
 }
 
 fn status_word(s: OrderStatus) -> &'static str {
@@ -1070,6 +1073,36 @@ async fn store_event(
     Ok(())
 }
 
+/// When the order's next overdue rule falls due, as the plain time `orders.next_overdue_at` keeps
+/// for the clock (ADR-0092). `None` once the order is done or cancelled, or no rule is waiting.
+fn next_overdue_at(order: &Order) -> Option<i64> {
+    order.next_overdue().and_then(|t| i64::try_from(t).ok())
+}
+
+/// Store where an order stands after an event: its status, when it last moved, and when its next
+/// overdue rule falls due. Every write of an event is followed by this, so the clock's time never
+/// lags the sealed history. An order that is no longer open is left alone (0075's trigger).
+async fn store_standing(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    view: &OrderView,
+    updated_at: i64,
+) -> Result<(), OrderError> {
+    tx.execute(
+        "UPDATE orders SET status = $3, updated_at = $4, next_overdue_at = $5 \
+         WHERE organisation_id = $1 AND id = $2 AND status = 'open'",
+        &[
+            &auth.ctx.tenant().to_string(),
+            &view.id,
+            &status_word(view.order.status()),
+            &updated_at,
+            &next_overdue_at(&view.order),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
 /// Open an order from the latest version of an order type. Any member of the organisation may
 /// open one; the engine checks the answers. `answers` arrive as JSON keyed by field and are put
 /// in the definition's order.
@@ -1110,8 +1143,8 @@ pub async fn open_order(
     tx.execute(
         "INSERT INTO orders \
          (organisation_id, id, number, type_id, type_version, opened_by, opened_at, status, \
-          updated_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7)",
+          updated_at, next_overdue_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7, $9)",
         &[
             &tenant,
             &id,
@@ -1121,6 +1154,7 @@ pub async fn open_order(
             &actor,
             &at,
             &status_word(order.status()),
+            &next_overdue_at(&order),
         ],
     )
     .await?;
@@ -1130,6 +1164,7 @@ pub async fn open_order(
         number,
         type_id: ty.id,
         type_version: ty.version,
+        next_kept: next_overdue_at(&order),
         opened_at: at,
         order,
     })
@@ -1146,7 +1181,7 @@ async fn load(
     let row = tx
         .query_opt(
             &format!(
-                "SELECT number, type_id, type_version, opened_at FROM orders \
+                "SELECT number, type_id, type_version, opened_at, next_overdue_at FROM orders \
                  WHERE organisation_id = $1 AND id = $2{}",
                 if lock { " FOR UPDATE" } else { "" }
             ),
@@ -1204,6 +1239,7 @@ async fn load(
         type_id,
         type_version,
         opened_at: row.get(3),
+        next_kept: row.get(4),
         order,
     })
 }
@@ -1224,6 +1260,17 @@ pub async fn get_order(
     });
     let overdue_waiting = !view.order.overdue_due(now_unix().max(0) as u64).is_empty();
     if !(plan_waiting || overdue_waiting) || view.order.status() != OrderStatus::Open {
+        // An order stored before 0081 gets its next-due time the first time it is read, so the
+        // clock's timer finds it from then on (ADR-0092).
+        let next = next_overdue_at(&view.order);
+        if view.order.status() == OrderStatus::Open && view.next_kept != next {
+            tx.execute(
+                "UPDATE orders SET next_overdue_at = $3 \
+                 WHERE organisation_id = $1 AND id = $2 AND status = 'open'",
+                &[&auth.ctx.tenant().to_string(), &view.id, &next],
+            )
+            .await?;
+        }
         return Ok(view);
     }
     let mut view = load(tx, auth, id, true).await?;
@@ -1267,17 +1314,7 @@ pub async fn act(
     let seq = i32::try_from(view.order.events().len()).map_err(|_| corrupt("order history"))?;
     let stored = view.order.events().last().cloned().expect("just applied");
     store_event(tx, auth, id, seq, &stored).await?;
-    tx.execute(
-        "UPDATE orders SET status = $3, updated_at = $4 \
-         WHERE organisation_id = $1 AND id = $2 AND status = 'open'",
-        &[
-            &auth.ctx.tenant().to_string(),
-            &id,
-            &status_word(view.order.status()),
-            &(stored.at as i64),
-        ],
-    )
-    .await?;
+    store_standing(tx, auth, &view, stored.at as i64).await?;
     Ok(view)
 }
 
@@ -1948,13 +1985,12 @@ pub async fn opener_names(
 /// What the engine does by itself before anyone reads or acts on an order: overdue rules whose time
 /// has come (decision 11), then plans that were recorded. The order is locked by the caller.
 ///
-/// **Why on read and not on a timer.** An order is sealed under its organisation's key, and that key
-/// is only opened for a signed-in member's request (`repo::TenantContext`; `docs/PHASE-2-STORAGE-DESIGN.md` §4); a server
-/// task with no request has no key to open it with, and giving it one would undo that rule. So the
-/// clock is checked whenever anyone in the organisation opens the Work tab, an order or acts on one
-/// (the Work tab asks every few seconds while it is open). Each rule is recorded at the moment it
-/// fell due, not when it was noticed, and a rule that fell due while nobody looked is carried out
-/// once, in order, the next time anyone does: decision 11's catch-up.
+/// **On read, and on a timer (ADR-0092).** Whenever anyone in the organisation opens the Work tab,
+/// an order or acts on one, the clock is checked here first. A timer on the server ([`spawn_clock`])
+/// also carries out due rules when nobody looks: it reads only each order's plain next-due time,
+/// and opens an order as the system account only once that time has passed. Either way each rule is
+/// recorded at the moment it fell due, not when it was noticed, and carried out once, in order
+/// (decision 11's catch-up); the order's row lock makes the two take turns.
 async fn catch_up(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -1997,17 +2033,7 @@ async fn catch_up_overdue(
         let seq = i32::try_from(view.order.events().len()).map_err(|_| corrupt("order history"))?;
         let stored = view.order.events().last().cloned().expect("just applied");
         store_event(tx, auth, &view.id, seq, &stored).await?;
-        tx.execute(
-            "UPDATE orders SET status = $3, updated_at = $4 \
-             WHERE organisation_id = $1 AND id = $2 AND status = 'open'",
-            &[
-                &auth.ctx.tenant().to_string(),
-                &view.id,
-                &status_word(view.order.status()),
-                &(now as i64),
-            ],
-        )
-        .await?;
+        store_standing(tx, auth, view, now as i64).await?;
     }
     Ok(())
 }
@@ -2068,19 +2094,178 @@ async fn catch_up_plans(
         let seq = i32::try_from(view.order.events().len()).map_err(|_| corrupt("order history"))?;
         let stored = view.order.events().last().cloned().expect("just applied");
         store_event(tx, auth, &view.id, seq, &stored).await?;
+        store_standing(tx, auth, view, stored.at as i64).await?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// The clock's timer (ADR-0092)
+// ---------------------------------------------------------------------------
+
+/// How often the timer looks for due rules. Rules are written in minutes, so a minute is as late
+/// as a rule can be carried out while the server is up.
+pub const CLOCK_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// At most this many orders are opened in one pass; the rest wait for the next minute.
+pub const CLOCK_ORDERS_PER_PASS: i64 = 200;
+
+/// Turn on `app.order_clock_custody` (`0081`): read which open orders have a rule due, across
+/// organisations. No policy lets it write, and it names one table.
+async fn enter_clock_custody(tx: &Transaction<'_>) -> Result<(), OrderError> {
+    tx.execute(
+        "SELECT set_config('app.design_capability', 'no', true)",
+        &[],
+    )
+    .await?;
+    tx.execute(
+        "SELECT set_config('app.order_clock_custody', 'yes', true)",
+        &[],
+    )
+    .await?;
+    Ok(())
+}
+
+/// What one pass of [`clock_due`] did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Clocked {
+    /// Orders the timer opened and carried at least one rule out on.
+    pub moved: usize,
+    /// Orders it could not open or store; each is logged and tried again next pass.
+    pub failed: usize,
+}
+
+/// Carry out every overdue rule that is due, on every open order whose next-due time has passed,
+/// each in its own transaction as the system account. The server always passes `None`; a test
+/// passes its own organisation so it does not touch orders other tests opened.
+pub async fn clock_due(
+    pool: &deadpool_postgres::Pool,
+    ring: &KeyRing,
+    watch: &EpochWatch,
+    only: Option<&str>,
+) -> Result<Clocked, OrderError> {
+    let now = now_unix();
+    let due = {
+        let mut client = pool.get().await.map_err(DesignError::from)?;
+        let tx = client.transaction().await?;
+        enter_clock_custody(&tx).await?;
+        let rows = tx
+            .query(
+                "SELECT organisation_id, id FROM orders \
+                 WHERE status = 'open' AND next_overdue_at IS NOT NULL AND next_overdue_at <= $1 \
+                   AND ($2::text IS NULL OR organisation_id = $2) \
+                 ORDER BY next_overdue_at, organisation_id, id \
+                 LIMIT $3",
+                &[&now, &only, &CLOCK_ORDERS_PER_PASS],
+            )
+            .await?;
+        tx.commit().await?;
+        rows.iter()
+            .map(|r| (r.get::<_, String>(0), r.get::<_, String>(1)))
+            .collect::<Vec<_>>()
+    };
+    let mut done = Clocked::default();
+    for (organisation, order) in due {
+        match clock_one(pool, ring, watch, &organisation, &order, now).await {
+            Ok(true) => done.moved += 1,
+            Ok(false) => {}
+            Err(e) => {
+                done.failed += 1;
+                tracing::warn!(
+                    organisation = %organisation,
+                    order = %order,
+                    error = ?e,
+                    "the overdue clock could not carry out a due rule on this order; it will try \
+                     again in a minute, and anyone opening the order carries it out too"
+                );
+            }
+        }
+    }
+    Ok(done)
+}
+
+/// One order: opened under its own organisation as the system account, its due rules carried out,
+/// and its next-due time stored, in one transaction. `false` when nothing was left to do (someone
+/// opened it first, or it closed).
+async fn clock_one(
+    pool: &deadpool_postgres::Pool,
+    ring: &KeyRing,
+    watch: &EpochWatch,
+    organisation: &str,
+    order: &str,
+    now: i64,
+) -> Result<bool, OrderError> {
+    let tenant: crate::repo::OrganisationId = organisation
+        .parse()
+        .map_err(|_| corrupt("an order's organisation"))?;
+    let mut client = pool.get().await.map_err(DesignError::from)?;
+    let tx = client.transaction().await?;
+    let ctx = crate::repo::open_clock_context(&tx, tenant)
+        .await
+        .map_err(DesignError::from)?;
+    // Still open and still due, read again under the organisation's own policy and locked, before
+    // any key is fetched: an order someone has just caught up, or that has closed, is left alone.
+    let still = tx
+        .query_opt(
+            "SELECT 1 FROM orders \
+             WHERE organisation_id = $1 AND id = $2 AND status = 'open' \
+               AND next_overdue_at IS NOT NULL AND next_overdue_at <= $3 \
+             FOR UPDATE",
+            &[&organisation, &order, &now],
+        )
+        .await?;
+    if still.is_none() {
+        return Ok(false);
+    }
+    let tenant_key = keys::tenant_key(&tx, ring, &ctx).await?;
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch,
+    };
+    let mut view = load(&tx, &auth, order, true).await?;
+    let before = view.order.events().len();
+    catch_up_overdue(&tx, &auth, &mut view).await?;
+    let moved = view.order.events().len() > before;
+    if !moved && view.next_kept != next_overdue_at(&view.order) {
+        // Nothing fired (the order type's rules were changed under it, say): store the time the
+        // order really has, so it is not picked again every minute.
         tx.execute(
-            "UPDATE orders SET status = $3, updated_at = $4 \
+            "UPDATE orders SET next_overdue_at = $3 \
              WHERE organisation_id = $1 AND id = $2 AND status = 'open'",
-            &[
-                &tenant,
-                &view.id,
-                &status_word(view.order.status()),
-                &(stored.at as i64),
-            ],
+            &[&organisation, &order, &next_overdue_at(&view.order)],
         )
         .await?;
     }
-    Ok(())
+    tx.commit().await?;
+    Ok(moved)
+}
+
+/// Run [`clock_due`] every [`CLOCK_LOOK_EVERY`], for as long as the server runs. A failed pass is
+/// logged and tried again next time; it never stops the server.
+pub fn spawn_clock(
+    pool: deadpool_postgres::Pool,
+    ring: std::sync::Arc<KeyRing>,
+    watch: std::sync::Arc<EpochWatch>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match clock_due(&pool, &ring, &watch, None).await {
+                Ok(Clocked {
+                    moved: 0,
+                    failed: 0,
+                }) => {}
+                Ok(done) => tracing::info!(
+                    moved = done.moved,
+                    failed = done.failed,
+                    "the overdue clock carried out due rules"
+                ),
+                Err(e) => tracing::warn!(error = ?e, "the overdue clock could not run"),
+            }
+            tokio::time::sleep(CLOCK_LOOK_EVERY).await;
+        }
+    })
 }
 
 /// The engine's own acts ask nothing of people.

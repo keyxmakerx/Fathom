@@ -308,11 +308,13 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   powers on the order's teams (`teams::order_people`). Every text in a type, answer or reason goes
   through the redaction gate's bare check. Routes under `/organisations/{o}/order-types` and
   `/organisations/{o}/orders`. The overdue clock (migration 0080, the `overdue` action) runs when an
-  order is read or acted on, not in the background: a `TenantContext` comes only from an
-  authenticated request (`docs/PHASE-2-STORAGE-DESIGN.md` §4), so the server can't open a sealed
-  order on its own. Each rule that has fallen due is carried out then, in order and once each,
-  recorded by the engine at the time it fell due; the Work tab rereads open orders every few seconds
-  while it is open, so a rule fires at the latest when someone next looks at orders.
+  order is read or acted on, and on a timer every minute (ADR-0092, migration 0081). Each order
+  keeps its next rule's due time in the clear (`orders.next_overdue_at`); the timer reads only that
+  through its own read-only door (`app.order_clock_custody`), then opens each due order under its
+  own organisation as the system account (`repo::open_clock_context`, the one `TenantContext` not
+  built from a membership, with the design capability refused). Either way each rule is carried out
+  once, in order, recorded by the engine at the time it fell due; the order's row lock makes the two
+  take turns.
 - **Orders on screen (ADR-0084 pieces 4 and 5 in part; 2026-11-14, draft).** Steward › Order types
   (`components/orders/OrderTypesPage.tsx`) lists the types, starts one from a starter in
   `corpus/orders/`, a blank one or a brought-in `.yaml`, and shows it three ways from the same file:

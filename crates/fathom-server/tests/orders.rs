@@ -1169,3 +1169,149 @@ async fn an_overdue_rule_is_carried_out_by_the_engine_when_the_order_is_next_loo
     .await
     .expect("picks up");
 }
+
+/// What is stored for an order, read as a member without catching it up: the event count, who
+/// each event names, and the plain next-due time (ADR-0092).
+async fn stored(
+    pool: &Pool,
+    ring: &KeyRing,
+    org: &Org,
+    who: AccountId,
+    order: &str,
+) -> (Vec<(String, Option<String>)>, Option<i64>) {
+    let mut client = pool.get().await.unwrap();
+    let (tx, _, _) = acting(&mut client, ring, org.id, who).await;
+    let events = tx
+        .query(
+            "SELECT action, by_account FROM order_events \
+             WHERE organisation_id = $1 AND order_id = $2 ORDER BY seq",
+            &[&org.id.to_string(), &order],
+        )
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    let next: Option<i64> = tx
+        .query_one(
+            "SELECT next_overdue_at FROM orders WHERE organisation_id = $1 AND id = $2",
+            &[&org.id.to_string(), &order],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    tx.commit().await.unwrap();
+    (events, next)
+}
+
+#[tokio::test]
+async fn the_clock_carries_out_a_due_rule_on_its_timer_with_nobody_signed_in() {
+    let pool = support::migrated_pool().await;
+    let ring = keyring(47);
+    let e = an_estate(&pool, &ring).await;
+    let org = &e.org;
+    let steward = org.stewards[0].account;
+    let source = DIA.replace("due: 1d", "due: 0m").replace(
+        "{ after: 2d, reassign: team }",
+        "{ after: 0m, reassign: team }",
+    );
+    let req = TypeRequest {
+        source,
+        ..dia(None)
+    };
+    let ty = save(&pool, &ring, org, steward, req).await.expect("saves");
+    let desk = e.members["order-desk"].account;
+    let view = open(&pool, &ring, org, desk, &ty.id, answers("10G"))
+        .await
+        .expect("opens");
+
+    // Opening keeps, in the clear, when the first rule falls due: at once here.
+    let (events, next) = stored(&pool, &ring, org, desk, &view.id).await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(next, Some(view.opened_at));
+
+    // The clock's door reads `orders` and nothing else, and writes nothing (0081).
+    {
+        let mut client = pool.get().await.unwrap();
+        let tx = client.transaction().await.unwrap();
+        tx.execute(
+            "SELECT set_config('app.order_clock_custody', 'yes', true)",
+            &[],
+        )
+        .await
+        .unwrap();
+        let id = view.id.as_str();
+        let seen: i64 = tx
+            .query_one("SELECT count(*) FROM orders WHERE id = $1", &[&id])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(seen, 1);
+        let events: i64 = tx
+            .query_one(
+                "SELECT count(*) FROM order_events WHERE order_id = $1",
+                &[&id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(events, 0);
+        let changed = tx
+            .execute(
+                "UPDATE orders SET next_overdue_at = 1 WHERE id = $1",
+                &[&id],
+            )
+            .await
+            .unwrap();
+        assert_eq!(changed, 0);
+        tx.rollback().await.unwrap();
+    }
+
+    // Another organisation's pass leaves this order alone.
+    let other = an_org(&pool, &ring, 1).await;
+    let watch = EpochWatch::new();
+    let none = orders::clock_due(&pool, &ring, &watch, Some(&other.id.to_string()))
+        .await
+        .expect("the clock runs");
+    assert_eq!(none, orders::Clocked::default());
+    assert_eq!(stored(&pool, &ring, org, desk, &view.id).await.0.len(), 1);
+
+    // The timer, with nobody reading: both rules carried out, as the engine, and nothing waits.
+    let only = org.id.to_string();
+    let done = orders::clock_due(&pool, &ring, &watch, Some(&only))
+        .await
+        .expect("the clock runs");
+    assert_eq!(
+        done,
+        orders::Clocked {
+            moved: 1,
+            failed: 0
+        }
+    );
+    let (events, next) = stored(&pool, &ring, org, desk, &view.id).await;
+    assert_eq!(
+        events,
+        vec![
+            ("open".to_owned(), Some(desk.to_string())),
+            ("overdue".to_owned(), None),
+            ("overdue".to_owned(), None),
+        ]
+    );
+    assert_eq!(next, None);
+
+    // Each was filed on the organisation chain like any other event.
+    let filed = chain_types(org.id).await;
+    assert_eq!(filed.iter().filter(|t| *t == "order_event").count(), 3);
+
+    // A second pass finds nothing, and reading the order fires nothing more: each rule once.
+    let again = orders::clock_due(&pool, &ring, &watch, Some(&only))
+        .await
+        .expect("the clock runs");
+    assert_eq!(again, orders::Clocked::default());
+    let seen = get(&pool, &ring, org, desk, &view.id).await;
+    assert_eq!(seen.order.events().len(), 3);
+    assert_eq!(
+        seen.order.job("check").unwrap().escalated.as_deref(),
+        Some("lead")
+    );
+}

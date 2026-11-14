@@ -230,9 +230,10 @@ once the estate index shows it recorded. Not yet: moving an open order onto a ne
 `needs` and `send_back` arrows by hand on the board, and piece 6.
 **Built (r142 answers, 2026-11-14, draft):** the owner asked for three more before alpha. *Piece 3,
 the clock:* decision 11's rules run as engine `overdue` events (migration 0080), each once and in
-order, recorded at the time it fell due. They run when the order is read or acted on rather than in
-the background, because a sealed order opens only under a `TenantContext` from an authenticated
-request (`docs/PHASE-2-STORAGE-DESIGN.md` §4); the Work tab rereads open orders every few seconds.
+order, recorded at the time it fell due. They run when the order is read or acted on, and (card
+version 2: "a combination of both") on a timer every minute with nobody signed in, as the system
+account, reading only each order's plain next-due time until one has passed (ADR-0092, migration
+0081).
 *Decision 18 in the clash check:* `GET /organisations/{o}/orders/holds` lists what open orders hold,
 and `OP_WORK_CLASHES` mode 2 answers an order row for each hold on a plan's devices.
 *Decision 5, dragging:* jobs and stages are dragged (or moved with Alt and the arrows), + Job and
