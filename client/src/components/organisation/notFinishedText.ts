@@ -1,6 +1,6 @@
 /**
- * What the three "Not finished" Steward pages say (alpha, 2026-11-12). Plain words, checked against
- * `docs/STATE.md` (orders, the IP plan store) and `docs/decisions/` ADR-0085 (email). When a real
+ * What the "Not finished" Steward pages say (alpha, 2026-11-12). Plain words, checked against
+ * `docs/STATE.md` (orders) and `docs/decisions/` ADR-0085 (email). When a real
  * screen lands, delete its lines here and drop `notFinished` in `stewardRail.ts`.
  */
 
@@ -13,17 +13,6 @@ export const ORDER_TYPES_MISSING: readonly string[] = [
   'No screen to write an order type, open an order or sign one off.',
   'No overdue clock.',
   'An order does not yet stop a clash with another plan.',
-];
-
-export const IP_PLAN_WORKS: readonly string[] = [
-  'The server keeps an IP plan for the organisation: address blocks, prefixes, ranges, addresses, VLANs and AS numbers.',
-  'It can hand out the next free prefix, address, VLAN or AS number, and hold a reservation for 30 days.',
-  'Each design’s own Prefixes and VLANs tables, in Inventory, are finished and are separate from this.',
-];
-export const IP_PLAN_MISSING: readonly string[] = [
-  'No screen to see or change the organisation’s IP plan.',
-  'No check that a design matches the plan.',
-  'No NetBox files in or out.',
 ];
 
 export const MAIL_WORKS: readonly string[] = [

@@ -32,7 +32,8 @@ import { FirmwareSettingsPage } from './FirmwareSettingsPage';
 import { DeviceReadingPage } from './DeviceReadingPage';
 import { shownRail } from './stewardRail';
 import { NotFinishedMark, NotFinishedPage } from '../ui/NotFinished';
-import { IP_PLAN_MISSING, IP_PLAN_WORKS, MAIL_MISSING, MAIL_WORKS, ORDER_TYPES_MISSING, ORDER_TYPES_WORKS } from './notFinishedText';
+import { MAIL_MISSING, MAIL_WORKS, ORDER_TYPES_MISSING, ORDER_TYPES_WORKS } from './notFinishedText';
+import { IpPlanPage } from './IpPlanPage';
 import { TeamsPage, ThroughTeams } from '../teams/TeamsPage';
 import './organisation.css';
 
@@ -81,6 +82,17 @@ const opensOnFirmware = (): boolean => {
   const link = initialPageLink();
   return link?.tab === 'steward' && link.page === 'firmware';
 };
+
+/** Folders for the IP plan's pickers, each named by its readable ancestors: "Northgate / Block A". */
+export function planFolders(scopes: readonly Scope[]): { id: string; label: string }[] {
+  const byId = new Map(scopes.map((s) => [s.scopeId, s]));
+  const label = (s: Scope): string => {
+    const names = [s.displayName];
+    for (let up = s.parentScopeId ? byId.get(s.parentScopeId) : undefined; up && names.length < 16; up = up.parentScopeId ? byId.get(up.parentScopeId) : undefined) names.unshift(up.displayName);
+    return names.join(' / ');
+  };
+  return scopes.map((s) => ({ id: s.scopeId, label: label(s) }));
+}
 
 export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm, onSetPlace, estate, aiOnly = false }: OrganisationTabProps) {
   const org = organisation.organisationId;
@@ -199,7 +211,17 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
     if (page.kind === 'firmware') return <FirmwareSettingsPage organisationId={org} />;
     if (page.kind === 'device-reading') return <DeviceReadingPage organisationId={org} />;
     if (page.kind === 'order-types') return <NotFinishedPage title="Order types" works={ORDER_TYPES_WORKS} missing={ORDER_TYPES_MISSING} />;
-    if (page.kind === 'ip-plan') return <NotFinishedPage title="IP plan" works={IP_PLAN_WORKS} missing={IP_PLAN_MISSING} />;
+    if (page.kind === 'ip-plan') {
+      const everyone = people.status === 'ready' ? people.value.people : [];
+      return (
+        <IpPlanPage
+          organisationId={org}
+          folders={planFolders(scopes.status === 'ready' ? scopes.value : [])}
+          names={new Map(everyone.map((p) => [p.account, p.name]))}
+          you={everyone.find((p) => p.you)?.account ?? null}
+        />
+      );
+    }
     if (page.kind === 'mail')
       return <NotFinishedPage title="Mail" works={MAIL_WORKS} missing={MAIL_MISSING} />;
     if (page.kind === 'teams') return <TeamsPage organisation={org} where="steward" scopes={scopes.status === 'ready' ? scopes.value : []} grantable={folders} />;

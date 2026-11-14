@@ -440,3 +440,242 @@
   width: max-content;
   margin: var(--s1) 0 0;
 }
+
+/* Steward › IP plan (ADR-0083 decision 7). The tree reads like Inventory's tables; the panel
+   beside it holds one record, its form, or next free. Ink and weight, no colour. */
+.ipplan__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s3);
+}
+
+.ipplan__bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+
+.ipplan {
+  container-type: inline-size;
+}
+
+/* The panel sits above the list, and beside it only where the page is wide enough for both:
+   the Steward tab lives between Home's two side columns, so its width is not the window's. */
+.ipplan__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.ipplan__side {
+  order: -1;
+  border: var(--rule-hair) solid var(--ink);
+  padding: var(--s3);
+  min-width: 0;
+  scroll-margin-top: var(--s5);
+}
+
+@container (min-width: 1000px) {
+  .ipplan__body--open {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: var(--s5);
+    align-items: start;
+  }
+
+  .ipplan__side {
+    order: 0;
+    border: none;
+    border-left: var(--rule-hair) solid var(--hairline);
+    padding: 0 0 0 var(--s4);
+  }
+}
+
+.ipplan__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+}
+
+.ipplan__pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: none;
+  border: none;
+  border-left: var(--rule-accent) solid transparent;
+  margin-left: calc(-1 * var(--s2));
+  padding: 0 0 0 calc(var(--s2) - var(--rule-accent));
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.ipplan__pick:hover > :first-child {
+  text-decoration: underline;
+}
+
+.ipplan__pick--on {
+  border-left-color: var(--ink);
+  font-weight: 700;
+}
+
+.ipplan__scroll {
+  overflow-x: auto;
+}
+
+.ipplan__tree .org-mono {
+  white-space: nowrap;
+}
+
+.ipplan__tree td:nth-child(2) {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.ipplan__tree td:nth-child(3) {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  width: 11rem;
+}
+
+.ipplan__meter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.ipplan__gauge {
+  display: block;
+  width: 72px;
+  height: 8px;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+}
+
+.ipplan__gauge > span {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+}
+
+.ipplan__row--lapsed .ipplan__pick > :first-child {
+  text-decoration: line-through;
+}
+
+.ipplan__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.ipplan__group-name {
+  font-weight: 700;
+}
+
+.ipplan__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.ipplan__panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s2);
+}
+
+.ipplan__kind {
+  margin-left: 0;
+}
+
+.ipplan__panel-title {
+  font-size: var(--t-mast);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ipplan__confirm {
+  border: var(--rule-hair) solid var(--ink);
+  padding: var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.ipplan__confirm p {
+  margin: 0;
+}
+
+.ipplan__next {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  border-top: var(--rule-hair) solid var(--hairline);
+  padding-top: var(--s3);
+}
+
+.ipplan__next-title {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ipplan__found {
+  margin: 0;
+  font-weight: 700;
+}
+
+.ipplan__ticks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.ipplan__netbox {
+  position: relative;
+}
+
+.ipplan__netbox > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.ipplan__netbox > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ipplan__netbox-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--s1));
+  z-index: 5;
+  width: min(340px, calc(100vw - 32px));
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  padding: var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.ipplan__netbox-pop p {
+  margin: 0;
+}
+
+/* A form and next free keep to the reading column, even when the panel spans the page. */
+.ipplan__form > .org-field,
+.ipplan__next .org-field {
+  max-width: var(--col);
+}
