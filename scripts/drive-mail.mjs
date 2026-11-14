@@ -202,6 +202,10 @@ async function main() {
     }
     const row = failed ? (await A.locator('[data-testid="steward-mail-list"] tbody tr').first().innerText()).replace(/\s+/g, ' ') : '';
     check('M3. the real worker tried Jo’s mail and Mail lists it as not sent, with the reason', failed && /Invitation for Jo Kim/.test(row) && /not set up/.test(row), row);
+    // The app scrolls inside its own pane, so a full-page shot stops at the fold: make the window tall instead.
+    const wide = A.viewportSize();
+    await A.setViewportSize({ width: wide.width, height: 1150 });
+    await sleep(300);
     await A.screenshot({ path: `${SHOTS}r139-mail-not-sent.png` });
 
     // 4. As it looks once mail is set up (the one route stubbed), light and dark, and at phone width.
@@ -218,15 +222,15 @@ async function main() {
     await A.screenshot({ path: `${SHOTS}r139-mail-set-up-dark.png` });
     await A.evaluate(() => document.documentElement.removeAttribute('data-theme'));
     await A.emulateMedia({ colorScheme: 'light' });
-    await A.setViewportSize({ width: 390, height: 844 });
+    await A.setViewportSize({ width: 390, height: 2200 });
     await sleep(400);
-    await A.screenshot({ path: `${SHOTS}r139-mail-phone.png`, fullPage: true });
+    await A.screenshot({ path: `${SHOTS}r139-mail-phone.png` });
   } finally {
     await browser.close();
     if (serverProc) serverProc.kill();
     try { sh('fuser', ['-k', `${PORT}/tcp`]); } catch {}
   }
-  if (fails() > 0) process.exit(1);
+  if (fails.length > 0) process.exit(1);
 }
 
 await main();

@@ -81,25 +81,27 @@ export function MailView({ data, onRefresh, busy }: { data: MailPageData; onRefr
           Nothing has been mailed for this organisation yet.
         </p>
       ) : (
-        <div className="org-scroll">
-          <table className="org-table" data-testid="steward-mail-list">
+        <div>
+          <table className="org-table org-mail__list" data-testid="steward-mail-list">
             <thead>
               <tr>
                 <th>When</th>
-                <th>What</th>
-                <th>To</th>
-                <th>How it went</th>
-                <th>The mail server said</th>
+                <th>What, and to whom</th>
+                <th>How it went, and what the mail server said</th>
               </tr>
             </thead>
             <tbody>
               {data.mail.map((m) => (
                 <tr key={m.id} data-state={m.state}>
                   <td className="org-mail__when">{dateTimeLabel(m.createdAtUnix)}</td>
-                  <td>{m.what}</td>
-                  <td className="org-mono">{m.to}</td>
-                  <td className={`org-mail__state org-mail__state--${m.state}`}>{howItWent(m)}</td>
-                  <td className="org-mono org-mail__reply">{m.lastReply ?? ''}</td>
+                  <td className="org-mail__what">
+                    {m.what}
+                    <span className="org-mono org-mail__to">{m.to}</span>
+                  </td>
+                  <td className="org-mail__how">
+                    <span className={`org-mail__state org-mail__state--${m.state}`}>{howItWent(m)}</span>
+                    {m.lastReply ? <span className="org-mono org-mail__reply">{m.lastReply}</span> : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
