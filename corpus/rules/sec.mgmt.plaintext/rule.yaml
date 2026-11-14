@@ -1,0 +1,23 @@
+id: sec.mgmt.plaintext
+rule_version: 1.0.0
+status: active
+severity: warn
+category: correctness
+title: "The device can be managed over telnet or plain HTTP"
+why: >
+  Telnet and plain HTTP send everything unencrypted, the login included. Anyone who can see the traffic on the way, on any network between you and the device, can read the password and replay the session.
+fix: >
+  Turn telnet and plain HTTP off and manage the device over SSH or HTTPS.
+concept: check.sec.plaintext-management
+acceptable_when: >
+  A lab device on an isolated bench network, or a device whose only reachable management port is on an out-of-band network nobody else can see.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-11-14
+sources:
+  - { publisher: "Juniper Networks", doc: "Hardening Junos devices checklist, as an audit item: 'Disable insecure or unnecessary access services (telnet, J-Web over HTTP, FTP, etc.)'", url: "https://tenable.com/audits/items/Juniper_Hardening_Junos_Devices.audit:037bb5fd6505d41b12ea72cada910ce4", read_on: 2026-11-14, note: "Read through Tenable's audit page for the checklist: 'Access services are considered insecure when communication to the device is unencrypted.' Mapped to NIST 800-53 CM-7b." }
+  - { publisher: "Juniper Networks", doc: "http (System Services): 'Configure the port and interfaces for HTTP service, which is unencrypted.'", url: "https://juniper.net/documentation/en_US/junos13.2/topics/reference/configuration-statement/http-edit-system.html", read_on: 2026-11-14 }
+  - { publisher: "Arista Networks", doc: "EOS User Manual, Connection Management: 'By default, EOS disables Telnet.'", url: "https://www.arista.com/en/um-eos/eos-connection-management", read_on: 2026-11-14, note: "Telnet on EOS is a deliberate `no shutdown`, so a finding there is never a default." }
+applies_to:
+  kind: SystemSettings
+condition: >
+  (has(telnet_enabled) && telnet_enabled) || (has(http_enabled) && http_enabled)

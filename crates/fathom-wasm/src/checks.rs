@@ -64,6 +64,10 @@ pub const RULES: &[(&str, &str)] = &[
         include_str!("../../../corpus/rules/power.psu.single-fed/rule.yaml"),
     ),
     (
+        "sec.mgmt.plaintext",
+        include_str!("../../../corpus/rules/sec.mgmt.plaintext/rule.yaml"),
+    ),
+    (
         "stock.level.below-minimum",
         include_str!("../../../corpus/rules/stock.level.below-minimum/rule.yaml"),
     ),

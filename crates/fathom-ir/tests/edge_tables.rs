@@ -143,7 +143,7 @@ fn slot_type_covers_every_registry_key() {
     // 578 -> 579: where a thing sits along a shelf (`SitsOn.x_mm`, 644, schema 0.40).
     assert_eq!(
         FIELD_KEYS.len(),
-        580,
+        582, // 580 -> 582: plaintext management (646, 647, schema 0.41).
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

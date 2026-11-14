@@ -1,0 +1,6 @@
+# Settings with neither field: the reader found nothing, which is never a finding.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: core-01, platform: junos-ex, role: switch } }
+  - { id: s1, kind: SystemSettings, set: {} }
+edges:
+  - { kind: HasSystemSettings, from: d1, to: s1 }

@@ -149,3 +149,7 @@ The two are declared BEFORE `other` rather than appended after it, and that is d
 ## 0.40
 
 0.40 is where a thing sits on a shelf (sign-off shelf-view, 2026-11-12 and 2026-11-13): two optional fields, SitsOn.x_mm, millimetres from the shelf's inside left edge, and SitsOn.y_mm, millimetres back from its front lip, set by dragging a device in the shelf view's front view and its strip seen from above (field keys 644 and 645). The slot stays the left-to-right order. Nothing removed, retyped or reordered. 62 §16.2: a new optional field is minor, twice. Whole change = MINOR. The reader still opens 0.10 to 0.39.
+
+## 0.41
+
+0.41 is plaintext management services (sign-off r137, 2026-11-14): two optional fields on SystemSettings, telnet_enabled and http_enabled, set when a device's own config turns on a telnet server or unencrypted HTTP for managing it (field keys 646 and 647). They feed the check `sec.mgmt.plaintext`. Absent means the reader found nothing, never that the service is off. Nothing removed, retyped or reordered. 62 §16.2: a new optional field is minor, twice. Whole change = MINOR. The reader still opens 0.10 to 0.40.

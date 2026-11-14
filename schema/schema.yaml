@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.40"    # Each version and how it was priced: docs/SCHEMA-HISTORY.md
+  version: "0.41"    # Each version and how it was priced: docs/SCHEMA-HISTORY.md
                     # 0.1   the first baseline
                     # 0.2   physical placement (ADR-0035)
                     # 0.3   Device.role server and access_point (ADR-0037)
@@ -45,6 +45,7 @@ schema:
                     # 0.38  a plan's team
                     # 0.39  NAT pools on firewalls
                     # 0.40  where a thing sits along a shelf
+                    # 0.41  plaintext management services (telnet, plain HTTP)
   oldest_readable: "0.10"   # The oldest header a reader opens. Kinds and edges added later say `since:`;
                             # schemagen derives the accepted versions and the kinds each may hold.
 
@@ -1038,6 +1039,20 @@ kinds:
       - { name: time_zone, type: TzName, card: "0..1", emit: O }
       - { name: root_authentication_set, type: bool, card: "0..1", emit: "—", doc: A fact about whether a credential exists. Never the credential (invariant 3). }
       - { name: name_servers, type: IpAddr, card: "0..n", emit: O, doc: Batfish DNS_Servers. }
+      - name: telnet_enabled
+        type: bool
+        card: "0..1"
+        emit: "—"
+        doc: |
+          0.41 (sign-off r137). The device's own config turns on a telnet server for managing
+          it. Absent means the config says nothing Fathom reads, not that telnet is off.
+      - name: http_enabled
+        type: bool
+        card: "0..1"
+        emit: "—"
+        doc: |
+          0.41 (sign-off r137). The device's own config turns on unencrypted HTTP for managing
+          it (Junos `system services web-management http`). Absent means not read, not off.
     identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for SystemSettings.
 
   - kind: NtpServer

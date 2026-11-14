@@ -693,3 +693,6 @@ fields:
   # 0.40: where a thing sits along a shelf
   SitsOn.x_mm: 644
   SitsOn.y_mm: 645
+  # 0.41: plaintext management services (sign-off r137)
+  SystemSettings.telnet_enabled: 646
+  SystemSettings.http_enabled: 647

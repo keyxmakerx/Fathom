@@ -2429,7 +2429,10 @@ mod tests {
         // +15 on 2026-11-02 — NAT (schema 0.39, sign-off r104): three rule-set
         // scopes, three matches, six `then` forms and three pool shapes. See
         // `corpus/dict/junos-srx/security-nat.yaml`.
-        assert_eq!(d.entry_count(), 119);
+        //
+        // +2 on 2026-11-14 — plaintext management (schema 0.41, sign-off r137):
+        // `system services telnet` and `system services web-management http`.
+        assert_eq!(d.entry_count(), 121);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside

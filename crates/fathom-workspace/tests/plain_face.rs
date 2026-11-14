@@ -60,7 +60,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.40\n",
+    "schema 0.41\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -1165,6 +1165,15 @@ fn a_0_38_header_opens() {
     let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.38", 1);
     assert_ne!(older, PINNED, "the substitution must have landed");
     read_plain(older.as_bytes()).expect("a 0.38 payload opens");
+}
+
+/// Plaintext management (0.41) adds two optional fields: a 0.40 design opens as it is.
+#[test]
+fn a_0_40_header_opens() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.40", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.40 payload opens");
 }
 
 /// Where a thing sits along a shelf (0.40) adds one optional field: a 0.39 design opens as it is.
