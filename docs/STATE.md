@@ -822,6 +822,11 @@ typed as `10G`, `2.5G`, `100M` or bits per second, stored as `Interface.speed` o
 it creates, named after the port, when a hand-drawn port has none. The Diagram look tags each set speed in
 small mono where the line meets the box, in every lens; a second line meeting the box at the same spot puts
 its tag on the other side.
+A device whose role is switch shows its **port strip** in the Diagram look (r109 item 4;
+`components/drawing/portStrip.ts`): its data ports along the bottom of its box in faceplate order, two staggered
+rows past 16, a cabled one filled ink. Each of its lines leaves the box under its own port and drops below the
+box before it turns; a line from the box straight above meets the top edge over the port. Drawn as an icon, a
+switch has no strip. `scripts/drive-port-strip.mjs` drives it.
 
 **Routing lens on the canvas** (sign-off r101, option A; no schema change). With the Routing lens lit, the
 Diagram look writes on the same boxes: a device that routes says `ROUTES · n TABLES`, a VLAN gateway says

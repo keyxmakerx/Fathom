@@ -1842,6 +1842,33 @@
 
 /* A port's speed where its line meets the box (r109): small mono ink, haloed by the page so a line under it
    stays readable. Never a box, never a colour. */
+/* A switch's port strip (sign-off r109): its data ports along the bottom of its box, a cabled one filled
+   ink. Its lines leave the box under their port. Ink only: a coloured box means a warning. */
+.drawing-diagram-box--strip {
+  position: relative;
+  padding-bottom: 20px;
+}
+.drawing-port-strip {
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+}
+.drawing-port-strip__port {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--ink);
+  background: var(--page);
+  font-family: var(--mono);
+  font-size: 6px;
+  line-height: 5px;
+  text-align: center;
+  color: var(--ink);
+  overflow: hidden;
+}
+.drawing-port-strip__port--cabled {
+  background: var(--ink);
+  color: var(--page);
+}
 .drawing-speed-tag {
   font-family: var(--mono);
   font-size: 9px;

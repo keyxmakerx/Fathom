@@ -25,7 +25,18 @@ export interface RouteLine {
   id: string;
   a: string;
   b: string;
+  /** The port each end is plugged into, for a box that draws a port strip (sign-off r109). */
+  portA?: string;
+  portB?: string;
 }
+
+/** Where each port on a box's strip lets its line out: `exitX` from the box's left edge, on its bottom edge. */
+export type StripExits = ReadonlyMap<string, ReadonlyArray<{ portId: string; exitX: number }>>;
+
+/** A line leaving through a strip port drops this far below the box, at least, before it turns. */
+const DROP_MIN = 6;
+/** Its drops share this much of the gap under the box. */
+const DROP_ROOM = 14;
 
 /** Room between two lines that run side by side, and between two ends on one side of a box. */
 export const TRACK_PX = 10;
@@ -147,7 +158,7 @@ const DIR: Record<Side, { dx: number; dy: number }> = {
   right: { dx: 1, dy: 0 },
 };
 
-function finish(points: Pt[], sideA: Side, sideB: Side): Route {
+function finish(points: Pt[], sideA: Side, sideB: Side, downA = false, downB = false): Route {
   // Drop repeated and in-line points so the path is only its corners.
   const pts: Pt[] = [];
   for (const p of points) {
@@ -168,22 +179,55 @@ function finish(points: Pt[], sideA: Side, sideB: Side): Route {
   const last = points[points.length - 1]!;
   return {
     d: pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' '),
-    a: { x: first.x, y: first.y, ...DIR[sideA] },
-    b: { x: last.x, y: last.y, ...DIR[sideB] },
+    a: { x: first.x, y: first.y, ...(downA ? DIR.bottom : DIR[sideA]) },
+    b: { x: last.x, y: last.y, ...(downB ? DIR.bottom : DIR[sideB]) },
     mid,
   };
 }
 
 /** One route per line whose two boxes are both given. */
-export function routeDiagram(boxes: ReadonlyArray<Rect & { id: string }>, lines: ReadonlyArray<RouteLine>): Map<string, Route> {
+export function routeDiagram(boxes: ReadonlyArray<Rect & { id: string }>, lines: ReadonlyArray<RouteLine>, strips?: StripExits): Map<string, Route> {
   const cells = new Map(boxes.map((b) => [b.id, cellOf(b)]));
   const lastCol = Math.max(0, ...[...cells.values()].map((c) => c.col));
   const plans: Plan[] = [];
+  // A strip port's exit, from the box's left edge, by line end ("<line id>|a").
+  const portX = new Map<string, number>();
   for (const l of lines) {
     const a = cells.get(l.a);
     const b = cells.get(l.b);
     if (a == null || b == null || l.a === l.b) continue;
     plans.push(plan(l.id, a, b, lastCol));
+    for (const [end, box, port] of [['a', l.a, l.portA], ['b', l.b, l.portB]] as const) {
+      const x = port == null ? undefined : strips?.get(box)?.find((c) => c.portId === port)?.exitX;
+      if (x != null) portX.set(`${l.id}|${end}`, x);
+    }
+  }
+
+  // A line leaving a strip port sideways drops under its box first, then turns. Of the lines turning one
+  // way, the one whose port is farthest that way drops least, so no drop crosses another's turn; lines
+  // turning right take the even depths and lines turning left the odd ones, so none share a run.
+  const dropY = new Map<string, number>();
+  {
+    const byBox = new Map<string, Array<{ key: string; x: number; right: boolean }>>();
+    const boxOf = new Map<Cell, string>([...cells].map(([id, c]) => [c, id]));
+    for (const p of plans)
+      for (const end of ['a', 'b'] as const) {
+        const key = `${p.id}|${end}`;
+        const side = end === 'a' ? p.sideA : p.sideB;
+        const x = portX.get(key);
+        if (x == null || (side !== 'left' && side !== 'right')) continue;
+        const box = boxOf.get(end === 'a' ? p.a : p.b)!;
+        byBox.set(box, [...(byBox.get(box) ?? []), { key, x, right: side === 'right' }]);
+      }
+    for (const [box, ends] of byBox) {
+      const r = cells.get(box)!.rect;
+      const right = ends.filter((e) => e.right).sort((p, q) => q.x - p.x || p.key.localeCompare(q.key));
+      const left = ends.filter((e) => !e.right).sort((p, q) => p.x - q.x || p.key.localeCompare(q.key));
+      const levels = 2 * Math.max(right.length, left.length);
+      const step = levels <= 1 ? 0 : Math.min(3, DROP_ROOM / (levels - 1));
+      right.forEach((e, i) => dropY.set(e.key, r.y + r.h + DROP_MIN + 2 * i * step));
+      left.forEach((e, i) => dropY.set(e.key, r.y + r.h + DROP_MIN + (2 * i + 1) * step));
+    }
   }
 
   const BIG = 1e7;
@@ -210,8 +254,8 @@ export function routeDiagram(boxes: ReadonlyArray<Rect & { id: string }>, lines:
   const runs: Array<{ p: Plan; end: 'a' | 'b'; gap: number; from: number; to: number }> = [];
   for (const p of plans) {
     if (p.gapA == null) continue;
-    const ya = centre(p.a).y;
-    const yb = centre(p.b).y;
+    const ya = dropY.get(`${p.id}|a`) ?? centre(p.a).y;
+    const yb = dropY.get(`${p.id}|b`) ?? centre(p.b).y;
     if (p.rowGap == null) runs.push({ p, end: 'a', gap: p.gapA, from: ya, to: yb });
     else {
       runs.push({ p, end: 'a', gap: p.gapA, from: ya, to: rowY.get(p.id)! });
@@ -265,33 +309,62 @@ export function routeDiagram(boxes: ReadonlyArray<Rect & { id: string }>, lines:
     const s = slots(ends.length, side === 'top' || side === 'bottom' ? r.w : r.h);
     ends.forEach((e, i) => offset.set(e.key, s[i]!));
   }
-  const endA = (p: Plan) => attachPoint(p.a.rect, p.sideA, offset.get(`${p.id}|a`)!);
-  const endB = (p: Plan) => attachPoint(p.b.rect, p.sideB, offset.get(`${p.id}|b`)!);
+  // An end on a strip port: a line from the box above meets the top edge over the port; any other leaves
+  // through the port on the bottom edge, straight down.
+  const isDown = (p: Plan, end: 'a' | 'b') => portX.has(`${p.id}|${end}`) && (end === 'a' ? p.sideA : p.sideB) !== 'top';
+  const endPt = (p: Plan, end: 'a' | 'b'): Pt => {
+    const [cell, side] = end === 'a' ? [p.a, p.sideA] : [p.b, p.sideB];
+    const x = portX.get(`${p.id}|${end}`);
+    if (x == null) return attachPoint(cell.rect, side, offset.get(`${p.id}|${end}`)!);
+    return { x: cell.rect.x + x, y: side === 'top' ? cell.rect.y : cell.rect.y + cell.rect.h };
+  };
+  /** The points from the box to where the line runs on, and the height it runs on at. */
+  const lead = (p: Plan, end: 'a' | 'b'): { pts: Pt[]; y: number } => {
+    const at = endPt(p, end);
+    const d = dropY.get(`${p.id}|${end}`);
+    return d == null ? { pts: [at], y: at.y } : { pts: [at, { x: at.x, y: d }], y: d };
+  };
 
   const out = new Map<string, Route>();
   for (const p of plans) {
-    const a = endA(p);
-    const b = endB(p);
+    const la = lead(p, 'a');
+    const lb = lead(p, 'b');
+    const a = la.pts[0]!;
+    const b = lb.pts[0]!;
+    const tail = [...lb.pts].reverse();
+    const onStrip = portX.has(`${p.id}|a`) || portX.has(`${p.id}|b`);
     let points: Pt[];
     if (p.gapA == null) {
-      // Straight: the two ends share the run's line, so meet them in the middle of their offsets.
       if (p.sideA === 'top' || p.sideA === 'bottom') {
-        const x = (a.x + b.x) / 2;
-        points = [{ x, y: a.y }, { x, y: b.y }];
-      } else {
+        if (!onStrip) {
+          // Straight: the two ends share the run's line, so meet them in the middle of their offsets.
+          const x = (a.x + b.x) / 2;
+          points = [{ x, y: a.y }, { x, y: b.y }];
+        } else {
+          // A strip end fixes its x: jog across halfway down the gap, each line at its own height.
+          const y = (a.y + b.y) / 2 + offset.get(`${p.id}|a`)!;
+          points = a.x === b.x ? [a, b] : [a, { x: a.x, y }, { x: b.x, y }, b];
+        }
+      } else if (!onStrip) {
         const y = (a.y + b.y) / 2;
         points = [{ x: a.x, y }, { x: b.x, y }];
+      } else {
+        // Side by side, one end on a strip: turn in the gap between the two boxes, each line on its own track.
+        const left = p.sideA === 'right' ? p.a.rect : p.b.rect;
+        const right = p.sideA === 'right' ? p.b.rect : p.a.rect;
+        const x = (left.x + left.w + right.x) / 2 + offset.get(`${p.id}|a`)!;
+        points = [...la.pts, { x, y: la.y }, { x, y: lb.y }, ...tail];
       }
     } else if (p.rowGap == null) {
       const x = colX.get(`${p.id}|a`)!;
-      points = [a, { x, y: a.y }, { x, y: b.y }, b];
+      points = [...la.pts, { x, y: la.y }, { x, y: lb.y }, ...tail];
     } else {
       const xa = colX.get(`${p.id}|a`)!;
       const xb = colX.get(`${p.id}|b`)!;
       const y = rowY.get(p.id)!;
-      points = [a, { x: xa, y: a.y }, { x: xa, y }, { x: xb, y }, { x: xb, y: b.y }, b];
+      points = [...la.pts, { x: xa, y: la.y }, { x: xa, y }, { x: xb, y }, { x: xb, y: lb.y }, ...tail];
     }
-    out.set(p.id, finish(points, p.sideA, p.sideB));
+    out.set(p.id, finish(points, p.sideA, p.sideB, isDown(p, 'a'), isDown(p, 'b')));
   }
   return out;
 }

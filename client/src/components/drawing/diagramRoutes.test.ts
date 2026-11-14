@@ -119,3 +119,47 @@ describe('routeDiagram', () => {
     expect(performance.now() - t).toBeLessThan(2000);
   });
 });
+
+describe('lines from a switch port strip (sign-off r109)', () => {
+  // A switch in column 0 row 1, with its strip's exits at x 20, 60, 100, 140 from its left edge.
+  const sw = box('sw', 0, 1);
+  const strips = new Map([['sw', [20, 60, 100, 140].map((x, i) => ({ portId: `p${i + 1}`, exitX: x }))]]);
+  const layout = [box('up', 0, 0), sw, box('down', 0, 2), box('r0', 1, 0), box('r1', 1, 1), box('r2', 1, 2)];
+  const lines = [
+    { id: 'toUp', a: 'sw', b: 'up', portA: 'p1' },
+    { id: 'toDown', a: 'sw', b: 'down', portA: 'p2' },
+    { id: 'toR1', a: 'sw', b: 'r1', portA: 'p3' },
+    { id: 'toR2', a: 'r2', b: 'sw', portB: 'p4' },
+    { id: 'toR0', a: 'sw', b: 'r0', portA: 'p1' },
+  ];
+  const routes = routeDiagram(layout, lines, strips);
+
+  it('leaves through the port on the bottom edge, heading down', () => {
+    for (const [id, end, x] of [['toDown', 'a', 60], ['toR1', 'a', 100], ['toR2', 'b', 140], ['toR0', 'a', 20]] as const) {
+      const at = routes.get(id)![end];
+      expect([at.x, at.y, at.dx, at.dy], id).toEqual([sw.x + x, sw.y + sw.h, 0, 1]);
+    }
+  });
+
+  it('meets the top edge straight over the port for the box above', () => {
+    const at = routes.get('toUp')!.a;
+    expect([at.x, at.y, at.dy]).toEqual([sw.x + 20, sw.y, -1]);
+  });
+
+  it('never crosses a box or shares a run with another line', () => {
+    const all = [...routes.values()];
+    for (const r of all) for (const s of segments(r)) for (const b of layout) {
+      const ends = corners(r);
+      const touches = [ends[0]!, ends[ends.length - 1]!].some((p) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
+      if (!touches) expect(crosses(s, b)).toBe(false);
+    }
+    for (let i = 0; i < all.length; i += 1)
+      for (let j = i + 1; j < all.length; j += 1)
+        for (const s of segments(all[i]!)) for (const t of segments(all[j]!)) expect(overlaps(s, t)).toBe(false);
+  });
+
+  it('routes as before when no strip is given', () => {
+    const plain = routeDiagram(layout, lines);
+    expect(plain.get('toR1')!.a).toMatchObject({ x: sw.x + sw.w, dx: 1, dy: 0 });
+  });
+});
