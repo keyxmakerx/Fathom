@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.40";
+export const SCHEMA_VERSION = "0.41";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -491,7 +491,7 @@ export const DERIVED_EDGE_KINDS: readonly DerivedEdgeKind[] = [
 /** `schema.oldest_readable`. Mirrors `fathom_ir::generated::OLDEST_READABLE_SCHEMA_VERSION`. */
 export const OLDEST_READABLE_SCHEMA_VERSION = "0.10";
 /** The older headers a reader accepts. Mirrors `fathom_ir::generated::ACCEPTED_OLDER_SCHEMA_VERSIONS`. */
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39"];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40"];
 /** The minor that first declared a node kind (`since:`); absent when as old as the oldest readable. */
 export const NODE_KIND_SINCE: Readonly<Partial<Record<NodeKind, number>>> = {
   NatPool: 39,
@@ -691,7 +691,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   TrafficSelector: ["name", "local_ip", "remote_ip", "protocol", "local_ports", "remote_ports"],
   Tunnel: ["name", "mode", "intended_state", "overlay_prefix"],
   SecurityFlowSettings: ["tcp_mss_all_tcp", "tcp_mss_ipsec_vpn", "tcp_mss_gre_in", "tcp_mss_gre_out", "force_ip_reassembly"],
-  SystemSettings: ["time_zone", "root_authentication_set", "name_servers"],
+  SystemSettings: ["time_zone", "root_authentication_set", "name_servers", "telnet_enabled", "http_enabled"],
   NtpServer: ["address", "prefer", "key_id"],
   SyslogTarget: ["host", "facility", "severity", "structured_data"],
   PhysicalPort: ["label", "position", "connector", "service", "face", "plate_x", "plate_y", "mac", "console_baud", "speed_max", "transceiver", "notes", "occupied"],
@@ -1333,4 +1333,6 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "NatPool.port": 643,
   "SitsOn.x_mm": 644,
   "SitsOn.y_mm": 645,
+  "SystemSettings.telnet_enabled": 646,
+  "SystemSettings.http_enabled": 647,
 };

@@ -1,0 +1,6 @@
+# An Arista switch whose `management telnet` block says `shutdown`.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: leaf-01, platform: eos, role: switch } }
+  - { id: s1, kind: SystemSettings, set: { telnet_enabled: false } }
+edges:
+  - { kind: HasSystemSettings, from: d1, to: s1 }

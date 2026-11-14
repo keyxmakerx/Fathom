@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.40";
+    pub const SCHEMA_VERSION: &str = "0.41";
 
     /// `schema.oldest_readable`: the oldest declared version a reader still
     /// opens. Every move since is additive.
@@ -20,7 +20,7 @@ mod body {
 
     /// Every declared version from `OLDEST_READABLE_SCHEMA_VERSION` up to, not
     /// including, `SCHEMA_VERSION`: the older headers a reader accepts.
-    pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39"];
+    pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40"];
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -1289,7 +1289,7 @@ mod body {
                 NodeKind::TrafficSelector => &[crate::bag::FieldKey(183), crate::bag::FieldKey(184), crate::bag::FieldKey(185), crate::bag::FieldKey(186), crate::bag::FieldKey(187), crate::bag::FieldKey(188)],
                 NodeKind::Tunnel => &[crate::bag::FieldKey(189), crate::bag::FieldKey(190), crate::bag::FieldKey(191), crate::bag::FieldKey(192)],
                 NodeKind::SecurityFlowSettings => &[crate::bag::FieldKey(193), crate::bag::FieldKey(194), crate::bag::FieldKey(195), crate::bag::FieldKey(196), crate::bag::FieldKey(197)],
-                NodeKind::SystemSettings => &[crate::bag::FieldKey(198), crate::bag::FieldKey(199), crate::bag::FieldKey(200)],
+                NodeKind::SystemSettings => &[crate::bag::FieldKey(198), crate::bag::FieldKey(199), crate::bag::FieldKey(200), crate::bag::FieldKey(646), crate::bag::FieldKey(647)],
                 NodeKind::NtpServer => &[crate::bag::FieldKey(201), crate::bag::FieldKey(202), crate::bag::FieldKey(203)],
                 NodeKind::SyslogTarget => &[crate::bag::FieldKey(204), crate::bag::FieldKey(205), crate::bag::FieldKey(206), crate::bag::FieldKey(207)],
                 NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(412), crate::bag::FieldKey(413), crate::bag::FieldKey(462), crate::bag::FieldKey(553), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
@@ -9618,15 +9618,19 @@ mod body {
         TimeZone,
         RootAuthenticationSet,
         NameServers,
+        TelnetEnabled,
+        HttpEnabled,
     }
 
     impl SystemSettingsField {
-        pub const COUNT: usize = 3;
+        pub const COUNT: usize = 5;
         /// Every field, declaration order.
-        pub const ALL: [SystemSettingsField; 3] = [
+        pub const ALL: [SystemSettingsField; 5] = [
             SystemSettingsField::TimeZone,
             SystemSettingsField::RootAuthenticationSet,
             SystemSettingsField::NameServers,
+            SystemSettingsField::TelnetEnabled,
+            SystemSettingsField::HttpEnabled,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -9636,6 +9640,8 @@ mod body {
                 SystemSettingsField::TimeZone => "time_zone",
                 SystemSettingsField::RootAuthenticationSet => "root_authentication_set",
                 SystemSettingsField::NameServers => "name_servers",
+                SystemSettingsField::TelnetEnabled => "telnet_enabled",
+                SystemSettingsField::HttpEnabled => "http_enabled",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -9644,6 +9650,8 @@ mod body {
                 SystemSettingsField::TimeZone => crate::bag::FieldKey(198),
                 SystemSettingsField::RootAuthenticationSet => crate::bag::FieldKey(199),
                 SystemSettingsField::NameServers => crate::bag::FieldKey(200),
+                SystemSettingsField::TelnetEnabled => crate::bag::FieldKey(646),
+                SystemSettingsField::HttpEnabled => crate::bag::FieldKey(647),
             }
         }
     }
@@ -12927,7 +12935,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 580] = [
+    pub const FIELD_KEYS: [(&str, u32); 582] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -13508,6 +13516,8 @@ mod body {
         ("NatPool.port", 643),
         ("SitsOn.x_mm", 644),
         ("SitsOn.y_mm", 645),
+        ("SystemSettings.telnet_enabled", 646),
+        ("SystemSettings.http_enabled", 647),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit

@@ -72,9 +72,12 @@ fn dictionary_loads() {
 /// residue by WO-10 §11 item 4's decision.
 ///
 /// 2026-11-02: +15 for NAT (schema 0.39, `corpus/dict/junos-srx/security-nat.yaml`).
+///
+/// 2026-11-14: +2 for plaintext management (schema 0.41, sign-off r137):
+/// `system services telnet` and `system services web-management http`.
 #[test]
-fn entry_count_is_119() {
-    assert_eq!(dict().entry_count(), 119);
+fn entry_count_is_121() {
+    assert_eq!(dict().entry_count(), 121);
 }
 
 /// `14` §6.5: no entry's path is a strict prefix of another's unless the

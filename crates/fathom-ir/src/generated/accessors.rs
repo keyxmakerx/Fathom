@@ -1126,6 +1126,18 @@ mod body {
         pub fn name_servers<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&Vec<crate::scalar::IpAddr>, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(200))
         }
+        /// `SystemSettings.telnet_enabled` — `bool`, card `0..1`, emit `—`.
+        /// 0.41 (sign-off r137). The device's own config turns on a telnet server for managing
+        /// it. Absent means the config says nothing Fathom reads, not that telnet is off.
+        pub fn telnet_enabled<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(646))
+        }
+        /// `SystemSettings.http_enabled` — `bool`, card `0..1`, emit `—`.
+        /// 0.41 (sign-off r137). The device's own config turns on unencrypted HTTP for managing
+        /// it (Junos `system services web-management http`). Absent means not read, not off.
+        pub fn http_enabled<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(647))
+        }
     }
     /// Typed reads for `NtpServer` fields.
     pub mod ntp_server {
@@ -3529,6 +3541,8 @@ mod body {
             643 => Some((core::any::TypeId::of::<crate::scalar::L4Port>(), "crate::scalar::L4Port")),
             644 => Some((core::any::TypeId::of::<u16>(), "u16")),
             645 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            646 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            647 => Some((core::any::TypeId::of::<bool>(), "bool")),
             _ => None,
         }
     }
@@ -4117,6 +4131,8 @@ mod body {
             643 => crate::canon::slot_to::<crate::scalar::L4Port>(643, "crate::scalar::L4Port", value),
             644 => crate::canon::slot_to::<u16>(644, "u16", value),
             645 => crate::canon::slot_to::<u16>(645, "u16", value),
+            646 => crate::canon::slot_to::<bool>(646, "bool", value),
+            647 => crate::canon::slot_to::<bool>(647, "bool", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -4703,6 +4719,8 @@ mod body {
             643 => crate::canon::slot_from::<crate::scalar::L4Port>(j),
             644 => crate::canon::slot_from::<u16>(j),
             645 => crate::canon::slot_from::<u16>(j),
+            646 => crate::canon::slot_from::<bool>(j),
+            647 => crate::canon::slot_from::<bool>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

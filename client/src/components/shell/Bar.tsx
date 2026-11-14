@@ -11,6 +11,7 @@ import type { PathItem, PathPart } from './path';
 import { SearchBox } from './SearchBox';
 import { shortcutText } from './shortcuts';
 import { ThemeMenu } from './ThemeMenu';
+import { AboutSheet } from '../about/AboutSheet';
 import type { AccountInfo, MainView, Place, PresenceUser, ShellProps, ShellSearch } from './types';
 import { VaultBadge, VaultMenuRows } from '../vault/VaultBadge';
 
@@ -102,6 +103,8 @@ export function Bar({
   // Admin pill fold into More, the path to its last parts, and Undo and Redo into More too. Measured, never a
   // breakpoint.
   const [fold, setFold] = useState(0);
+  // r135: "About this Fathom" opens from the account menu, wherever the bar is.
+  const [aboutOpen, setAboutOpen] = useState(false);
   const foldRef = useRef(0);
   foldRef.current = fold;
   const neededRef = useRef<(number | undefined)[]>([]);
@@ -388,9 +391,13 @@ export function Bar({
           <VaultMenuRows />
           {menu}
           <ThemeMenu />
+          <PopoverRow onSelect={() => setAboutOpen(true)} testId="shell-about">
+            About this Fathom
+          </PopoverRow>
           <PopoverRow onSelect={handleSignOut}>Sign out</PopoverRow>
         </Popover>
       </div>
+      {aboutOpen && <AboutSheet onClose={() => setAboutOpen(false)} />}
     </div>
   );
 }

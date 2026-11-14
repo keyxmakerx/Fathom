@@ -315,3 +315,30 @@ entries:
             - { field: next_hop, next_hop_const: discard }
     versions: "*"
     reviewed_by: <named human>
+
+  # ---- management telnet -- sign-off r137 (the check sec.mgmt.plaintext). Read
+  # 2026-11-14 from Arista's EOS User Manual, "Connection Management":
+  # "By default, EOS disables Telnet." It is turned on in `management telnet` mode with
+  # `no shutdown`, and off again with `shutdown`.
+  # https://www.arista.com/en/um-eos/eos-connection-management
+  # A running config shows `no shutdown` only when telnet was turned on, so no block, or a
+  # block without it, binds nothing. Plain-HTTP eAPI (`management api http-commands` with
+  # `protocol http`) is NOT read yet: whether it is serving depends on a second line in the
+  # block, and one statement here cannot see both. No finding is better than a wrong one.
+  - id: eos/management.telnet.no-shutdown
+    path: [management, telnet, "no", shutdown]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SystemSettings, owner: n0, fields: [ { field: telnet_enabled, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: eos/management.telnet.shutdown
+    path: [management, telnet, shutdown]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SystemSettings, owner: n0, fields: [ { field: telnet_enabled, const_bool: false } ] }
+    versions: "*"
+    reviewed_by: <named human>

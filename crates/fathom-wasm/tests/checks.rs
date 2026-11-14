@@ -8,7 +8,9 @@ use fathom_wasm::protocol::{
     decode_reply, ReplyView, ERR_NOT_INITIALISED, FACE_CHECK, FACE_CHECK_HEAD, FACE_INV, FACE_PORT,
 };
 use fathom_wasm::shell::Shell;
-use fathom_wasm::{OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_INV_ROWS};
+use fathom_wasm::{
+    OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_INV_ROWS, OP_PASTE,
+};
 
 mod common;
 
@@ -384,4 +386,45 @@ fn a_cat6_lead_into_a_cage_known_empty_is_refused_ahead_of_time() {
         none.iter().all(|r| r.rule != "phy.cable.copper-in-cage"),
         "no media, no claim"
     );
+}
+
+/// Sign-off r137: a pasted Junos config that turns telnet on is a warning with its fix, and
+/// one that offers only SSH and HTTPS says nothing.
+#[test]
+fn a_pasted_telnet_service_is_a_plaintext_management_warning() {
+    let mut shell = common::booted_shell();
+    let pasted = shell.handle(
+        OP_PASTE,
+        &paste_frame(
+            1_700_000_000_000,
+            0x137,
+            "set system host-name edge-1\nset system services ssh\nset system services telnet\n",
+        ),
+    );
+    assert_eq!(
+        error_code(&pasted),
+        None,
+        "the paste was refused: {pasted:?}"
+    );
+    let found = rows(&shell.handle(OP_CHECKS, &[]));
+    let hit = found
+        .iter()
+        .find(|r| r[0] == "sec.mgmt.plaintext")
+        .unwrap_or_else(|| panic!("no plaintext finding in {found:?}"));
+    assert_eq!(hit[1], "warn");
+    assert!(!hit[3].is_empty(), "a warning carries its fix");
+
+    let mut clean = common::booted_shell();
+    let pasted = clean.handle(
+        OP_PASTE,
+        &paste_frame(
+            1_700_000_000_000,
+            0x138,
+            "set system host-name edge-2\nset system services ssh\nset system services web-management https system-generated-certificate\n",
+        ),
+    );
+    assert_eq!(error_code(&pasted), None);
+    assert!(!rows(&clean.handle(OP_CHECKS, &[]))
+        .iter()
+        .any(|r| r[0] == "sec.mgmt.plaintext"));
 }

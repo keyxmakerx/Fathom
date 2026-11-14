@@ -72,6 +72,9 @@ export default defineConfig({
       // ADR-0045: the firmware image upload (`POST /firmware/uploads/{image}`, unsigned, a
       // single-use token) is not under `/organisations`, so it needs its own entry here.
       '/firmware': { target: apiTarget, changeOrigin: true },
+      // Card r135: "About this Fathom" asks `GET /about` and `GET /health`, both at the root. Exact matches, so a page such as `/about-x.html` stays the dev server's own.
+      '^/about$': { target: apiTarget, changeOrigin: true },
+      '^/health$': { target: apiTarget, changeOrigin: true },
     },
   },
 })

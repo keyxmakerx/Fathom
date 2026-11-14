@@ -386,6 +386,19 @@ it. Two ways in, read from Arcane's source on 2026-09-19 (it drives Compose thro
   environment. Leave `FATHOM_TAG` unset for the newest published build, or pin `sha-<commit>`. The
   `build:` section is ignored unless a build is asked for; the image is pulled.
 
+**Checking an image before you run it.** Every image published from `main` carries a signed record
+of the repository, workflow and commit that built it. One command checks it:
+
+```
+gh attestation verify oci://ghcr.io/keyxmakerx/fathom-server@sha256:<digest> \
+  --repo keyxmakerx/Fathom \
+  --signer-workflow keyxmakerx/Fathom/.github/workflows/publish.yml \
+  --source-ref refs/heads/main --deny-self-hosted-runners
+```
+
+The other images, and where to find a digest, are in `docs/IS-IT-SAFE.md`, "Checking that a release
+is really ours".
+
 Either way the setup password opens the first screen the same way as above — typed into the page,
 nothing copied out of the container.
 
