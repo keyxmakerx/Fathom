@@ -40,6 +40,9 @@ export interface HangInput {
   obstacles?: readonly Obstacle[];
   /** The swing's offset at the middle of the cable (`useCableSway`); the ends never move. */
   sway?: Pt;
+  /** A short drop between plugs that point at each other (within one rack) is drawn stiff, as an S
+   * (`plugToPlug`), rather than hung. */
+  stiffDrop?: boolean;
 }
 
 export interface HangResult {
@@ -233,11 +236,39 @@ function leadInto(hung: Pt[], dir: 1 | -1 | undefined, lead: number): Pt[] {
   return [...out, ...hung.slice(k)];
 }
 
+/** True when the two plugs point at each other up and down: the upper one down, the lower one up (a
+ * cable from a shelf down into a switch below it). */
+export function plugsFace(a: HangEnd, b: HangEnd): boolean {
+  if (a.dir == null || b.dir == null || a.dir === b.dir) return false;
+  return (b.y - a.y) * a.dir > 1 && (a.y - b.y) * b.dir > 1;
+}
+
+/** A cable between plugs that point at each other up and down. Hung as rope it would sag below the
+ * lower port and hook back up into it: the curl drawn over a switch's port grid. A patch lead is
+ * stiff enough over that short a drop to come straight out of one port and down into the other in an
+ * easy S, so it is drawn so: out along each plug, as far as half the drop. */
+export function plugToPlug(a: HangEnd, b: HangEnd, samples = SAMPLES): Pt[] {
+  const reach = Math.max(PLUG_LEAD_PX * 2, Math.abs(b.y - a.y) * 0.5);
+  const c1 = { x: a.x, y: a.y + a.dir! * reach };
+  const c2 = { x: b.x, y: b.y + b.dir! * reach };
+  const out: Pt[] = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples;
+    const u = 1 - t;
+    out.push({
+      x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x,
+      y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y,
+    });
+  }
+  return out;
+}
+
 /** The cable hanging between two ports. */
-export function hangCable({ a, b, slack = CABLE_SLACK, obstacles, sway }: HangInput): HangResult {
+export function hangCable({ a, b, slack = CABLE_SLACK, obstacles, sway, stiffDrop = false }: HangInput): HangResult {
   const span = Math.hypot(b.x - a.x, b.y - a.y);
   const length = cableLength(span, slack);
-  let hung = catenaryPoints(a, b, length);
+  const facing = stiffDrop && plugsFace(a, b) && (obstacles == null || obstacles.length === 0);
+  let hung = facing ? plugToPlug(a, b) : catenaryPoints(a, b, length);
   if (obstacles != null && obstacles.length > 0) hung = settleOnObstacles(hung, length, obstacles);
   if (sway != null && (sway.x !== 0 || sway.y !== 0)) {
     const n = hung.length - 1;
@@ -247,8 +278,10 @@ export function hangCable({ a, b, slack = CABLE_SLACK, obstacles, sway }: HangIn
     });
   }
   // Each plug holds its cable straight out of the port for a moment before it hangs.
-  hung = leadInto(hung, a.dir, PLUG_LEAD_PX);
-  hung = leadInto([...hung].reverse(), b.dir, PLUG_LEAD_PX).reverse();
+  if (!facing) {
+    hung = leadInto(hung, a.dir, PLUG_LEAD_PX);
+    hung = leadInto([...hung].reverse(), b.dir, PLUG_LEAD_PX).reverse();
+  }
   const lowest = Math.max(...hung.map((p) => p.y));
   return { points: hung, d: smoothPath(hung), droop: lowest - Math.max(a.y, b.y) };
 }
