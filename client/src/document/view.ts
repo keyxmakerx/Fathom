@@ -13,6 +13,7 @@
 // `SitsOn` / `FixedTo` is live for it — `commands.ts`'s `movePlacement` is
 // this module's write-side mirror: exactly one of the three survives.
 
+import { portSpeed } from './portSpeed';
 import { cableRunsOf, type CableRunView } from './cableRuns';
 import { cardOfPort, cardsOf, opticOf, type CardView, type Optic } from './cards';
 import { connectorTokenOf, isPortFace, type PortFace } from './compat';
@@ -146,6 +147,8 @@ export interface PortView {
   mac?: string;
   /** Schema 0.33 — a console port's speed in bits per second (ADR-0080 decision 10). */
   consoleBaud?: number;
+  /** Its interface's configured speed (`Interface.speed`), in bits per second (sign-off r109). */
+  speedBps?: number;
   /** Schema 0.28 — the card this port is on (`OnCard`), absent for a port fixed to the chassis. */
   cardId?: string;
   /** Schema 0.28 — the optic in the cage: absent when nobody looked, `null` for an empty cage. */
@@ -610,9 +613,11 @@ function portView(
   const explicit = explicitFaceOf(fields.face);
   const cardId = cardOfPort(doc, portId);
   const optic = node ? opticOf(node) : undefined;
+  const speed = node ? portSpeed(doc, portId) : null;
   const extra = {
     ...(cardId !== null ? { cardId } : {}),
     ...(optic !== undefined ? { optic } : {}),
+    ...(speed !== null ? { speedBps: speed } : {}),
   };
   for (const faceplate of faceplates) {
     const match = faceplatePortMatch(faceplate, label, connector);
