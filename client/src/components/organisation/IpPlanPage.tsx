@@ -23,6 +23,11 @@ import {
   type PlanValue,
   type Want,
 } from '../../api/ipPlan';
+import { Engine } from '../../engine/engine';
+import { gateTable } from '../../import/gate';
+import { applyPlanImport, importCounts, outsideAggregates, planImport, type ApplyResult, type ImportFile } from '../../import/ipPlanImport';
+import { readFile } from '../../import/read';
+import type { GatedTable } from '../../import/table';
 import { downloadBytes } from '../../print/download';
 import {
   addressTree,
@@ -223,6 +228,13 @@ type Load = { status: 'loading' } | { status: 'error'; message: string } | { sta
 
 const sentence = (e: unknown) => planRefusal(e) ?? describeError(e);
 
+let engine: Promise<Engine> | null = null;
+/** CLAUDE.md rule 4: every value of a NetBox file passes the redaction gate before it is read. */
+const redact = async (value: string) => {
+  engine ??= Engine.init();
+  return (await engine).redactText(value).text;
+};
+
 export function IpPlanPage({ organisationId, folders, names, you }: IpPlanPageProps) {
   const [load, setLoad] = useState<Load>({ status: 'loading' });
   const reload = useCallback(() => {
@@ -270,6 +282,22 @@ export function IpPlanPage({ organisationId, folders, names, you }: IpPlanPagePr
         return taken;
       }}
       onDownload={(name, csv) => downloadBytes(name, new TextEncoder().encode(csv), 'text/csv')}
+      onReadFiles={async (files) => {
+        const out: GatedTable[] = [];
+        for (const f of files) out.push(await gateTable(await readFile(f), redact));
+        return out;
+      }}
+      onApplyImport={async (files, alsoChange) => {
+        const done = await applyPlanImport(
+          files,
+          load.value.records,
+          { create: (kind, fields) => createRecord(org, kind, fields), update: (record, fields) => updateRecord(org, record.id, record.version, fields) },
+          alsoChange,
+          sentence,
+        );
+        reload();
+        return done;
+      }}
     />
   );
 }
@@ -287,13 +315,16 @@ export interface IpPlanViewProps {
   onLook: (parent: PlanRecord, want: Want) => Promise<string>;
   onTake: (parent: PlanRecord, want: Want, key: string, hold: PlanFields) => Promise<{ record: PlanRecord; again: boolean }>;
   onDownload: (name: string, csv: string) => void;
+  /** Read NetBox files through the redaction gate. Absent: the page offers no import. */
+  onReadFiles?: (files: File[]) => Promise<GatedTable[]>;
+  onApplyImport?: (files: readonly ImportFile[], alsoChange: boolean) => Promise<ApplyResult>;
   /** For a test or a screenshot: where the page opens. */
   initialTab?: PlanTab;
   initialSelected?: string | null;
   initialForm?: { kind: PlanKind; id: string | null } | null;
 }
 
-type Side = { mode: 'none' } | { mode: 'record'; id: string } | { mode: 'form'; kind: PlanKind; id: string | null; preset?: Draft };
+type Side = { mode: 'none' } | { mode: 'import' } | { mode: 'record'; id: string } | { mode: 'form'; kind: PlanKind; id: string | null; preset?: Draft };
 
 export function IpPlanView(props: IpPlanViewProps) {
   const { plan, folders, names, you, initialTab = 'addresses', initialSelected = null, initialForm = null } = props;
@@ -304,7 +335,7 @@ export function IpPlanView(props: IpPlanViewProps) {
   const [notice, setNotice] = useState<string | null>(null);
   // Where the panel sits above the list, bring it into view when it opens or changes.
   const sideRef = useRef<HTMLElement | null>(null);
-  const sideKey = side.mode === 'none' ? '' : side.mode === 'record' ? side.id : `${side.kind}-${side.id ?? 'new'}`;
+  const sideKey = side.mode === 'none' ? '' : side.mode === 'import' ? 'import' : side.mode === 'record' ? side.id : `${side.kind}-${side.id ?? 'new'}`;
   useEffect(() => {
     if (sideKey !== '') sideRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [sideKey]);
@@ -604,7 +635,9 @@ export function IpPlanView(props: IpPlanViewProps) {
   const body = tab === 'addresses' ? addressesTab : tab === 'vlans' ? vlansTab : tab === 'asns' ? asnsTab : vrfsTab;
 
   let aside: ReactNode = null;
-  if (side.mode === 'form') {
+  if (side.mode === 'import' && props.onReadFiles && props.onApplyImport) {
+    aside = <NetboxImport records={records} onRead={props.onReadFiles} onApply={props.onApplyImport} onClose={() => setSide({ mode: 'none' })} />;
+  } else if (side.mode === 'form') {
     const record = side.id ? (byId.get(side.id) ?? null) : null;
     aside = (
       <RecordForm
@@ -658,7 +691,14 @@ export function IpPlanView(props: IpPlanViewProps) {
     <section className="org-page ipplan" data-testid="ip-plan">
       <div className="ipplan__head">
         <div className="org-page__title">IP plan</div>
-        <NetboxDownload records={records} onDownload={props.onDownload} />
+        <div className="ipplan__head-actions">
+          {props.onReadFiles && (
+            <button type="button" className="org-btn btn-small" aria-pressed={side.mode === 'import'} onClick={() => setSide({ mode: 'import' })} data-testid="ip-plan-import">
+              Read NetBox files
+            </button>
+          )}
+          <NetboxDownload records={records} onDownload={props.onDownload} />
+        </div>
       </div>
       <p className="org-field__hint">
         The organisation’s address plan: blocks, VLANs and AS numbers, kept on the server beside your designs. Nothing here changes a design. Next free skips what any
@@ -733,6 +773,150 @@ function NetboxDownload({ records, onDownload }: { records: readonly PlanRecord[
         )}
       </div>
     </details>
+  );
+}
+
+const STATE_WORDS = { new: 'New', match: 'Match', differ: 'Differs', skip: 'Not read' } as const;
+const PREVIEW_ROWS = 40;
+
+/** NetBox files in (ADR-0083 decision 6): pick files, see every row as New, Match or Differs, then add. */
+function NetboxImport({
+  records,
+  onRead,
+  onApply,
+  onClose,
+}: {
+  records: readonly PlanRecord[];
+  onRead: (files: File[]) => Promise<GatedTable[]>;
+  onApply: (files: readonly ImportFile[], alsoChange: boolean) => Promise<ApplyResult>;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<ImportFile[] | null>(null);
+  const [alsoChange, setAlsoChange] = useState(false);
+  const [done, setDone] = useState<ApplyResult | null>(null);
+
+  const take = async (list: FileList | null) => {
+    if (!list || list.length === 0 || busy) return;
+    setError(null);
+    setDone(null);
+    setFiles(null);
+    setBusy('Passing every value through the redaction gate…');
+    try {
+      setFiles(planImport(await onRead([...list]), records));
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const add = () => {
+    if (!files) return;
+    setBusy('Adding…');
+    setError(null);
+    onApply(files, alsoChange).then(
+      (result) => {
+        setDone(result);
+        setFiles(null);
+        setBusy(null);
+      },
+      (e: unknown) => {
+        setError(describeError(e));
+        setBusy(null);
+      },
+    );
+  };
+  const counts = files ? importCounts(files) : null;
+  const willAdd = counts ? counts.new + (alsoChange ? counts.differ : 0) : 0;
+  const outside = files ? outsideAggregates(files, records) : 0;
+  const unknown = files?.filter((f) => f.kind === null) ?? [];
+
+  return (
+    <div className="ipplan__panel ipplan__import" data-testid="ip-plan-import-panel">
+      <div className="ipplan__panel-head">
+        <div className="ipplan__panel-title">Read NetBox files</div>
+        <button type="button" className="org-link" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      <p className="org-sub">
+        Pick one or more CSV files exported from NetBox, or made by Download for NetBox: aggregates, prefixes, IP ranges, IP addresses, VRFs, VLAN groups, VLANs, ASN ranges and ASNs. Every
+        value passes the redaction gate first, and nothing is added until you press Add.
+      </p>
+      <label className="org-field">
+        <span className="org-field__label">Files</span>
+        <input type="file" multiple accept=".csv,.txt" onChange={(e) => void take(e.target.files)} data-testid="ip-plan-import-file" />
+      </label>
+      {busy && <p className="org-sub">{busy}</p>}
+      {error && (
+        <p className="home__error" role="alert">
+          {error}
+        </p>
+      )}
+      {done && (
+        <div role="status" data-testid="ip-plan-import-done">
+          <p className="org-sub">
+            Added {done.made}
+            {done.changed > 0 ? `, changed ${done.changed}` : ''}. Pick more files to read them too.
+          </p>
+          {done.refused.slice(0, 10).map((r) => (
+            <p key={r.label} className="org-sub">
+              {r.label}: {r.why}
+            </p>
+          ))}
+          {done.refused.length > 10 && <p className="org-sub">and {done.refused.length - 10} more were refused.</p>}
+        </div>
+      )}
+      {files && counts && (
+        <>
+          <p className="org-sub" data-testid="ip-plan-import-counts">
+            {counts.new} new · {counts.match} already in the plan · {counts.differ} differ{counts.skip > 0 ? ` · ${counts.skip} not read` : ''}
+          </p>
+          {unknown.map((f) => (
+            <p key={f.label} className="org-sub">
+              {f.label}: not a NetBox list this page reads, so nothing in it was read.
+            </p>
+          ))}
+          {files
+            .filter((f) => f.kind !== null)
+            .map((f) => (
+              <div key={f.label} className="ipplan__import-file">
+                <div className="org-field__label">{f.label}</div>
+                <ul className="org-rows">
+                  {f.rows.slice(0, PREVIEW_ROWS).map((r, i) => (
+                    <li key={`${r.label}-${i}`} className={`org-row ipplan__import-row ipplan__import-row--${r.state}`} data-testid="ip-plan-import-row" data-state={r.state}>
+                      <span>
+                        {r.label}
+                        {r.says !== '' && <span className="org-sub"> {r.says}</span>}
+                      </span>
+                      <span className="ipplan__import-state">{STATE_WORDS[r.state]}</span>
+                    </li>
+                  ))}
+                </ul>
+                {f.rows.length > PREVIEW_ROWS && <p className="org-sub">and {f.rows.length - PREVIEW_ROWS} more.</p>}
+              </div>
+            ))}
+          {outside > 0 && (
+            <p className="org-sub">
+              {outside} new {outside === 1 ? 'prefix is' : 'prefixes are'} under no aggregate. {outside === 1 ? 'It goes' : 'They go'} in as a top-level block; load the aggregates file too to
+              nest them.
+            </p>
+          )}
+          {counts.differ > 0 && (
+            <label className="org-field__inline">
+              <input type="checkbox" checked={alsoChange} onChange={(e) => setAlsoChange(e.target.checked)} data-testid="ip-plan-import-change" /> Also change the {counts.differ} that differ
+              to the file’s values
+            </label>
+          )}
+          <div className="org-actions">
+            <button type="button" className="org-btn btn-main btn-small" disabled={willAdd === 0 || busy !== null} onClick={add} data-testid="ip-plan-import-add">
+              {willAdd > 0 ? `Add ${willAdd}` : 'Nothing to add'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

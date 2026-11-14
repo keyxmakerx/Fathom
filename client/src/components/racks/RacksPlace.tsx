@@ -99,6 +99,7 @@ import { missingLinksOf } from '../drawing/missingLinks';
 import { findDevice, findShelf } from '../drawing/lookup';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
+import { PlannedMarksContext } from '../checks/PlannedMark';
 import { useChecksController } from '../checks/useChecksController';
 import { routingMarks, tableLit, tableNames } from '../drawing/routingLens';
 import { linksMarks } from '../drawing/linksLens';
@@ -543,9 +544,16 @@ export function RacksPlace(props: RacksPlaceProps) {
   const { mirrorRef, engineRef, mirrorLoadedDocRef, discardTrapped, ensureMirror, loadInto, loadCostMs } = designEngine;
   const { withMirror, mirrorNow } = useMirrorFor(designEngine, doc);
   const linkFindings = useSiteLinkFindings(doc, session.organisationId, session.designId);
-  const planFindings = useIpPlanFindings(doc, session.organisationId);
-  const extraFindings = useMemo(() => [...linkFindings, ...planFindings], [linkFindings, planFindings]);
-  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs, extra: extraFindings });
+  const planChecks = useIpPlanFindings(doc, session.organisationId, session.designId);
+  const extraFindings = useMemo(() => [...linkFindings, ...planChecks.findings], [linkFindings, planChecks.findings]);
+  const planAside = useMemo(
+    () =>
+      planChecks.ignored > 0
+        ? { text: `${planChecks.ignored} IP plan ${planChecks.ignored === 1 ? 'finding' : 'findings'} ignored in this browser`, action: { label: 'Show again', run: async () => planChecks.unignore() } }
+        : null,
+    [planChecks],
+  );
+  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs, extra: extraFindings, aside: planAside });
   // Maintenance plans (ADR-0061 round 7): the same engine and mirror; every command goes through applyDocChange.
   const redact = useCallback(() => {
     const engine = engineRef.current;
@@ -2255,6 +2263,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         </div>
       ) : null}
       <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
+      <PlannedMarksContext.Provider value={planChecks.planned}>
       <PlansContext.Provider value={plans.store}>
       <SuggestContext.Provider value={suggestStore}>
       <TroubleContext.Provider value={trouble.store}>
@@ -2484,6 +2493,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       </TroubleContext.Provider>
       </SuggestContext.Provider>
       </PlansContext.Provider>
+      </PlannedMarksContext.Provider>
       </CheckMarksContext.Provider>
       </NoteAuthorsContext.Provider>
       </ChecksContext.Provider>

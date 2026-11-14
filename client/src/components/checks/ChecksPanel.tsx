@@ -81,6 +81,8 @@ function Row({ finding, controller, canShow }: { finding: CheckFinding; controll
   const name = anchorName(finding);
   const key = findingKey(finding);
   const shown = controller.showKey === key;
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
   return (
     <li className={`checks-row checks-row--${finding.severity}`} data-testid="checks-row" data-rule={finding.rule}>
       <div className="checks-row__head">
@@ -106,7 +108,39 @@ function Row({ finding, controller, canShow }: { finding: CheckFinding; controll
             </button>
           </>
         )}
+        {(finding.actions ?? []).map((a) => (
+          <span key={a.label}>
+            {' · '}
+            <button
+              type="button"
+              className="checks-link"
+              disabled={busy}
+              data-testid="checks-action"
+              onClick={() => {
+                setBusy(true);
+                setSaid(null);
+                a.run().then(
+                  (sentence) => {
+                    setBusy(false);
+                    if (typeof sentence === 'string') setSaid(sentence);
+                  },
+                  (e: unknown) => {
+                    setBusy(false);
+                    setSaid(e instanceof Error && e.message !== '' ? e.message : 'That did not work. Try again.');
+                  },
+                );
+              }}
+            >
+              {a.label}
+            </button>
+          </span>
+        ))}
       </p>
+      {said != null && (
+        <p className="checks-row__said" role="status" data-testid="checks-action-said">
+          {said}
+        </p>
+      )}
     </li>
   );
 }
@@ -215,6 +249,14 @@ export function ChecksPanel({ controller, canShow = true }: { controller: Checks
             {n}
           </p>
         ))}
+        {controller.aside != null && (
+          <p className="checks-panel__note checks-panel__ignored" data-testid="checks-aside">
+            {controller.aside.text}{' · '}
+            <button type="button" className="checks-link" onClick={() => void controller.aside?.action.run()}>
+              {controller.aside.action.label}
+            </button>
+          </p>
+        )}
         {controller.why != null && <WhyCard key={controller.whyToken} finding={controller.why} onClose={controller.closeWhy} />}
         {result != null && result.findings.length > 0 && (
           <ul className="checks-list">

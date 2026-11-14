@@ -650,6 +650,14 @@
 .ipplan__netbox > summary {
   list-style: none;
   cursor: pointer;
+  /* A summary is not a button, so it is drawn as the small button beside it is. */
+  font-size: var(--t-micro);
+  line-height: 16px;
+  color: var(--ink);
+  background: var(--control-bg);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-control);
+  padding: 1px var(--s2);
 }
 
 .ipplan__netbox > summary::-webkit-details-marker {
@@ -678,4 +686,39 @@
 .ipplan__form > .org-field,
 .ipplan__next .org-field {
   max-width: var(--col);
+}
+
+/* Steward › IP plan: Read NetBox files beside Download for NetBox, and the preview it opens. */
+.ipplan__head-actions {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+}
+
+.ipplan__import-file {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.ipplan__import-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.ipplan__import-state {
+  flex: none;
+  font-size: var(--t-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ipplan__import-row--new .ipplan__import-state {
+  font-weight: 700;
+}
+
+.ipplan__import-row--match,
+.ipplan__import-row--skip {
+  color: var(--muted);
 }

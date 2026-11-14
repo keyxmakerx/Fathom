@@ -4,7 +4,8 @@ import type { PlanKind, PlanRecord } from '../../api/ipPlan';
 import { addSketchPort, createSketchDevice } from '../../document/commands';
 import { emptyDocument, parseNodeId, type Document } from '../../document/model';
 import { addSubnet } from '../../document/networks';
-import { drawnFacts, ipPlanFindings, type DrawnAddress, type DrawnFacts } from './ipPlanChecks';
+import { drawnFacts, ipPlanFindings, sameIp, uniqueSpaceIps, type DrawnAddress, type DrawnFacts } from './ipPlanChecks';
+import { plannedWords } from './PlannedMark';
 
 let n = 0;
 const rec = (kind: PlanKind, fields: PlanRecord['fields']): PlanRecord => ({
@@ -128,4 +129,54 @@ describe('the difference checks between a design and the IP plan (ADR-0083 decis
     expect(got.addresses).toMatchObject([{ value: '10.20.7.1/24', deviceName: 'core-sw1', instance: null }]);
     expect(ipPlanFindings(got, plan).map((f) => f.rule)).toEqual(['ip-plan.not-planned', 'ip-plan.not-drawn']);
   });
+
+  it('warns when an address the plan holds in the global table is drawn in another design too', () => {
+    const f = facts([addr('core-sw1', '10.20.1.1/24'), addr('sw2', '10.20.1.7/24'), addr('pe', '192.0.2.1/24', { instance: 'CUSTOMER-A' }), addr('c', '172.16.0.1/24')]);
+    // Only global-table addresses the plan holds are asked about: not the VRF one, not 172.16/12.
+    expect(uniqueSpaceIps(f, plan)).toEqual(['10.20.1.1', '10.20.1.7']);
+    const elsewhere = new Map([['10.20.1.7', [{ design: 'd2', designName: 'Branch 12', device: 'br12-sw1' }]]]);
+    const found = ipPlanFindings(f, plan, elsewhere).filter((x) => x.rule === 'ip-plan.in-use-twice');
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ severity: 'warn', title: '10.20.1.7 on sw2 is also drawn on br12-sw1 in Branch 12' });
+    expect(found[0]?.elements[0]).toEqual({ id: 'device:sw2', name: 'sw2 ge-0/0/0' });
+  });
+
+  it('leaves an address the plan shares by role, such as a VRRP address, alone', () => {
+    const vip = rec('address', { address: '10.20.1.254/24', status: 'active', role: 'vrrp' });
+    const f = facts([addr('core-sw1', '10.20.1.1/24'), addr('sw2', '10.20.1.254/24')]);
+    expect(uniqueSpaceIps(f, [...plan, vip])).toEqual(['10.20.1.1']);
+    const elsewhere = new Map([['10.20.1.254', [{ design: 'd2', designName: null, device: 'sw9' }]]]);
+    expect(ipPlanFindings(f, [...plan, vip], elsewhere).map((x) => x.rule)).toEqual([]);
+  });
+
+  it('reads two spellings of one IPv6 address as the same', () => {
+    expect(sameIp('2001:DB8::1', '2001:db8:0:0::1/64')).toBe(true);
+    expect(sameIp('10.0.0.1', '10.0.0.10')).toBe(false);
+  });
+
+  it('says what Adopt would add: the drawn network under its parent, a VRF, an AS number', () => {
+    const site2 = rec('prefix', { prefix: '10.20.0.0/16', status: 'container', is_pool: false, mark_utilised: false, folder: 'scope-1' });
+    const f = facts([addr('core-sw1', '10.20.1.1/24'), addr('a', '10.20.7.1/24'), addr('pe', '10.9.0.1/24', { instance: 'LAB' })], {
+      asns: [{ asn: '4200000007', deviceId: 'device:br12', deviceName: 'br12' }],
+    });
+    const found = ipPlanFindings(f, [...plan.filter((r) => r !== site), site2]);
+    const by = (rule: string) => found.find((x) => x.rule === rule);
+    expect(by('ip-plan.not-planned')?.adopt).toEqual({
+      kind: 'prefix',
+      fields: { prefix: '10.20.7.0/24', status: 'active', is_pool: false, mark_utilised: false, note: 'Adopted from a.', folder: 'scope-1' },
+    });
+    expect(by('ip-plan.vrf-not-planned')?.adopt).toMatchObject({ kind: 'vrf', fields: { name: 'LAB', enforce_unique: false } });
+    expect(by('ip-plan.asn-not-planned')?.adopt).toEqual({ kind: 'asn', fields: { asn: '4200000007', range: range.id, meant_for: 'br12' } });
+    // Every finding has its own key for Ignore.
+    const keys = found.map((x) => x.ignoreKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('marks a planned address on the device it is meant for, and words the tag', () => {
+    const [f] = ipPlanFindings(facts([]), plan);
+    expect(f?.mark).toEqual({ deviceId: 'device:core-sw1', address: '10.20.1.1/24', meant: 'core-sw1 vlan120' });
+    expect(plannedWords([f!.mark!])).toEqual({ tag: 'PLAN 10.20.1.1/24', title: '10.20.1.1/24 is planned for "core-sw1 vlan120" in the IP plan and is not drawn here yet.' });
+    expect(plannedWords([f!.mark!, { ...f!.mark!, address: '10.20.2.1/24' }]).tag).toBe('PLAN 10.20.1.1/24 +1');
+  });
 });
+

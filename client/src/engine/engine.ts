@@ -565,6 +565,14 @@ export interface CheckFinding {
   source: CheckSource;
   /** Anchor first. */
   elements: CheckElement[];
+  /** Buttons beside Why?, for a finding made in the browser (the IP plan's Adopt and Ignore). The
+   * engine never sets these. `run` resolves to a sentence to show, or nothing. */
+  actions?: readonly CheckAction[];
+}
+
+export interface CheckAction {
+  label: string;
+  run: () => Promise<string | void>;
 }
 
 /** `OP_CHECKS` decoded. `loadFailed` means no rule ran; `unfinished` counts rules that ran out of budget. */

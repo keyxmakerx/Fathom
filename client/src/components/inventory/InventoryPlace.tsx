@@ -323,14 +323,22 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const designEngine = engine ?? ownEngine;
   const { mirrorNow } = useMirrorFor(designEngine, doc);
   const linkFindings = useSiteLinkFindings(doc, organisationId, session.designId);
-  const planFindings = useIpPlanFindings(doc, organisationId);
-  const extraFindings = useMemo(() => [...linkFindings, ...planFindings], [linkFindings, planFindings]);
+  const planChecks = useIpPlanFindings(doc, organisationId, session.designId);
+  const extraFindings = useMemo(() => [...linkFindings, ...planChecks.findings], [linkFindings, planChecks.findings]);
+  const planAside = useMemo(
+    () =>
+      planChecks.ignored > 0
+        ? { text: `${planChecks.ignored} IP plan ${planChecks.ignored === 1 ? 'finding' : 'findings'} ignored in this browser`, action: { label: 'Show again', run: async () => planChecks.unignore() } }
+        : null,
+    [planChecks],
+  );
   const checks = useChecksController({
     doc,
     boot: designEngine.ensureMirror,
     mirrorNow,
     loadCostMs: designEngine.loadCostMs,
     extra: extraFindings,
+    aside: planAside,
     foldedUntilChosen: true,
   });
 

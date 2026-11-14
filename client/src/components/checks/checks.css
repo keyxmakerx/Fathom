@@ -119,6 +119,20 @@
   font-weight: 700;
 }
 
+.checks-link:disabled {
+  color: var(--muted);
+  cursor: progress;
+}
+
+.checks-row__said {
+  margin: var(--s1) 0 0;
+  color: var(--muted);
+}
+
+.checks-panel__ignored {
+  margin: var(--s2) 0 0;
+}
+
 .checks-why {
   margin: 0 0 var(--s2);
   padding: var(--s2) var(--s3);
@@ -234,4 +248,25 @@
 .react-flow__node.checks-faded,
 .react-flow__edge.checks-faded {
   opacity: var(--phantom);
+}
+
+/* A planned address not yet drawn (ADR-0083 decision 7): a dashed tag in the plan colour, just above the
+   device's top edge at its left end, clear of the checks count and the ports' cables. */
+.planned-mark {
+  position: absolute;
+  left: 14px;
+  bottom: calc(100% - 1px);
+  z-index: 11;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border: var(--rule-hair) dashed var(--m-plan);
+  border-radius: var(--radius);
+  background: var(--m-plan-wash);
+  color: var(--m-plan);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: 13px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
 }

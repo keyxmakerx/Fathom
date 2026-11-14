@@ -453,6 +453,65 @@ async function runProof(browser, ctxA, seed) {
   await A.waitForTimeout(800);
   await shot('ip16-checks-dark');
   await A.emulateMedia({ colorScheme: 'light' });
+  await A.getByTestId('checks-why').getByRole('button', { name: 'Close' }).click();
+
+  // The planned guest address is marked on router-1 on the canvas (decision 7).
+  const mark = A.getByTestId('planned-mark');
+  await mark.first().waitFor({ timeout: 10000 });
+  check('K1. the planned address is marked on router-1 in the plan colour', (await mark.count()) === 1 && (await mark.innerText()).trim() === 'PLAN 192.168.20.1/24', await mark.allInnerTexts());
+  const box = await mark.boundingBox();
+  if (box) await A.screenshot({ path: `${SHOTS}ip17-canvas-mark.png`, clip: { x: Math.max(0, box.x - 260), y: Math.max(0, box.y - 70), width: 560, height: 260 } });
+
+  // Ignore hides it here, mark and all, and says so; Show again brings it back.
+  const undrawn = () => checksPanel.locator('[data-rule="ip-plan.not-drawn"]');
+  await undrawn().getByRole('button', { name: 'Ignore' }).click();
+  await A.getByTestId('checks-aside').waitFor({ timeout: 10000 });
+  check('K2. Ignore hides the finding and its canvas mark, and says one is ignored', (await undrawn().count()) === 0 && (await mark.count()) === 0 && /1 IP plan finding ignored in this browser/.test(await A.getByTestId('checks-aside').innerText()), await A.getByTestId('checks-aside').innerText());
+  await shot('ip18-ignored');
+  await A.getByTestId('checks-aside').getByRole('button', { name: 'Show again' }).click();
+  await undrawn().waitFor({ timeout: 10000 });
+  check('K3. Show again brings it back', (await undrawn().count()) === 1 && (await mark.count()) === 1);
+
+  // Adopt puts the unplanned LAN into the plan, and the finding goes.
+  await checksPanel.locator('[data-rule="ip-plan.not-planned"]').getByRole('button', { name: 'Adopt' }).click();
+  await checksPanel.locator('[data-rule="ip-plan.not-planned"]').waitFor({ state: 'detached', timeout: 15000 });
+  check('K4. Adopt adds the drawn network to the plan, and the finding goes', (await ruleCount('ip-plan.not-planned')) === 0);
+
+  // A second copy of the sample draws every address again: in use twice, found through the estate index.
+  await A.locator('.shell-bar__brand').click();
+  await A.getByRole('tab', { name: 'Designs' }).click();
+  await A.getByRole('button', { name: 'Open sample' }).click();
+  await A.locator('.drawing').waitFor({ timeout: 30000 });
+  if ((await A.locator('[data-testid=checks-panel]').count()) === 0) await A.locator('[data-testid=dock-checks]').click();
+  await checksPanel.locator('[data-rule="ip-plan.in-use-twice"]').first().waitFor({ timeout: 60000 });
+  const twice = await checksPanel.locator('[data-rule="ip-plan.in-use-twice"]').allInnerTexts();
+  check('K5. an address the plan holds, drawn in another design too, is in use twice', twice.length > 0 && twice.some((t) => /192\.168\.10\.1 on router-1 is also drawn on router-1 in Sample home lab/.test(t)), twice.join(' | '));
+  await shot('ip19-in-use-twice');
+
+  // NetBox files in (decision 6): a prefixes file and a VLAN pair, previewed, then added.
+  writeFileSync(join(WORK, 'prefixes.csv'), 'Prefix,Status,VRF,Role,Is Pool,Description\n192.168.30.0/25,Active,,Cameras,,\n192.168.40.0/24,Active,,IoT,,from NetBox\n192.168.50.0/24,Reserved,,,,\n10.99.0.0/33,Active,,,,\n');
+  writeFileSync(join(WORK, 'vlan-groups.csv'), 'name,slug,vid_ranges,description\nHome,home,1-4094,\n');
+  writeFileSync(join(WORK, 'vlans.csv'), 'group,vid,name,status,description\nHome,30,cameras,active,\nHome,40,iot,active,\n');
+  await A.locator('.shell-bar__brand').click();
+  await A.getByRole('tab', { name: 'Steward' }).click();
+  await A.locator('.org-rail__item', { hasText: 'IP plan' }).click();
+  await A.getByTestId('ip-plan-import').click();
+  await A.getByTestId('ip-plan-import-file').setInputFiles([join(WORK, 'prefixes.csv'), join(WORK, 'vlan-groups.csv'), join(WORK, 'vlans.csv')]);
+  await A.getByTestId('ip-plan-import-counts').waitFor({ timeout: 30000 });
+  const counts = await A.getByTestId('ip-plan-import-counts').innerText();
+  check('I1. the files are read through the gate and each row is New, Match or not read', /5 new · 1 already in the plan · 0 differ · 1 not read/.test(counts), counts);
+  await shot('ip20-import-preview');
+  await A.getByTestId('ip-plan-import-add').click();
+  await A.getByTestId('ip-plan-import-done').waitFor({ timeout: 30000 });
+  const done = await A.getByTestId('ip-plan-import-done').innerText();
+  check('I2. Add makes the five new records', /Added 5\./.test(done), done);
+  await A.getByTestId('ip-plan-tree').getByText('192.168.50.0/24').first().waitFor({ timeout: 15000 });
+  const imported = await A.getByTestId('ip-plan-tree').innerText();
+  check('I3. the new prefixes are in the tree', /192\.168\.40\.0\/24/.test(imported) && /192\.168\.50\.0\/24/.test(imported), imported);
+  await A.getByTestId('ip-plan-tree').getByText('192.168.40.0/24').first().evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await shot('ip21-import-done');
+  await A.getByTestId('ip-plan-tab-vlans').click();
+  check('I4. the VLAN group and its two VLANs are in', /Home/.test(await plan().innerText()) && /cameras/.test(await plan().innerText()) && /iot/.test(await plan().innerText()), await plan().innerText());
 
   check('F1. no page errors', errors.length === 0, errors.join(' | '));
 }

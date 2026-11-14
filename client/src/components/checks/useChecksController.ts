@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Document } from '../../document/model';
-import type { CheckFinding, ChecksResult } from '../../engine/engine';
+import type { CheckAction, CheckFinding, ChecksResult } from '../../engine/engine';
 import type { Mirror } from '../../engine/mirror';
 import {
   buildBadgeMap,
@@ -84,6 +84,13 @@ export interface ChecksController {
   toggleShow(f: CheckFinding): void;
   refusal: RefusalState | null;
   dismissRefusal(): void;
+  /** A line under the summary with one button: "2 IP plan findings ignored here · Show them again". */
+  aside?: CheckAside | null;
+}
+
+export interface CheckAside {
+  text: string;
+  action: CheckAction;
 }
 
 interface Inputs {
@@ -99,11 +106,12 @@ interface Inputs {
   /** Until the person chooses, the panel stays folded rather than opening for refusals and warnings: Inventory and
    * Sheet, where it would cover the list or the page. */
   foldedUntilChosen?: boolean;
+  aside?: CheckAside | null;
 }
 
 const NO_EXTRA: readonly CheckFinding[] = [];
 
-export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = NO_EXTRA, foldedUntilChosen = false }: Inputs): ChecksController {
+export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = NO_EXTRA, foldedUntilChosen = false, aside = null }: Inputs): ChecksController {
   const [store] = useState(createChecksStore);
   const [engineResult, setResult] = useState<ChecksResult | null>(null);
   const result = useMemo(() => withSiteLinkFindings(engineResult, extra), [engineResult, extra]);
@@ -314,5 +322,6 @@ export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = 
     toggleShow,
     refusal,
     dismissRefusal,
+    aside,
   };
 }
