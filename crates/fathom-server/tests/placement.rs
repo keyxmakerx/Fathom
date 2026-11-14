@@ -1589,7 +1589,9 @@ async fn the_smtp_envelope_is_checked_and_a_test_send_really_sends_to_the_operat
     // The test send is real (ADR-0085): a pending change pointed at a relay on loopback, with
     // no TLS (allowed only there), sends to the operator's own address and answers the relay's
     // reply. The relay is a few lines of script, so what it saw can be checked.
-    let relay = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind a relay");
+    let relay = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a relay");
     let relay_port = relay.local_addr().expect("its port").port();
     let relay_saw = tokio::spawn(async move {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -1633,7 +1635,10 @@ async fn the_smtp_envelope_is_checked_and_a_test_send_really_sends_to_the_operat
     );
     let (status, answer) =
         settings_request(addr, &operator, &store, &deployment_id, "smtp", &loopback).await;
-    assert_eq!(status, "200", "a loopback relay with no TLS is a valid form");
+    assert_eq!(
+        status, "200",
+        "a loopback relay with no TLS is a valid form"
+    );
     let loopback_id = String::from_utf8(read_lp_fields(&answer, 1)[0].clone()).unwrap();
     let (status, body) = signed_request(
         addr,
@@ -1652,7 +1657,10 @@ async fn the_smtp_envelope_is_checked_and_a_test_send_really_sends_to_the_operat
     );
     let saw = relay_saw.await.expect("the relay finished");
     assert!(saw.contains("MAIL FROM:<fathom@example.test>"), "{saw}");
-    assert!(saw.contains("RCPT TO:<operator@example.test>"), "only the operator's own address: {saw}");
+    assert!(
+        saw.contains("RCPT TO:<operator@example.test>"),
+        "only the operator's own address: {saw}"
+    );
     assert!(saw.contains("Auto-Submitted: auto-generated"), "{saw}");
     let (status, _) = signed_request(
         addr,
