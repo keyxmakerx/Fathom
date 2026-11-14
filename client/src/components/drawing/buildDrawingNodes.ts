@@ -33,6 +33,11 @@ import type { ShelfView } from '../../document/view';
 /** Gap between one rack's portal tray(s) and the next, on the same side. */
 const TRAY_GAP_PX = 12;
 
+/** Whether a row's label is drawn at the closet stop: when the row has a name, or there are rows to tell apart. */
+export function rowLabelShown(label: string | null, rowCount: number): boolean {
+  return label != null || rowCount > 1;
+}
+
 export interface DrawingNodeCaches {
   nodeCache: IdCache<Node>;
   faceplateItemsCache: IdCache<readonly FaceplateItem[]>;
@@ -145,7 +150,8 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
 
   rowLayouts.forEach((layout, rowIndex) => {
     const y = rowBandY(rowLayouts, rowIndex, rackNodeHeight, ROW_GAP_PX);
-    if (cameraStop === 'closet' && layout.racks.length > 0) {
+    // A lone row with no name would only say "row" (its flip is hidden outside the rack stop), so it gets no label.
+    if (cameraStop === 'closet' && layout.racks.length > 0 && rowLabelShown(layout.label, rowLayouts.length)) {
       const key = rowKey(rowViews[rowIndex]!, rowIndex);
       const bandHeight = Math.max(0, ...layout.racks.map((r) => rackNodeHeight(r)));
       nodes.push(

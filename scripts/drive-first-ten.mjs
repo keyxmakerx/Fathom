@@ -1,6 +1,6 @@
 // Drives the first ten minutes (r115 thread 4): the sample opens at a zoom its names can be read at; Diagram draws
 // every one of the sample's devices, not only the racked ones; nothing stacks on an empty design (the hint clears
-// the zoom pill). Screenshots land in FATHOM_SHOTS. Usage: bash scripts/build-wasm.sh (once), then
+// the zoom pill and the rack); an opened device that has its ports carries no leftover Equipment hint. Screenshots land in FATHOM_SHOTS. Usage: bash scripts/build-wasm.sh (once), then
 // node scripts/drive-first-ten.mjs. Overrides: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT.
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -140,6 +140,16 @@ try {
     }
     check('no device in Diagram is under the Try a question card', covered.length === 0, covered.join(', '));
     await shot(page, 'FT-02-diagram');
+
+    // 2b. An opened device that already has its ports carries no leftover "drag an item here" hint.
+    await page.locator('[aria-label="Views"]').getByText('Canvas', { exact: true }).click();
+    await page.waitForSelector('[data-device-chassis]', { timeout: 15_000 });
+    await page.waitForTimeout(800);
+    await page.locator('[data-device-chassis]').first().dblclick();
+    await page.waitForSelector('.jot', { timeout: 15_000 });
+    await page.waitForTimeout(800);
+    check('an opened device with ports shows no Equipment hint', (await page.locator('.jot__hint').count()) === 0);
+    await shot(page, 'FT-02b-opened-device');
     check('no uncaught page errors (sample)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
@@ -155,6 +165,11 @@ try {
     check('the empty-design hint ends above the zoom pill', hint != null && pill != null && hint.y + hint.height <= pill.y, JSON.stringify({ hint, pill }));
     const add = await page.getByTestId('add-equipment').boundingBox();
     check('Add equipment is whole and clear of the zoom pill', add != null && pill != null && add.y + add.height <= pill.y);
+    // The stand-in rack is fitted above the note, so the note covers none of its units.
+    await page.waitForTimeout(800);
+    const rack = await page.locator('.react-flow__node-rack').first().boundingBox();
+    check('no stray "row" label beside the lone stand-in rack', (await page.locator('.drawing-row-label').count()) === 0);
+    check('the empty-design hint covers no part of the rack', hint != null && rack != null && rack.y + rack.height <= hint.y, JSON.stringify({ rack, hint }));
     await shot(page, 'FT-03-empty-design');
     check('no uncaught page errors (empty)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();

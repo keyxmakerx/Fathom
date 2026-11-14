@@ -47,6 +47,7 @@ import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEn
 import { faceplateLayoutFor, plateItems } from './faceplate';
 import { UNNAMED_HOSTNAME, type CableKind, type CableView, type ChassisView, type ClosetView, type DrawingActions, type RackView, type Selection, type Sheath } from './contract';
 import { EmptyHint } from './EmptyHint';
+import { paddingClearOf } from './emptyFit';
 import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, getDraggedUnits, PALETTE_DRAG_MIME } from './dnd';
 import {
@@ -225,10 +226,10 @@ function surfaceDropAt(clientX: number, clientY: number, zoom: number): { surfac
 }
 
 /** Fit every rack: used on mount, landing at the rack stop. */
-function rackFitViewOptions(racks: readonly { id: string }[], free: readonly { id: string }[] = []) {
+function rackFitViewOptions(racks: readonly { id: string }[], free: readonly { id: string }[] = [], padding: ReturnType<typeof paddingClearOf> = 0.1) {
   return {
     nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...free],
-    padding: 0.1,
+    padding,
     maxZoom: CAMERA_STOPS.rack / 100,
   };
 }
@@ -936,7 +937,10 @@ function DrawingInner({
         const fit = getViewportForBounds(bounds, pane.clientWidth, pane.clientHeight, wholeOptions.minZoom, wholeOptions.maxZoom, wholeOptions.padding);
         useWhole = openingFit(fit.zoom) === 'whole';
       }
-      void rf.fitView(useWhole ? wholeOptions : rackFitViewOptions(view.racks, free.fitIds));
+      // An empty design's note sits low on the pane: fit the stand-in rack into the room above it.
+      const note = pane?.querySelector<HTMLElement>('.drawing-empty-hint')?.getBoundingClientRect() ?? null;
+      const padding = paddingClearOf(pane?.getBoundingClientRect() ?? null, note);
+      void rf.fitView(useWhole ? wholeOptions : rackFitViewOptions(view.racks, free.fitIds, padding));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is

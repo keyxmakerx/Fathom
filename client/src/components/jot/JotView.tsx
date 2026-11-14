@@ -399,7 +399,8 @@ export function JotView(props: JotViewProps): JSX.Element {
               {wire && <line className="jot__wire" x1={wire.a.x} y1={wire.a.y} x2={wire.to.x} y2={wire.to.y} vectorEffect="non-scaling-stroke" />}
             </svg>
           </div>
-          {canDraw && shown.length === 1 && (
+          {/* Only for a box with nothing in it yet: a device that already has its ports needs no "drag an item here". */}
+          {canDraw && shown.length === 1 && device != null && device.ports.length === 0 && (
             <p className="jot__hint">{JOT_HINT}</p>
           )}
         </div>
