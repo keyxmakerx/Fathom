@@ -306,6 +306,16 @@ pub struct Config {
     /// means no organisation can turn reading on and nothing is sent to the reader. Any other
     /// value is refused at startup, so a typo never reads as on.
     pub device_reader: Option<std::path::PathBuf>,
+
+    /// ADR-0085: `FATHOM_PUBLIC_URL`, the address people open Fathom at (`https://`, or
+    /// `http://` to a loopback host; an origin, no path). Every link in a mail is built from
+    /// it, never from a request's `Host`. Unset means no mail with a link is written: no reset
+    /// by mail and no invitation by mail. A malformed value is refused at startup.
+    pub public_url: Option<String>,
+
+    /// ADR-0085 decision 10: `FATHOM_SMTP_CA`, a PEM file of certificates to trust for the
+    /// mail relay beside Mozilla's roots, for a relay with a private CA.
+    pub smtp_ca: Option<std::path::PathBuf>,
 }
 
 /// ADR-0043 §9's path, as stated in the operator's register: the master key is 32
@@ -753,6 +763,19 @@ impl Config {
         )
         .map_err(|variable| ConfigError::Unparseable { variable })?;
 
+        let public_url = match get("FATHOM_PUBLIC_URL").filter(|v| !v.trim().is_empty()) {
+            None => None,
+            Some(v) => {
+                crate::mail::check_public_url(v.trim()).map_err(|_| ConfigError::Unparseable {
+                    variable: "FATHOM_PUBLIC_URL",
+                })?;
+                Some(v.trim().trim_end_matches('/').to_string())
+            }
+        };
+        let smtp_ca = get("FATHOM_SMTP_CA")
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| std::path::PathBuf::from(v.trim()));
+
         // Trailing newline trimmed (a shell script wrote the file); otherwise the
         // password is taken exactly as generated.
         let database_password =
@@ -825,6 +848,8 @@ impl Config {
             ai_connector,
             termix,
             device_reader,
+            public_url,
+            smtp_ca,
         })
     }
 

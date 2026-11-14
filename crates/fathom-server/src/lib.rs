@@ -97,6 +97,7 @@ pub mod json_in;
 pub mod keyprovider;
 pub mod keys;
 pub mod live;
+pub mod mail;
 pub mod mcp;
 pub mod migrate;
 pub mod oauth;

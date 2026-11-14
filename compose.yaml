@@ -372,6 +372,12 @@ services:
       # `.env`.
       FATHOM_ADMIN_HOSTS: ${FATHOM_ADMIN_HOSTS:-}
       FATHOM_ADMIN_SOURCES: ${FATHOM_ADMIN_SOURCES:-}
+      # Mail (ADR-0085; docs/OPERATING.md "Mail"): the address people open Fathom
+      # at, which every link in a mail is built from. Unset means no password
+      # reset and no invitation by mail. The relay itself is set in the console.
+      # FATHOM_SMTP_CA names a PEM file of a private CA for the relay, mounted in.
+      FATHOM_PUBLIC_URL: ${FATHOM_PUBLIC_URL:-}
+      FATHOM_SMTP_CA: ${FATHOM_SMTP_CA:-}
       # AI connections (ADR-0072 decision 13; docs/OPERATING.md "AI connections"):
       # off until FATHOM_AI_PUBLIC_URL is set in `.env` to the address AI apps
       # reach this server at. An empty range list is the default range, not off.

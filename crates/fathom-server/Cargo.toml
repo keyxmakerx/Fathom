@@ -331,7 +331,8 @@ md-5 = { version = "0.11.0", default-features = false }
 # C7 bans. The owner allowed it on 2026-10-26 (card r34-vault-ring, A): "ring is
 # allowed only underneath rustls, and only for the server's outbound HTTPS to
 # outside vaults." `deny.toml` keeps `ring` banned for every other parent
-# (`wrappers`), and only `src/vault_outside/https.rs` names rustls. The pure-Rust
+# (`wrappers`), and only `src/vault_outside/https.rs` and `src/mail/smtp.rs` (the
+# second use, SMTP to the operator's relay, card r85-email, 2026-11-02) name rustls. The pure-Rust
 # provider was not taken: its README says "DO NOT USE THIS IN PRODUCTION"
 # (github.com/rustcrypto/rustls-rustcrypto, read 2026-10-26). Records:
 # deps/decisions/{rustls,tokio-rustls,webpki-roots,ring}.md.

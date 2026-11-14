@@ -141,8 +141,8 @@ makes it irrelevant.
   of approve plans on the plan's team (any team with access when it names none); never its maker,
   assignee or whoever asked. A holder of emergency start may start it with a reason; it stays flagged
   until approved after. A change, or a whole-version save, that moves a plan to doing or recorded is
-  refused without one. Reasons and notes are sealed under the organisation content key. No email yet
-  (waits on ADR-0085); orders' stage approvals wait on ADR-0084.
+  refused without one. Reasons and notes are sealed under the organisation content key. No email about
+  plans yet (ADR-0085's work notices); orders' stage approvals wait on ADR-0084.
 - **0013: sessions** (`sessions.rs`, `api.rs`; admin §4). A signed message on every request that
   reaches design payload or vault ciphertext, single-use nonces, a browser-held session key, a MAC
   under a site-scoped row key.
@@ -330,7 +330,16 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   Every site entry written during a request seals the same two addresses (`chains::append_site`).
   Admin › Activity lists those entries newest first, each checked before it is shown
   (`GET /admin/activity`, `ActivityPanel.tsx`).
-- **Not built:** sending mail (so no reset or notices by mail); a passkey as the phishing-resistant
+- **Mail, part one (ADR-0085, migration 0079, 2026-11-14).** `src/mail/`: a sealed outbox written in the
+  same transaction as what causes a mail, a worker every 20 seconds with retries (1, 5, 30 minutes, 2
+  and 12 hours, then failed), and an SMTP client of its own over the approved rustls (`mail/smtp.rs`;
+  STARTTLS never falls back to plain, `none` only to loopback). Two mails: the password reset, to an
+  account whose sign-in is an email address, and an invitation link a Steward ticks to mail (link only,
+  never the sign-in name). Links come from `FATHOM_PUBLIC_URL` only. The console's test send is real.
+  Steward › Mail (`GET /organisations/{o}/mail`, `MailPage.tsx`) lists the organisation's mail with the
+  relay's reply. Not built: the other security mails, work and order notices, the digest, each person's
+  choices.
+- **Not built:** a passkey as the phishing-resistant
   second factor NIST asks for; the console UI for a second operator's own signature on a request that
   needs one; a way for the console to hand a requested colleague their setup token (it is minted and
   discarded; finish from the host with `recover-operator` once their account exists).

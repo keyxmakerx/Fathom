@@ -467,6 +467,37 @@ async fn main() -> ExitCode {
         deployment.clone(),
     ));
 
+    // ---- ADR-0085: mail ----
+    //
+    // The TLS settings for the relay (Mozilla's roots, plus `FATHOM_SMTP_CA`), where links
+    // point (`FATHOM_PUBLIC_URL`), and the worker that empties the outbox. A bad CA file stops
+    // the start, as `FATHOM_OUTSIDE_VAULT_CA` does: a mail relay Fathom cannot verify is one it
+    // will not send to.
+    let mail_tls = match fathom_server::mail::smtp::Tls::new(config.smtp_ca.as_deref()) {
+        Ok(t) => Arc::new(t),
+        Err(e) => {
+            tracing::error!(error = %e, "could not build the mail TLS settings; refusing to start");
+            return ExitCode::from(6);
+        }
+    };
+    let mail = Arc::new(
+        fathom_server::mail::Mail::new(config.public_url.clone(), Arc::clone(&mail_tls))
+            .with_operators(Arc::clone(&operators)),
+    );
+    fathom_server::mail::install(Arc::clone(&mail));
+    if config.public_url.is_none() {
+        tracing::warn!(
+            "FATHOM_PUBLIC_URL is not set, so no mail with a link is written: no password reset \
+             and no invitation by mail. Set it to the address people open Fathom at."
+        );
+    }
+    tokio::spawn(fathom_server::mail::run(
+        pool.clone(),
+        Arc::clone(&ring),
+        Arc::clone(&operators),
+        mail_tls,
+    ));
+
     // ADR-0055 stream (c): where the console answers, as the console set it
     // (`src/placement.rs`). Loaded once; refreshed on every placement write, by the
     // sweep, and every `placement::SNAPSHOT_TTL` by the task below, so no query per
@@ -981,7 +1012,7 @@ async fn main() -> ExitCode {
     let credential_api = fathom_server::api::CredentialApiState {
         sessions: Arc::clone(&sessions),
         // The same store the setup-secret check built: one pool, ring and deployment id.
-        credentials: Arc::new(credentials_for_setup),
+        credentials: Arc::new(credentials_for_setup.with_mail(Arc::clone(&mail))),
         operators: Arc::clone(&operators),
         setup_secret,
         client_address: client_address.clone(),

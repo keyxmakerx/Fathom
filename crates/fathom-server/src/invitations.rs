@@ -631,22 +631,103 @@ pub struct IssueRequest {
 /// LP(scope_id or "")`. **There is no account field**, on purpose: the shell is
 /// created in the transaction that issues the invitation.
 pub fn parse_issue_body(body: &[u8]) -> Result<IssueRequest, InviteError> {
+    let (request, mail) = parse_issue_body_with_mail(body)?;
+    if mail {
+        return Err(InviteError::Malformed("request body"));
+    }
+    Ok(request)
+}
+
+/// As [`parse_issue_body`], with an optional fifth field: `LP("mail")` asks for the link to be
+/// mailed to the contact email as well (ADR-0085, the alpha card's Mail). Absent or empty means
+/// no mail, so a client that sends four fields is unchanged.
+pub fn parse_issue_body_with_mail(body: &[u8]) -> Result<(IssueRequest, bool), InviteError> {
     let mut rest = body;
     let display_name = lp_field(&mut rest)?.to_string();
     let contact_email = lp_field(&mut rest)?.to_string();
     let capability =
         Capability::parse(lp_field(&mut rest)?).ok_or(InviteError::Malformed("capability"))?;
     let scope = parse_scope_text(lp_field(&mut rest)?)?;
+    let mail = if rest.is_empty() {
+        false
+    } else {
+        match lp_field(&mut rest)? {
+            "mail" => true,
+            "" => false,
+            _ => return Err(InviteError::Malformed("mail")),
+        }
+    };
     if !rest.is_empty() {
         return Err(InviteError::Malformed("request body"));
     }
-    Ok(IssueRequest {
+    let request = IssueRequest {
         display_name: clean_text(&display_name, DISPLAY_NAME_MAX, "display name", true)?
             .unwrap_or_default(),
         contact_email: clean_text(&contact_email, CONTACT_EMAIL_MAX, "contact email", false)?,
         capability,
         scope,
-    })
+    };
+    Ok((request, mail))
+}
+
+/// Whether an invitation's link was also put in the mail outbox.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mailed {
+    /// Not asked for.
+    No,
+    /// Written to the outbox; Admin › Mail shows how it went.
+    Queued,
+    /// Asked for, but the invitation has no contact email that is an address.
+    NoAddress,
+    /// Asked for, but this server has no `FATHOM_PUBLIC_URL`, so no link can be built.
+    NotSetUp,
+}
+
+impl Mailed {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::No => "no",
+            Self::Queued => "queued",
+            Self::NoAddress => "no-address",
+            Self::NotSetUp => "not-set-up",
+        }
+    }
+}
+
+/// Put the link of an invitation just issued in the mail outbox, in the issuing transaction,
+/// addressed to the contact email the Steward typed and chose to send to. **The mail carries the
+/// link and never the sign-in name**, which the Steward still hands over, so the mail alone lets
+/// nobody in (ADR-0085's rule, NIST SP 800-63B rev 4 §3.1.1.2 as ADR-0055 records it).
+pub async fn mail_link(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    organisation: &str,
+    request: &IssueRequest,
+    issued: &Issued,
+) -> Result<Mailed, InviteError> {
+    let Some(to) = request
+        .contact_email
+        .as_deref()
+        .filter(|a| crate::mail::message::plausible_address(a))
+    else {
+        return Ok(Mailed::NoAddress);
+    };
+    let Some(link) = crate::mail::installed().and_then(|m| m.invitation_link(&issued.token)) else {
+        return Ok(Mailed::NotSetUp);
+    };
+    let name = organisation_name(tx, organisation).await?;
+    let draft = crate::mail::invitation_draft(
+        organisation,
+        &name,
+        &request.display_name,
+        to,
+        &link,
+        issued.expires_at_unix,
+    );
+    crate::mail::outbox::enqueue(tx, ring, &draft)
+        .await
+        .map_err(|_| InviteError::Malformed("mail"))?;
+    Ok(Mailed::Queued)
 }
 
 /// What an issue returns to the steward, once.
@@ -1350,7 +1431,7 @@ impl LabelIndex {
     }
 }
 
-async fn organisation_name(
+pub(crate) async fn organisation_name(
     tx: &Transaction<'_>,
     organisation: &str,
 ) -> Result<String, InviteError> {

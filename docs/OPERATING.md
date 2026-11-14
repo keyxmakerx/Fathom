@@ -578,9 +578,42 @@ the same rule §3.5 already gave stewards, finally ported. Two operators is the 
 expectation, not a requirement — a sole operator is a supported, working shape, and the server
 never blocks work over it. It says so, twice, at every start with one live operator: a warning
 naming the count and quoting GitHub's own advice on the risk of one owner, and — separately —
-that recovery by mail is unavailable until SMTP is set in the console, so the only recovery until
-then is `fathom-server recover-operator`. Neither line is decoration; read them off a real start,
+that recovery by mail is unavailable until SMTP is set in the console (and `FATHOM_PUBLIC_URL` in
+`.env`, see "Mail"), so the only recovery until then is `fathom-server recover-operator`. Neither line is decoration; read them off a real start,
 not off this page.
+
+## Mail
+
+Fathom sends two mails today (ADR-0085): a **password reset**, to an account whose sign-in is an
+email address, when someone asks on the sign-in page; and an **invitation link**, when a Steward
+ticks *Email them the link* while adding someone. The invitation mail never carries the sign-in
+name, and a reset still needs the authenticator code, so no mail lets anybody in by itself.
+
+Three things make it work:
+
+1. **The relay**, set by an operator in the console (Settings › Outgoing mail), behind the usual
+   delay. *Send a test to my own address* sends with the saved settings during that delay, to
+   the operator's own address, and shows the relay's answer.
+2. **`FATHOM_PUBLIC_URL`** in `.env`: the address people open Fathom at, such as
+   `https://fathom.example.org` (`https://`, or `http://` to a loopback host; no path). Every
+   link in a mail is built from it and never from a request's `Host` header, which anyone can
+   choose. Unset, no mail with a link is written and the server says so at startup.
+3. **`FATHOM_SMTP_CA`**, only if the relay's certificate comes from a private CA: a PEM file,
+   mounted into the container, trusted beside Mozilla's roots. There is no switch to skip
+   checking the certificate. `none` as the TLS mode is refused unless the relay is on the
+   server's own loopback.
+
+**SPF, DKIM, DMARC and reverse DNS are the relay's and your domain's**, not Fathom's: Gmail and
+others refuse or bin mail without them (support.google.com/mail/answer/81126, read 2026-11-02, as
+ADR-0085 records it). Fathom's part is a well-formed message over TLS with a `Message-ID` under
+the from address's domain and `Auto-Submitted: auto-generated`.
+
+Mail is written to a sealed outbox in the same transaction as what caused it and sent by a worker
+every 20 seconds, with retries at 1, 5 and 30 minutes, then 2 and 12 hours; then it is marked
+failed. Each organisation's Stewards see their own mail, with the relay's reply, on Steward ›
+Mail. The outbox is sealed under a subkey of the chain master: a mail still waiting when the
+chain master is rekeyed cannot be opened and is marked failed, so send a test after a rekey. A
+mail's text is removed once it is sent or fails, and its line is kept for 90 days.
 
 ## The setup password
 

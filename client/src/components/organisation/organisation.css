@@ -433,3 +433,33 @@
 .org-scroll .org-table td:not(:first-child) {
   text-align: center;
 }
+
+/* Steward › Mail (ADR-0085, the alpha card's Mail). */
+.org-mail__kinds td:first-child {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.org-mail__later td {
+  color: var(--muted);
+}
+
+.org-mail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.org-mail__when {
+  white-space: nowrap;
+}
+
+.org-mail__state--failed {
+  color: var(--danger);
+}
+
+.org-mail__reply {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

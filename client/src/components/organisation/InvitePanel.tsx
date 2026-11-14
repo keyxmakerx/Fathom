@@ -11,7 +11,7 @@ export interface InviteFormProps {
   organisationName: string;
   busy: boolean;
   error: string | null;
-  onSubmit: (request: { name: string; email: string; capability: Asked; scopeId: string | null }) => void;
+  onSubmit: (request: { name: string; email: string; capability: Asked; scopeId: string | null; mail: boolean }) => void;
   onCancel: () => void;
 }
 
@@ -22,12 +22,13 @@ const CAPABILITIES: Asked[] = ['read', 'draw', 'firmware', 'steward'];
 export function InviteForm({ folders, organisationName, busy, error, onSubmit, onCancel }: InviteFormProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [mail, setMail] = useState(false);
   const [capability, setCapability] = useState<Asked>('draw');
   const [scope, setScope] = useState<string>(folders[0]?.scopeId ?? '');
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    onSubmit({ name: name.trim(), email: email.trim(), capability, scopeId: scope === '' ? null : scope });
+    onSubmit({ name: name.trim(), email: email.trim(), capability, scopeId: scope === '' ? null : scope, mail: mail && email.trim() !== '' });
   }
 
   return (
@@ -41,10 +42,21 @@ export function InviteForm({ folders, organisationName, busy, error, onSubmit, o
         <span className="org-field__label">Email (optional)</span>
         <input className="org-input" type="text" inputMode="email" value={email} maxLength={254} aria-describedby="invite-email-hint" onChange={(e) => setEmail(e.target.value)} />
         <span className="org-field__hint" id="invite-email-hint">
-          A note for you and the other stewards. Fathom does not send anything to it and the person does not sign in
-          with it.
+          A note for you and the other stewards. The person does not sign in with it.
         </span>
       </label>
+      {email.trim() !== '' && (
+        <label className="org-radio" data-testid="invite-mail-tick">
+          <input type="checkbox" checked={mail} onChange={(e) => setMail(e.target.checked)} />
+          <span>
+            <strong>Email them the link</strong>
+            <span className="org-field__hint">
+              {' '}
+              Fathom mails the link to this address. You still give them their sign-in name yourself, so the mail alone lets nobody in.
+            </span>
+          </span>
+        </label>
+      )}
       <fieldset className="org-field org-field--set">
         <legend className="org-field__label">What they can do</legend>
         {CAPABILITIES.map((c) => (
@@ -130,9 +142,23 @@ export function LinkCard({ invitation, access, name, added, notAddedBecause, ori
           you.
         </p>
       )}
-      <p className="org-note">
-        <strong>Fathom does not email this.</strong> You send it yourself, by a message or a call you trust. Send the
-        link and the sign-in name together.
+      <p className="org-note" data-testid="invite-mailed">
+        {invitation.mailed === 'queued' ? (
+          <>
+            <strong>The link is on its way by mail.</strong> Give them the sign-in name yourself, by a message or a call you trust.
+            Steward › Mail shows whether the mail went.
+          </>
+        ) : invitation.mailed === 'not-set-up' ? (
+          <>
+            <strong>The link was not mailed:</strong> this server cannot put links in mail yet. Send the link and the sign-in name
+            yourself, by a message or a call you trust.
+          </>
+        ) : (
+          <>
+            <strong>Fathom has not mailed this.</strong> You send it yourself, by a message or a call you trust. Send the link and
+            the sign-in name together.
+          </>
+        )}
       </p>
       <div className="org-field">
         <span className="org-field__label">Link</span>

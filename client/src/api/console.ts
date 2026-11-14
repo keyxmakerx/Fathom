@@ -447,12 +447,15 @@ export async function requestSmtpSetting(
  * today, and the board says so in the server's words rather than in a
  * cheerful one of its own.
  */
+/** Send a test message with a pending change's settings, to the operator's own address
+ * (ADR-0085). Answers the server's one sentence either way: "Sent to …, the mail server
+ * answered …" on 200, or "Not sent. …" on 502, which is a result to show, not an error. */
 export async function sendTestMessage(changeId: string): Promise<string> {
   try {
-    await signedFetch('POST', `/admin/settings/${encodeURIComponent(changeId)}/test-send`);
-    return 'The server accepted the test send.';
+    const answer = await signedFetch('POST', `/admin/settings/${encodeURIComponent(changeId)}/test-send`);
+    return new TextDecoder().decode(answer).trim() || 'Sent.';
   } catch (error) {
-    if (error instanceof ApiRefusal && error.status === 503) {
+    if (error instanceof ApiRefusal && (error.status === 502 || error.status === 503)) {
       return error.message;
     }
     throw error;

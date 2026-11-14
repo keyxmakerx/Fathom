@@ -143,7 +143,7 @@ name = "ring"
 # dependency of rustls and rustls-webpki (rustls's certificate checker, which
 # ring's provider brings) and of nothing else, so a second parent fails the build.
 wrappers = ["rustls", "rustls-webpki"]
-reason = "C7. ring carries C and assembly. WO-11 §7 trigger 4 says C7 is a decision and not a detail; this line is that trigger made mechanical, so a crypto provider cannot arrive under any other parent without failing the build. Allowed under rustls for outside vaults only (ADR-0071 part four, deps/decisions/ring.md)."
+reason = "C7. ring carries C and assembly. WO-11 §7 trigger 4 says C7 is a decision and not a detail; this line is that trigger made mechanical, so a crypto provider cannot arrive under any other parent without failing the build. Allowed under rustls for outside vaults (ADR-0071 part four) and SMTP to the operator's relay (widened 2026-11-02, ADR-0085 decision 9), and nothing else (deps/decisions/ring.md)."
 
 [[bans.deny]]
 name = "aws-lc-sys"

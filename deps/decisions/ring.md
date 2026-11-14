@@ -18,7 +18,7 @@ card r34-vault-ring with A: *"ring is allowed only underneath rustls, and only f
 outbound HTTPS to outside vaults. Please record that exception and keep the ban everywhere
 else."* This file is that record. `deny.toml` keeps `[[bans.deny]] name = "ring"` and adds
 `wrappers = ["rustls", "rustls-webpki"]`, so ring under any other parent still fails the build,
-and only `src/vault_outside/https.rs` names rustls.
+and only `src/vault_outside/https.rs` names rustls (and, since the widening below, `src/mail/smtp.rs`).
 
 ### Widened 2026-11-02: SMTP to the operator's relay
 
@@ -29,6 +29,12 @@ is allowed under rustls for two uses: outbound HTTPS to outside vaults, and outb
 relay set in the console's `smtp` setting. `wrappers` does not change, because `lettre` reaches
 ring only through rustls. A third use still needs its own decision. `lettre` and what it brings
 get their own records when the client is built.
+
+**Built 2026-11-14, without `lettre` so far.** `src/mail/smtp.rs` is a small SMTP client over the
+`tokio-rustls` already here, because `lettre` 0.11.23 with only its SMTP parts measured 34 new
+crates (`cargo tree`, Linux, normal edges, 2026-11-14), most of them `idna` and its ICU tables.
+It adds no crate and does not change `wrappers`. Sign-offs card r139 asks the owner whether to
+keep it or move to `lettre`; if `lettre`, its records and the closure list come with that move.
 
 
 ## Why not the alternatives

@@ -4,7 +4,8 @@
 //! **C7's one exception lives here.** rustls's `ring` provider carries C and assembly; the owner
 //! allowed it on 2026-10-26 (sign-off card r34-vault-ring, A) only underneath `rustls` and only
 //! for this. `deny.toml` keeps `ring` banned for every other parent, and nothing outside this
-//! module names `rustls` or `tokio_rustls`.
+//! module and `mail/smtp.rs` (the second use, SMTP to the operator's relay, approved 2026-11-02)
+//! names `rustls` or `tokio_rustls`.
 //!
 //! What it does, so a reviewer need not read rustls to know:
 //! - **Certificates are checked** against Mozilla's roots (`webpki-roots`), plus the operator's

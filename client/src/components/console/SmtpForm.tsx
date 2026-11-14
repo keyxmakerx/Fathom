@@ -19,10 +19,9 @@ import '../../styles/console.css';
  * So this form does not pretend to display what is stored: it writes a new
  * version, and shows when that version takes effect.
  *
- * **The test send has nothing behind it yet.** The route exists and answers
- * 503 with one sentence; that sentence is shown as it arrived, because a
- * console that said "sent" would be lying about the one thing this form is
- * for.
+ * **The test send is real** (ADR-0085): it sends with the saved, still pending
+ * settings to the operator's own address, and shows the mail server's answer
+ * as it arrived, whether it took the mail or not.
  */
 export interface SmtpFormProps {
   actingOperatorId: string;

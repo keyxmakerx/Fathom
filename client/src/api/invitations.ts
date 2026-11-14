@@ -35,12 +35,21 @@ export interface IssueRequest {
   capability: Asked;
   /** `null` is the whole organisation. */
   scopeId: string | null;
+  /** Mail the link to `email` as well (ADR-0085). The sign-in name is never mailed. */
+  mail?: boolean;
 }
 
-/** Body: `LP(name) LP(email or "") LP(capability) LP(scope or "")`. */
+/** Body: `LP(name) LP(email or "") LP(capability) LP(scope or "")`, then `LP("mail")` when the
+ * link is to be mailed too. */
 export function buildIssueBody(r: IssueRequest): Uint8Array {
-  return concatBytes(lp(utf8(r.name)), lp(utf8(r.email)), lp(utf8(r.capability)), lp(utf8(r.scopeId ?? '')));
+  const fields = [lp(utf8(r.name)), lp(utf8(r.email)), lp(utf8(r.capability)), lp(utf8(r.scopeId ?? ''))];
+  if (r.mail) fields.push(lp(utf8('mail')));
+  return concatBytes(...fields);
 }
+
+/** Whether the link also went in the mail: `queued` (Steward › Mail shows how it went), not asked
+ * for, no email typed, or the server has no address of its own to put in a link. */
+export type Mailed = 'no' | 'queued' | 'no-address' | 'not-set-up';
 
 /** What an issue answers, once: the link and token are not kept by the server. */
 export interface IssuedInvitation {
@@ -50,6 +59,7 @@ export interface IssuedInvitation {
   token: string;
   linkPath: string;
   expiresAtUnix: number;
+  mailed: Mailed;
 }
 
 export function parseIssued(bytes: Uint8Array): IssuedInvitation {
@@ -63,6 +73,7 @@ export function parseIssued(bytes: Uint8Array): IssuedInvitation {
     token,
     linkPath: str(r, 'link_path', 'invitation'),
     expiresAtUnix: int(r, 'expires_at_unix', 'invitation'),
+    mailed: r.mail === undefined ? 'no' : oneOf(r, 'mail', ['no', 'queued', 'no-address', 'not-set-up'] as const, 'invitation'),
   };
 }
 

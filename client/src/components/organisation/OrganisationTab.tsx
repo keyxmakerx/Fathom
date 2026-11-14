@@ -30,6 +30,7 @@ import { PasswordsPage } from '../vault/Screens';
 import { initialPageLink, showPageLink } from '../home/pageLink';
 import { FirmwareSettingsPage } from './FirmwareSettingsPage';
 import { DeviceReadingPage } from './DeviceReadingPage';
+import { MailPage } from './MailPage';
 import { shownRail } from './stewardRail';
 import { TeamsPage, ThroughTeams } from '../teams/TeamsPage';
 import './organisation.css';
@@ -195,6 +196,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   function content() {
     if (page.kind === 'firmware') return <FirmwareSettingsPage organisationId={org} />;
     if (page.kind === 'device-reading') return <DeviceReadingPage organisationId={org} />;
+    if (page.kind === 'mail') return <MailPage organisationId={org} />;
     if (page.kind === 'teams') return <TeamsPage organisation={org} where="steward" scopes={scopes.status === 'ready' ? scopes.value : []} grantable={folders} />;
     if (page.kind === 'passwords') {
       return <PasswordsPage organisation={org} organisationName={organisation.displayName} mode="admin" />;
