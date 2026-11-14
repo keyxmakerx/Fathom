@@ -121,7 +121,8 @@ fn shipped_tree_declaration_counts_hold() {
     // The IP plan store (schema 0.36): +75 field keys (562-636).
     // A plan's team (schema 0.38): +1 field key (637).
     // 572 -> 578: NAT on firewalls (638-643, schema 0.39).
-    assert_eq!(fk.entries.len(), 578, "field-key registry entries");
+    // 578 -> 579: where a thing sits along a shelf (`SitsOn.x_mm`, 644, schema 0.40).
+    assert_eq!(fk.entries.len(), 580, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -220,7 +221,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.36 -> 0.37 is a plan called off: one variant, `called_off`, on `MaintenancePlan.stage`.
     // 0.37 -> 0.38 is a plan's team: one optional field, `MaintenancePlan.team` (637).
     // 0.38 -> 0.39 is NAT on firewalls: NatPool, HasNatPool, NatRule.match_destination_port.
-    assert_eq!(tree.version.as_deref(), Some("0.39"));
+    // 0.39 -> 0.40 is where a thing sits along a shelf: one optional field, `SitsOn.x_mm` (644).
+    assert_eq!(tree.version.as_deref(), Some("0.40"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

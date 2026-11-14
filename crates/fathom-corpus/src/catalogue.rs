@@ -66,6 +66,9 @@ pub const PAIRED_GROUP_BLOCK: u32 = 12;
 const MAX_PORTS_PER_GROUP: u32 = 576;
 const MAX_PORT_NUMBER: u32 = 100_000;
 const MAX_RACK_UNITS: u32 = 60;
+/// Cap on each side of a model's `size_mm` (sign-off shelf-view): a 42U
+/// rack is about 2 m tall, so nothing real is bigger on any side.
+const MAX_SIZE_MM: u32 = 2_000;
 /// Cap on how many bays `psu_slots` may list (ADR-0050 §3/§4) — no real
 /// chassis is anywhere close; same "fail fast on a malformed file" spirit as
 /// [`MAX_PORTS_PER_GROUP`].
@@ -538,6 +541,18 @@ pub struct Source {
     pub read_on: String,
 }
 
+/// A model's outside size in millimetres, from the maker's sheet (sign-off
+/// shelf-view): `width` across the front face, `depth` front to back,
+/// `height` as it stands. Optional, because most makers' sheets were not read
+/// for it; the shelf view estimates a size from the ports when it is absent
+/// and draws that estimate with a dashed edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SizeMm {
+    pub width: u32,
+    pub depth: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct Model {
     pub vendor: String,
@@ -555,6 +570,8 @@ pub struct Model {
     /// `None` for every model whose faceplates and PSU slots already say
     /// enough on their own (module doc on [`ModelForm`]).
     pub form: Option<ModelForm>,
+    /// `None` unless the file records `size_mm:` ([`SizeMm`]).
+    pub size_mm: Option<SizeMm>,
 }
 
 impl Model {
@@ -781,7 +798,9 @@ const MODEL_KEYS: &[&str] = &[
     "psu_slots",
     "card_slots",
     "form",
+    "size_mm",
 ];
+const SIZE_KEYS: &[&str] = &["width", "depth", "height"];
 const SOURCE_KEYS: &[&str] = &["cite", "read_on"];
 const FACEPLATE_KEYS: &[&str] = &["face", "port_count", "port_groups"];
 const GROUP_KEYS: &[&str] = &["kind", "role", "layout", "count", "start_number", "names"];
@@ -884,6 +903,18 @@ fn load_model(
         }
     };
 
+    let size_mm = match root.get("size_mm") {
+        None => None,
+        Some(n) => {
+            refuse_unknown_keys(file, n, SIZE_KEYS)?;
+            Some(SizeMm {
+                width: req_u32_range(file, n, "width", 1, MAX_SIZE_MM)?,
+                depth: req_u32_range(file, n, "depth", 1, MAX_SIZE_MM)?,
+                height: req_u32_range(file, n, "height", 1, MAX_SIZE_MM)?,
+            })
+        }
+    };
+
     Ok(Model {
         vendor,
         model: model_name,
@@ -894,6 +925,7 @@ fn load_model(
         psu_slots,
         card_slots,
         form,
+        size_mm,
     })
 }
 
@@ -1401,6 +1433,36 @@ mod tests {
                    - {{ kind: \"RJ45\", role: access, layout: paired_columns, count: 12, start_number: 1 }}\n      \
                    - {{ kind: \"SFP+\", role: uplink, layout: paired_rows, count: 2, start_number: 1 }}\n"
         )
+    }
+
+    #[test]
+    fn a_size_is_read_when_given_and_absent_otherwise() {
+        let cat =
+            Catalogue::from_sources(&source(&good_model_text("")), "juniper", &juniper_vendors())
+                .expect("no size is fine");
+        assert_eq!(cat.models()[0].size_mm, None);
+        let text = good_model_text("size_mm: { width: 158, depth: 101, height: 25 }\n");
+        let cat = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect("a size loads");
+        assert_eq!(
+            cat.models()[0].size_mm,
+            Some(SizeMm {
+                width: 158,
+                depth: 101,
+                height: 25
+            })
+        );
+    }
+
+    #[test]
+    fn a_size_with_an_unknown_side_or_a_zero_is_refused() {
+        let text = good_model_text("size_mm: { width: 158, length: 101, height: 25 }\n");
+        let e = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect_err("length is not a side");
+        assert_eq!(e.gate, CatalogueGate::UnknownKey);
+        let text = good_model_text("size_mm: { width: 0, depth: 101, height: 25 }\n");
+        Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect_err("a side of 0 mm is not a size");
     }
 
     #[test]

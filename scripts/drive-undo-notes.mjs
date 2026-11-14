@@ -35,6 +35,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { check, fails, waitForServer } from './drive-lib/kit.mjs';
+import { openTheTrail } from './drive-lib/trail.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -116,19 +117,9 @@ check('drive-catalogue.json copied from drive-lib/catalogue.json', existsSync(PR
 let viteProc = null;
 let browser = null;
 
-/** The trail is folded to a strip on the right edge — open it before
- * reading `.racks-trail__row`. A refused undo opens it on its own, but
- * every scene here opens it up front so a screenshot always shows it. */
-async function openTheTrail(page) {
-  const handle = page.locator('button[aria-label="Open the trail"]');
-  if ((await handle.count()) > 0) {
-    await handle.click();
-  }
-}
-
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: CLIENT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -245,7 +245,7 @@ let browser = null;
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: CLIENT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -477,17 +477,32 @@ try {
     await page.locator('.react-flow__pane').click({ position: { x: 30, y: 600 } }).catch(() => {});
     await settle(page, 400);
 
-    // Right-click > Plan a firmware upgrade.
+    // Right-click > Plan a change > Firmware upgrade (sign-off r120): the form opens on "What kind of change?".
     await node('switch-1').click({ button: 'right' });
     await settle(page, 400);
     const items = await page.locator('.drawing-context-menu__item').allInnerTexts();
-    check('[menu] the right-click menu offers Plan a firmware upgrade', items.some((t) => /Plan a firmware upgrade/.test(t)), items.join(' | '));
+    check('[menu] the right-click menu offers Plan a change, and no separate firmware row', items.some((t) => /Plan a change/.test(t)) && !items.some((t) => /Plan a firmware upgrade/.test(t)), items.join(' | '));
     await shot(page, '10-context-menu');
-    await page.locator('.drawing-context-menu__item', { hasText: 'Plan a firmware upgrade' }).click();
+    await page.locator('.drawing-context-menu__item', { hasText: 'Plan a change' }).click();
     await page.waitForSelector('[data-testid=plans-panel]', { timeout: 10_000 });
+    await settle(page, 800);
+    const kinds = T(page, 'plans-kinds');
+    check('[kind] Plan a change on a switch opens on What kind of change?, naming it', (await kinds.count()) === 1 && /What kind of change\?[\s\S]*For switch-1/.test(await kinds.innerText()), (await kinds.innerText().catch(() => '')).slice(0, 200));
+    const kindWords = await kinds.locator('.plans-kinds__word').allInnerTexts();
+    check('[kind] every kind is a choice, Firmware upgrade before Other', kindWords.join('|') === 'Address|Route|Cable|Move|LAG|Swap a part|Firmware upgrade|Other', kindWords.join('|'));
+    check('[kind] focus is on the first choice', await page.evaluate(() => document.activeElement?.getAttribute('data-kind') === 'address'));
+    await shot(page, '10b-what-kind');
+    await kinds.locator('[data-kind=firmware]').click();
+    await settle(page, 400);
+    const addForm = T(page, 'plans-add-step');
+    const fwTo = await addForm.locator('[data-testid=plans-firmware-to]').innerText();
+    check('[kind] Firmware upgrade keeps switch-1 and says 21.4R3-S5 to 23.4R2, the model\'s version', /21\.4R3-S5 to 23\.4R2, the version chosen for EX2300-24P/.test(fwTo), fwTo);
+    await shot(page, '10c-firmware-choice');
+    await addForm.getByRole('button', { name: 'Add firmware upgrade' }).click();
     await settle(page, 1200);
     const band = (await T(page, 'plans-band').innerText()).replace(/\s+/g, ' ');
-    check('[plan] the plan is titled "Upgrade EX2300-24P to 23.4R2"', /Upgrade EX2300-24P to 23\.4R2/.test(band), band.slice(0, 200));
+    check('[plan] the plan is the one Plan a change made, "Change to switch-1"', /Change to switch-1/.test(band), band.slice(0, 200));
+    check('[kind] the form is ready for the next step: the question, or Add a step', (await T(page, 'plans-kinds').count()) === 1 || (await T(page, 'plans-panel').getByRole('button', { name: 'Add a step', exact: true }).count()) === 1);
     const stepCount = await T(page, 'plans-step').count();
     check('[plan] one step per documented step (8 for Junos)', stepCount >= 6, String(stepCount));
     const devText = (await T(page, 'plans-firmware').innerText()).replace(/\s+/g, ' ');

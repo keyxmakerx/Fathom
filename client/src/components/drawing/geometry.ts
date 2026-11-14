@@ -125,6 +125,8 @@ export const RAIL_PX = 28;
 
 /** The device column's width, both boards: 300 (frame) − 28 × 2 (rails). */
 export const RACK_INNER_PX = 244;
+/** A rack's drawn width. Lives here, not in RackNode, so a module that only needs the number does not pull the canvas library in. */
+export const RACK_NODE_WIDTH = RAIL_PX * 2 + RACK_INNER_PX;
 
 /** Room above the frame for the rack's own label row (`design/shell/Main.dc.html`'s
  * `text y="-1"` sitting above the frame's `y="0"`). */
@@ -162,6 +164,15 @@ export const RACK_HEADER_PX = 16;
  */
 export const CAMERA_STOPS = { closet: 87.5, rack: 100, faceplate: 200, inside: 300 } as const;
 export type CameraStop = keyof typeof CAMERA_STOPS;
+
+/** Below this zoom a device's name is a few pixels tall and cannot be read. */
+export const READABLE_ZOOM = 0.6;
+
+/** What the sample opens on: the whole closet when that is still readable, else the racks alone. Walls and
+ * desks are drawn to scale and can be several times a rack's size, which once left the first screen at 32%. */
+export function openingFit(wholeZoom: number): 'whole' | 'racks' {
+  return wholeZoom >= READABLE_ZOOM ? 'whole' : 'racks';
+}
 const STOP_ORDER: CameraStop[] = ['closet', 'rack', 'faceplate', 'inside'];
 
 /**

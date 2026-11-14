@@ -2,6 +2,7 @@
 // `handleEdit` calls it once per edit, and the Inventory table calls it in a loop for a bulk edit
 // or a paste so the whole thing is one save.
 
+import { setPortSpeed } from '../../document/portSpeed';
 import type { CatalogueModel } from '../../api/catalogue';
 import type { EditorChange } from '../drawing';
 import {
@@ -17,6 +18,7 @@ import {
   removeHolder,
   removeSketchPort,
   resizeShelf,
+  arrangeShelf,
 } from '../../document/commands';
 import { connectOneEnd, connectPorts, connectToOutside, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
 import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
@@ -185,7 +187,7 @@ export function applyEditorChange(
   } else if (change.kind === 'free-remove') {
     next = removeFree(doc, [change.id], opts);
   } else if (change.kind === 'port') {
-    next = change.field === 'console_baud' ? setPortConsoleBaud(doc, change.id, change.value, opts) : setPortMac(doc, change.id, change.value, opts);
+    next = change.field === 'console_baud' ? setPortConsoleBaud(doc, change.id, change.value, opts) : change.field === 'speed' ? setPortSpeed(doc, change.id, change.value, opts) : setPortMac(doc, change.id, change.value, opts);
   } else if (change.kind === 'add-sketch-ports') {
     next = addTemplatePorts(
       doc,
@@ -203,6 +205,8 @@ export function applyEditorChange(
     notice = `Copied to ${r.label}: ${r.devices} device${r.devices === 1 ? '' : 's'}, ${r.cables} cable${r.cables === 1 ? '' : 's'}.${r.skipped > 0 ? ` ${r.skipped} patch panel${r.skipped === 1 ? '' : 's'} or other passive${r.skipped === 1 ? ' was' : 's were'} left out.` : ''}`;
   } else if (change.kind === 'shelf-size') {
     next = resizeShelf(doc, change.id, { heightU: change.heightU, slots: change.slots }, { catalogue, ...opts });
+  } else if (change.kind === 'shelf-arrange') {
+    next = arrangeShelf(doc, change.id, change.positions, opts);
   } else if (change.kind === 'cable-run-add') {
     next = addCableRun(doc, change.hostId, { form: change.form, side: change.side, ...opts });
   } else if (change.kind === 'cable-run-remove') {

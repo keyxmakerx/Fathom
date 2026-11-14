@@ -76,8 +76,8 @@ export function rowsToRanges(rows: readonly Row[]): { ranges: ReadRange[] } | { 
 
 /** Why reading cannot be turned on here, or null. */
 export function notReadyWords(v: DeviceReading): string | null {
-  if (!v.server) return 'This server does not read devices. Its operator turns that on with FATHOM_DEVICE_READ=on and the reader profile.';
-  if (!v.reader) return 'This server allows reading, but its reader is not answering. Ask the server’s operator to start it.';
+  if (!v.server) return 'This server does not read devices. Whoever runs the server turns that on with FATHOM_DEVICE_READ=on and the reader profile.';
+  if (!v.reader) return 'This server allows reading, but its reader is not answering. Ask whoever runs the server to start it.';
   return null;
 }
 

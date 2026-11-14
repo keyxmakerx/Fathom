@@ -169,6 +169,8 @@ export interface DockTabProps {
   open: boolean;
   /** Something about this tab is going on that is not visible while it is folded. */
   marked?: boolean;
+  /** What the mark means, added to the hover text while the tab is marked. */
+  markNote?: string;
   testId?: string;
   /** A side tab's id, so focus can come back to its button when its panel folds. */
   sideId?: string;
@@ -176,14 +178,15 @@ export interface DockTabProps {
 }
 
 /** One labelled button on a folded edge. */
-export function DockTab({ label, name, open, marked, testId, sideId, onClick }: DockTabProps) {
+export function DockTab({ label, name, open, marked, markNote, testId, sideId, onClick }: DockTabProps) {
   const text = name ?? (open ? `Close ${label.toLowerCase()}` : `Open ${label.toLowerCase()}`);
+  const hover = marked && markNote ? `${text}. ${markNote}` : text;
   return (
     <button
       type="button"
       className={`dock-tab${open ? ' dock-tab--on' : ''}${marked ? ' dock-tab--marked' : ''}`}
       aria-label={text}
-      title={text}
+      title={hover}
       aria-expanded={open}
       data-testid={testId}
       data-side-tab={sideId}

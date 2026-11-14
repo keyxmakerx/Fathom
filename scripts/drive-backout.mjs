@@ -77,7 +77,7 @@ let browser = null;
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: CLIENT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -120,6 +120,13 @@ try {
   }
   const form = (page) => T(page, 'plans-add-step');
   const labelled = (page, text) => form(page).getByLabel(text, { exact: true });
+
+  // The form asks the kind first (sign-off r120); after a step is added it stays on that kind, with Change.
+  async function chooseKind(f, kind) {
+    const ask = f.locator('[data-testid=plans-kinds]');
+    if (!(await ask.count())) await f.getByRole('button', { name: 'Change', exact: true }).click();
+    await ask.locator(`[data-kind=${kind}]`).click();
+  }
 
   // Amber: a warm hue (about 25 to 55 degrees) with real saturation, in any colour a plan element draws with.
   const AMBER_SCAN = (root) => {
@@ -170,7 +177,7 @@ try {
     await settle(page);
 
     // The LAG kind is offered, and a drawn device with no pasted interfaces says what to do.
-    await labelled(page, 'Kind').selectOption('lag');
+    await chooseKind(form(page), 'lag');
     await pick(labelled(page, 'Device'), /fw-01/);
     await settle(page, 300);
     const members = await T(page, 'plans-lag-members').innerText();
@@ -178,19 +185,19 @@ try {
     await shot(page, '01-lag-no-interfaces');
 
     // A cable between two free ports, then an address.
-    await labelled(page, 'Kind').selectOption('cable');
+    await chooseKind(form(page), 'cable');
     await pick(labelled(page, 'From device'), /fw-01/);
     await pick(labelled(page, 'From port'), /^MGMT$/);
     await pick(labelled(page, 'To device'), /sw-02/);
     await pick(labelled(page, 'To port'), /^20$/);
     await form(page).getByRole('button', { name: 'Add step' }).click();
     await settle(page);
-    await labelled(page, 'Kind').selectOption('address');
+    await chooseKind(form(page), 'address');
     await pick(labelled(page, 'Device'), /sw-02/);
     await labelled(page, 'New management address').fill('10.0.1.1');
     await form(page).getByRole('button', { name: 'Add step' }).click();
     await settle(page);
-    await labelled(page, 'Kind').selectOption('other');
+    await chooseKind(form(page), 'other');
     await labelled(page, 'What changes').fill('Tell the office');
     await form(page).getByRole('button', { name: 'Add step' }).click();
     await settle(page);
@@ -226,7 +233,7 @@ try {
 
     // It is an ordinary plan: a step of its own goes in, then it runs.
     if ((await form(page).count()) === 0) await page.getByRole('button', { name: 'Add a step' }).click();
-    await labelled(page, 'Kind').selectOption('other');
+    await chooseKind(form(page), 'other');
     await labelled(page, 'What changes').fill('Clear the ARP cache on sw-02');
     await form(page).getByRole('button', { name: 'Add step' }).click();
     await settle(page);

@@ -126,7 +126,7 @@ const EXPLAINERS = [
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: CLIENT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

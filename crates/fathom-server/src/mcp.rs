@@ -46,7 +46,9 @@ const INSTRUCTIONS: &str = "Fathom holds network designs. This connection reads 
     in one organisation that the person who signed in chose, with only the detail they \
     allowed: layout, and if allowed addresses and notes. Layout includes each device's \
     cards (Card, seated by HasCard; its ports say OnCard), power supplies, and the optic in a \
-    port (the port's transceiver). Passwords, device secrets, serial numbers and the vault are \
+    port (the port's transceiver), and where a thing sits on a shelf (SitsOn's slot, x_mm \
+    along from the shelf's inside left edge and y_mm back from its front lip) and which side \
+    of its box a port is on (the port's face: front, rear, left, right or top). Passwords, device secrets, serial numbers and the vault are \
     never part of a reading. You can recommend a change with the recommend tool; a person \
     sees it in Fathom, marked as an AI idea, and accepts or dismisses it, on a computer or a \
     phone. You never change a design yourself. If whoami says mayChange you can also send \

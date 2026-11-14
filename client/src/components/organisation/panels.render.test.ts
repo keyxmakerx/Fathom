@@ -269,7 +269,7 @@ describe('Waiting for you', () => {
     expect(table).toContain('<th>Name</th>');
     expect(table).not.toContain('typed by the steward');
     expect(table).toContain('<span class="org-visually-hidden">Actions</span>');
-    expect(table).toContain('Key-check code');
+    expect(table).toContain('Check code');
     expect(table).toContain('QDMPW 1FAVF');
     expect(table).toContain('Key Maker');
     expect(table).toContain('p1@example.test');

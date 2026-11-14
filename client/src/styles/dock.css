@@ -280,3 +280,101 @@
 .dock-panel .dock-side .plans-panel__head {
   cursor: default;
 }
+
+/* r116: one head for every right-hand panel: its name, a ⋯ where it has a menu, and one fold arrow. */
+.panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  min-height: 36px;
+  padding: 0 var(--s3) 0 var(--s4);
+  background: var(--surface-2);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+.panel-head__name {
+  margin: 0;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.panel-head__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+}
+.panel-head__menu {
+  display: contents;
+}
+.panel-head__dots,
+.panel-head__fold {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--t-body);
+  cursor: pointer;
+}
+.panel-head__dots:hover,
+.panel-head__fold:hover {
+  background: var(--control-bg-hover);
+  color: var(--ink);
+}
+.panel-head .dev-more__button {
+  font-size: var(--t-body);
+}
+/* A panel that sits in a side slot keeps its own surface under the head. */
+.dock-panel .dock-side .panel-head {
+  background: var(--page);
+}
+
+/* The History panel's two tabs: the saves, and the trail. */
+.panel-tabs {
+  flex: none;
+  display: flex;
+  gap: var(--s3);
+  padding: 0 var(--s4);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
+}
+.panel-tabs__tab {
+  padding: var(--s2) 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+.panel-tabs__tab[aria-selected='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+  font-weight: 700;
+}
+.dock-panel > .panel-tabs + .shell-editor,
+.dock-panel > .panel-tabs + .shell-trail {
+  flex: 1 1 auto;
+}
+.panel-head[data-drag] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.dock-panel .dock-side .panel-head[data-drag] {
+  cursor: default;
+}

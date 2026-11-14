@@ -336,6 +336,11 @@ function matchWords(c: Comparison): string {
   return m.join(', ');
 }
 
+/** "14:05", in this person's own time. */
+function clockTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 function Refusal({ d, deviceId }: { d: Device; deviceId: string }) {
   const halt = d.state.halt;
   if (!halt || halt.kind !== 'failed') return null;
@@ -367,22 +372,44 @@ function Refusal({ d, deviceId }: { d: Device; deviceId: string }) {
   }
   const refusedLogin = halt.code === 'login_refused';
   const busyElsewhere = halt.code === 'already_reading';
+  const waiting = halt.code === 'cooling_down';
+  // A refused login waits before Fathom sends it to this device again (r117, finding 10).
+  const at = halt.retryAt != null ? clockTime(halt.retryAt) : null;
   return (
     <div className="read-fail" role="alert" data-testid="read-fail">
-      <b>{refusedLogin ? 'Not read: the login was refused' : busyElsewhere ? 'Not read: someone is reading it now' : 'Not read'}</b>
+      <b>
+        {refusedLogin
+          ? 'Not read: the login was refused'
+          : busyElsewhere
+            ? 'Not read: someone is reading it now'
+            : waiting
+              ? 'Not read: waiting after a refused login'
+              : 'Not read'}
+      </b>
       <span>
         {refusedLogin
           ? protocolOf(halt.read) === 'ssh'
-            ? 'The device answered SSH but refused this login. It was tried once and not again. Check the user and password on the login.'
+            ? 'The device answered SSH but refused this login. It was tried once and not again. Check the user and the password or key on the login.'
             : 'The device answered SNMP but not this login. Check its privacy password and authentication on the login.'
           : halt.message}
       </span>
+      {(refusedLogin || waiting) && at ? (
+        <span className="small muted" data-testid="read-wait">
+          {refusedLogin
+            ? `So repeated tries cannot lock the device’s account, Fathom sends this login to it again after ${at}, or straight away once the login is changed in the vault.`
+            : `Nothing was sent. Fathom sends this login to it again after ${at}.`}
+        </span>
+      ) : null}
       {d.place.canDraw ? (
         <span>
-          <button type="button" className="btn-small" onClick={again}>
-            Try again
-          </button>{' '}
-          {refusedLogin ? (
+          {waiting ? null : (
+            <>
+              <button type="button" className="btn-small" onClick={again}>
+                Try again
+              </button>{' '}
+            </>
+          )}
+          {refusedLogin || waiting ? (
             <button type="button" className="btn-small btn-quiet" onClick={() => window.dispatchEvent(new CustomEvent(SHOW_PANEL_TAB, { detail: { tab: 'logins' } }))}>
               Open the login
             </button>

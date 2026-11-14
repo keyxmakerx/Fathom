@@ -1572,7 +1572,8 @@
    the stand-in rack, and never in the way of a drop. */
 .drawing-empty-hint {
   position: absolute;
-  bottom: var(--s5);
+  /* Above the zoom pill (.shell-pill: bottom --s3, one control high) with a gap, so the two never stack. */
+  bottom: calc(var(--s3) + var(--control-h, 28px) + var(--s4));
   left: 50%;
   transform: translateX(-50%);
   max-width: 34em;
@@ -1672,15 +1673,18 @@
   color: var(--muted);
   cursor: default;
 }
-.drawing-context-menu__group {
-  padding: var(--s2) var(--s3) 2px;
-  font-size: var(--t-micro);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-  color: var(--muted);
+/* r116: the question "Add a rack…" asks after the click, when it is a number to type. */
+.drawing-ask {
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
 }
-.drawing-context-menu__group:not(:first-child) {
-  margin-top: var(--s1);
+.drawing-ask .drawing-context-menu__title {
+  padding-inline: 0;
+}
+
+/* r116: groups are divided by a rule, with no heading. */
+.drawing-context-menu__rule {
+  margin: var(--s1) 0;
   border-top: 1px solid var(--hairline);
 }
 
@@ -1834,6 +1838,18 @@
   padding: 2px var(--s2);
   pointer-events: auto;
   cursor: pointer;
+}
+
+/* A port's speed where its line meets the box (r109): small mono ink, haloed by the page so a line under it
+   stays readable. Never a box, never a colour. */
+.drawing-speed-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--muted);
+  paint-order: stroke;
+  stroke: var(--page);
+  stroke-width: 3px;
+  pointer-events: none;
 }
 
 /* The Links lens's Networks key (r109): each VLAN's colour as a short line, never a filled box. */

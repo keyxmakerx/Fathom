@@ -1,0 +1,30 @@
+# corpus/catalogue/homeassistant/green.yaml -- Home Assistant Green, a small smart-home hub.
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (a 112 mm
+# desktop box that sits on a shelf).
+# Added 2026-11-13 for sign-off shelf-view: the owner's bottom shelf holds one (homeassistant).
+# Read 2026-11-13: the Green v1.1 datasheet (green.home-assistant.io/resources/Green_v1.1_Datasheet.pdf):
+# "112 mm × 112 mm × 32 mm" and "Gigabit Ethernet port"; also "2x USB 2.0 Type-A Host ports", "HDMI
+# port, for diagnostic purposes only", "DC barrel connector" and "MicroSD slot" (none recorded: PortKind
+# has no USB or HDMI). The Seeed/OpenELAB guide (openelab.io, read 2026-11-13) says the Green "has three
+# front-panel LEDs", and peyanski.com's review captions separate "Front" and "Back" photographs.
+# NOT CONFIRMED IN WORDS: that the Ethernet port is on the back. No page read says which side it is on;
+# "rear" follows the front being the LED panel. The sign-off card asks the owner to confirm.
+vendor: homeassistant
+model: Green
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Home Assistant Green v1.1 datasheet (green.home-assistant.io), read 2026-11-13, for
+    112 x 112 x 32 mm and one Gigabit Ethernet port. Its side is not stated in words: rear,
+    because the front carries the three LEDs (OpenELAB's Green guide, read 2026-11-13).
+  read_on: "2026-11-13"
+size_mm: { width: 112, depth: 112, height: 32 }
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 1
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 1, start_number: 1 }

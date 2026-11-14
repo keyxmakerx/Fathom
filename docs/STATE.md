@@ -367,6 +367,13 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   browser, shows the recovery key once, then forgets it (ADR-0057). Not on the console: the two-person
   verbs (no assertion by the enrolled key yet), the site trail, an account list. ADR-0068's Admin rework
   (Health first, a left-hand section list, Engines) is decided, not built.
+- **First Home for the person who set the server up** (ADR-0069; sign-off r123): with no organisation yet, two
+  cards side by side. Open practice lab makes the practice space and opens the home lab. **Start your own
+  network** takes a name (filled in as Home network), shows the new organisation's recovery key once in the
+  card, and on Start drawing makes the organisation by Admin's own two acts (shell, then claim from the
+  account), a site of the same name and an empty design, and opens it. A failure part way keeps what was made
+  and the next press carries on. No server change; `components/home/ownNetwork.ts`,
+  `scripts/drive-own-network.mjs`.
 - **Home** has tabs (ADR-0060 decision 7): Designs, Passwords, Steward (called Organisation until
   2026-10-27; admins and folder stewards; a rail of People, Waiting for you (N), Folders, Passwords, AI
   and AI rules), AI (someone named to connect AI apps who stewards nothing: the AI page alone), and
@@ -560,6 +567,19 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   always list Remove, greyed with what is still on them until they are empty (one undo step); Delete and
   Ctrl K's Delete do the same on a selected one. A wall clicked on its face opens a small panel (name,
   what is on it, cable runs). Empty canvas offers a 42U, 24U or 12U rack, or a wall. A reader gets Details.
+- **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
+  Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
+  pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right
+  panel has one head (`shell/PanelHead.tsx`); the Trail is a tab inside History; Layers and Look are two
+  pop-overs. A click gives the quick card when Details is folded and fills Details when it is open
+  (`shell/clickAnswer.ts`); a double-click goes in (`drawing/doubleClick.ts`). Menus are shorter (device
+  10 rows, rack 7, empty canvas 8) and ports, cables and portal trays have their own; Ctrl K still finds
+  every action. The entries above and below describe r58 and r66 as first built; where they differ, this
+  one is current. Inventory and Sheet have a Checks tab on the edge too (sign-off r120): the design's one
+  engine and mirror live in `design/useDesignEngine.ts`, held by DesignPlace and shared by both places, so
+  switching view never boots it again. There the panel stays folded until opened, has no Show, and a name in
+  it opens that item's page (`inventory/elementRow.ts`). Firmware is a choice inside Plan a change (sign-off
+  r120; see Maintenance plans) and stays in the panel's Firmware section and Ctrl K. The browser drive scripts were edited for the new layout but not run.
 - **Quick card and peek** (sign-off r59, r66; `drawing/quickCard.ts`, `scripts/drive-quick-card.mjs`). A
   click on a device (or one of its ports), rack, shelf, cable or free box also puts a small card beside
   it on a dotted line: what it is, its name, the management address with Copy, model, place and ports,
@@ -567,8 +587,22 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card.
 - **Shelves** (r56, `scripts/drive-shelf-room.mjs`). A shelf draws as a tray: hairline sides, an ink lip
   the things stand on 2px clear of, its name as a caption, names whole, what does not fit folded into one
-  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens everything on it front-on,
-  slot by slot, empty slots hatched; the bar's path and Esc lead back out. Each rack line is drawn once
+  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens the shelf drawn twice,
+  lined up (sign-off shelf-view, answer C, schema 0.40): a strip seen from above (at half depth, 300 mm
+  deep) over the shelf seen from the front between the rack's posts, to scale. Dashed lines join each
+  thing's two drawings and pointing at either lights both. Each thing sits at its `SitsOn.x_mm` and
+  `SitsOn.y_mm` (back from the lip), or is packed by slot along the front until someone drags it; a writer
+  drags it left or right in either view, or back and forward in the strip (snapping to neighbours and 10 mm
+  steps, Alt to place freely, arrow keys too) and the slots follow the order. A box is the catalogue's
+  `size_mm` when its model records one (solid edge: ten desktop models so far) or a guess from its ports
+  (dashed edge). Cables hang from
+  their ports with the restored physics (`drawing/cablePhysics.ts`) and swing after a move; one leaving
+  the view runs up or down the nearer post to a tag. **Front, Right, Back and Left** walk round it (version
+  3): from an end the shelf is 300 mm across, the strip turns with the view, and side ports show there.
+  A writer runs a cable by clicking a free port, then the port at the other end on any side. An AI
+  connection reads and may propose `SitsOn.x_mm`/`y_mm` (layout), and an AI idea the ideas panel shows is
+  drawn on the shelf as it would leave it, in the plan colour, with dragging off until it is accepted. The bar's
+  path and Esc lead back out. Each rack line is drawn once
   (a shared edge between stacked devices is one line) and a device's name sits level with its U number.
 - **The panel** (r57, r60, r65). Its foot sits on the bottom edge on every tab; inside an opened device
   it says **Back** instead of Open inside. It ends with **Also in**: the plans that touch the device, its
@@ -600,6 +634,10 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   returning keeps the list, filter, sort, Where, scroll, the open page and its tab, and Parts' On hand. Only
   something newly picked on the canvas is carried back (r60), opened over the same list. The Work tab keeps
   its filters for the session. `scripts/drive-keep-place.mjs` drives it.
+- **The Sheet stays a spreadsheet** (owner, 2026-11-12; sign-off r127). On the Sheet a click only selects a
+  cell; double-click, Enter, F2 or typing edits any editable cell, the name too. A row's page opens only from
+  the small ↗ in its first cell or Ctrl Enter. Inventory keeps its list, where a click on the name opens the
+  page. After an edit closes, the keys go back to the grid. `scripts/drive-keep-place.mjs` step 5 drives it.
 - **Notes** are nodes on a device, port or rack: pasted through the gate or stored as typed, and saying so.
 - **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
   refuses by name. The trail shows sealed and pending, with a comment on the next change.
@@ -649,8 +687,8 @@ a credential in issue text. Logic: `components/troubleshoot/`, `document/issues.
 **Firmware** (ADR-0045, ADR-0064; schema 0.19, field keys 405-411; migration 0038). Inventory › Firmware
 lists staged images (version, models, SHA-256, running, behind, plans) with upload; Inventory › Models sets
 a model's chosen version and holds devices back with a reason. Check `fw.device.behind-chosen-version`
-flags a device behind its model's version. "Plan a firmware upgrade" (right-click, device page, or for every
-behind device) makes a maintenance plan with the vendor's steps for Junos, IOS XE, NX-OS or EOS; the
+flags a device behind its model's version. "Plan a firmware upgrade" (Plan a change's Firmware upgrade
+choice, the device panel's Firmware section, Ctrl K, or for every behind device) makes a maintenance plan with the vendor's steps for Junos, IOS XE, NX-OS or EOS; the
 device fetches its image with a one-time link. The fetch step and the image page also offer **From Windows**
 and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
 from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
@@ -728,6 +766,13 @@ server, access point). Per browser and design, never saved.
 touches with Why? cards via `OP_PLAN_PREVIEW`), Do (teal checklist, one live step, Done or Went
 differently), Record (outcome, never edited again). Right-click "Plan a change". Steps apply through the
 ordinary edit path; plan text is gated like notes.
+The add-step form opens on **What kind of change?** (sign-off r120; `plans/AddStepForm.tsx`): one row per
+kind, then that kind's fields, with Change to go back. Plan a change on a device or its chassis opens on
+the question with the device filled in; on a port, cable or part it goes straight to the fields. With
+Draw or steward the list also has **Firmware upgrade** (main line only, not an If path): pick the
+device, it says the version it goes to, and Add firmware upgrade puts the same steps and three checks
+the Firmware section writes into this plan. A device with no chosen version says so and offers its
+model's Firmware page.
 A **LAG** step (schema 0.25) picks a device, ticks two or more of its member interfaces (so the
 config must be pasted first), names it (the next free ae, bond or Port-channel by platform) and sets
 LACP; Done builds the AggregateInterface and its member edges in one undo step. The far end is its own
@@ -772,7 +817,11 @@ schema change). With the Links lens lit, the Diagram look draws an access line i
 (ink with a page core), and every line's weight by the slower end's `Interface.speed` (none set draws the
 copper weight). A Networks key sits bottom left. Boxes are never coloured. In the Rack look the lens says it
 draws in the Diagram look and offers to switch. `components/drawing/linksLens.ts`;
-`scripts/drive-links-lens.mjs` drives it. Nothing yet sets `Interface.speed` by hand (r109 item 5).
+`scripts/drive-links-lens.mjs` drives it. A port's panel has a **Speed** field (r109 item 5; `document/portSpeed.ts`):
+typed as `10G`, `2.5G`, `100M` or bits per second, stored as `Interface.speed` on the port's interface, which
+it creates, named after the port, when a hand-drawn port has none. The Diagram look tags each set speed in
+small mono where the line meets the box, in every lens; a second line meeting the box at the same spot puts
+its tag on the other side.
 
 **Routing lens on the canvas** (sign-off r101, option A; no schema change). With the Routing lens lit, the
 Diagram look writes on the same boxes: a device that routes says `ROUTES · n TABLES`, a VLAN gateway says
@@ -892,6 +941,16 @@ Add and Add cable are ordinary edits; Accept all is one undo step; Dismiss holds
 something else. MAC and ARP are read on request, with Find, what changed since the last, and CSV. Not
 built: port descriptions (the drawing keeps none on a physical port), logins by folder, scheduled reads,
 SSH (next).
+
+**Device reading, a wait after a refused login and SSH key logins** (sign-off r117, findings 10 and 11;
+migration 0078; draft). When a device refuses a login, Fathom will not send that login to that device
+again for a minute, then 15 minutes after a second refusal in a row, then an hour each time after that
+(`device_reading::WAITS_SECS`); a read that works, or the login changed in the vault, ends the wait, and a
+run more than a day old starts again. While it waits nothing is opened, sent or filed, and the Readings tab
+says until when. A vault login can sign in with an SSH key instead of a password: an Ed25519 key made in the
+browser or an unencrypted Ed25519 or ECDSA key pasted (RSA and keys with a passphrase are refused), kept as
+the login's sealed secret, with its public key shown to put on the device. The reader signs with it, so
+the device is never handed a secret.
 
 **Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
 `components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is
@@ -1028,6 +1087,12 @@ keeps its keys, and makes, restore-tests and opens one backup. The backup servic
 the operator's reverse proxy's job; the browser's WebCrypto needs it for sign-in. The operator
 console can be confined to host names and source ranges (`FATHOM_ADMIN_HOSTS`,
 `FATHOM_ADMIN_SOURCES`); elsewhere its paths are 404.
+
+**The client loads in pieces, compressed.** Sign-in, enrolment and the shell are the first file; Home, the
+design canvas, the Admin console, Account and the AI connect page each load when first opened
+(`React.lazy` in `client/src/App.tsx`). `npm run build` ends with `client/scripts/precompress.mjs`, which writes
+`.br` and `.gz` beside every compressible file; the server sends them to a browser that accepts them
+(`Accept-Encoding`) and never compresses anything itself. No package was added.
 
 **A client's address is one rule for every route** (`client_address.rs`). `X-Forwarded-For` is
 believed only from `FATHOM_TRUSTED_PROXIES`, across every line of the header: the client is the last

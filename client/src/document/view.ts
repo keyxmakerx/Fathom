@@ -13,6 +13,7 @@
 // `SitsOn` / `FixedTo` is live for it — `commands.ts`'s `movePlacement` is
 // this module's write-side mirror: exactly one of the three survives.
 
+import { portSpeed } from './portSpeed';
 import { cableRunsOf, type CableRunView } from './cableRuns';
 import { cardOfPort, cardsOf, opticOf, type CardView, type Optic } from './cards';
 import { connectorTokenOf, isPortFace, type PortFace } from './compat';
@@ -21,6 +22,7 @@ import type {
   CataloguePort,
   CatalogueFaceplate,
   CatalogueModel,
+  CatalogueSize,
   CataloguePsuSlot,
   CatalogueSlotPosition,
 } from '../api/catalogue';
@@ -145,6 +147,8 @@ export interface PortView {
   mac?: string;
   /** Schema 0.33 — a console port's speed in bits per second (ADR-0080 decision 10). */
   consoleBaud?: number;
+  /** Its interface's configured speed (`Interface.speed`), in bits per second (sign-off r109). */
+  speedBps?: number;
   /** Schema 0.28 — the card this port is on (`OnCard`), absent for a port fixed to the chassis. */
   cardId?: string;
   /** Schema 0.28 — the optic in the cage: absent when nobody looked, `null` for an empty cage. */
@@ -262,6 +266,15 @@ export interface OccupantView {
   label: string;
   model: string | null;
   slot: number;
+  /** `SitsOn.x_mm` (schema 0.40): millimetres from the shelf's inside left edge, or `null` when
+   * nobody has placed it by hand yet (the shelf view then lays it out by slot). */
+  xMm?: number | null;
+  /** `SitsOn.y_mm` (schema 0.40): millimetres back from the shelf's front lip, or `null` when it is
+   * pushed to the front, which is where nobody has moved it from. */
+  yMm?: number | null;
+  /** The catalogue's outside size for its model, when the catalogue records one (sign-off
+   * shelf-view); otherwise the shelf view estimates one from the ports. */
+  sizeMm?: CatalogueSize;
   ports: PortView[];
   /** True when this occupant has no catalogue model and at least one port
    * (the same rule `ChassisView.sketch` uses, generalised to a passive
@@ -600,9 +613,11 @@ function portView(
   const explicit = explicitFaceOf(fields.face);
   const cardId = cardOfPort(doc, portId);
   const optic = node ? opticOf(node) : undefined;
+  const speed = node ? portSpeed(doc, portId) : null;
   const extra = {
     ...(cardId !== null ? { cardId } : {}),
     ...(optic !== undefined ? { optic } : {}),
+    ...(speed !== null ? { speedBps: speed } : {}),
   };
   for (const faceplate of faceplates) {
     const match = faceplatePortMatch(faceplate, label, connector);
@@ -900,7 +915,10 @@ function occupantView(
   const itemId = sitsOnEdge.from;
   const node = findNode(doc, itemId);
   if (!node || !isLiveNode(node)) return undefined;
-  const slot = readSitsOnFields(sitsOnEdge).slot ?? 0;
+  const sits = readSitsOnFields(sitsOnEdge);
+  const slot = sits.slot ?? 0;
+  const xMm = sits.xMm ?? null;
+  const yMm = sits.yMm ?? null;
   const hasPorts = edgesOut(doc, itemId, 'HasPort');
 
   if (isNodeOfKind(itemId, 'Chassis')) {
@@ -932,6 +950,9 @@ function occupantView(
       label,
       model,
       slot,
+      xMm,
+      yMm,
+      ...(catalogueModel?.sizeMm ? { sizeMm: catalogueModel.sizeMm } : {}),
       ports,
       sketch: chassisFields.model === undefined && hasPorts.length > 0,
       ...withChassis(doc, itemId, catalogue, closetRackIds),
@@ -953,6 +974,9 @@ function occupantView(
     label: passiveFields.label ?? '',
     model,
     slot,
+    xMm,
+    yMm,
+    ...(catalogueModel?.sizeMm ? { sizeMm: catalogueModel.sizeMm } : {}),
     ports,
     sketch: passiveFields.model === undefined && hasPorts.length > 0,
   };

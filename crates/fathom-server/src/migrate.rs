@@ -478,6 +478,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0077_device_read_ssh.sql",
         sql: include_str!("../migrations/0077_device_read_ssh.sql"),
     },
+    // A wait after a device refuses a login, so repeated presses cannot lock its account
+    // (sign-off r117, finding 10).
+    Migration {
+        version: 78,
+        name: "0078_device_read_refusals.sql",
+        sql: include_str!("../migrations/0078_device_read_refusals.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

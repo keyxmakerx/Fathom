@@ -13,6 +13,7 @@ import { prefersReducedMotion } from '../drawing/motion';
 import { openElsewhere } from '../../api/estate';
 import type { TraceController } from './useTraceController';
 import type { Elsewhere } from './traceElsewhere';
+import { PanelHead } from '../shell/PanelHead';
 import { ThingName } from '../shell/ThingName';
 import './trace.css';
 
@@ -141,14 +142,10 @@ export function TracePanel({
         }
       }}
     >
-      <div className="trace-panel__head">
-        <h2 className="trace-panel__title">
-          <ThingName ids={[from.deviceId]}>{from.label}</ThingName> → {target != null ? <ThingName ids={[target.deviceId]}>{target.label}</ThingName> : result != null ? result.to : '…'}
-        </h2>
-        <button type="button" className="trace-link" onClick={controller.close} aria-label="Close the trace">
-          Close
-        </button>
-      </div>
+      <PanelHead name="Trace" onFold={controller.close} />
+      <h3 className="trace-panel__title">
+        <ThingName ids={[from.deviceId]}>{from.label}</ThingName> → {target != null ? <ThingName ids={[target.deviceId]}>{target.label}</ThingName> : result != null ? result.to : '…'}
+      </h3>
 
       <label className="trace-field">
         <span className="trace-muted">To</span>

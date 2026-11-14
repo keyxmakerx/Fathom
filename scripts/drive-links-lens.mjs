@@ -47,7 +47,7 @@ copyFileSync(DRIVE_LIB + '/catalogue.json', PREVIEW_CATALOGUE);
 let viteProc = null;
 let browser = null;
 try {
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], { cwd: CLIENT, stdio: ['ignore', 'pipe', 'pipe'] });
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], { cwd: CLIENT, stdio: ['ignore', 'pipe', 'pipe'] });
   let viteLog = '';
   viteProc.stdout.on('data', (d) => { viteLog += d.toString(); });
   viteProc.stderr.on('data', (d) => { viteLog += d.toString(); });
@@ -90,6 +90,14 @@ try {
   check('a 10G line is drawn thicker than a 1G line', widths.includes('3.6px') && widths.includes('1.8px'), widths.join(' '));
   check('the boxes are not coloured', (await page.locator('.drawing-diagram-box[style*="vlan"]').count()) === 0);
   await page.screenshot({ path: SHOTS + 'links-lens-on.png' });
+  // Speed tags (r109 item 5): where each line meets a box, in every lens.
+  const tags = await page.getByTestId('diagram-speed-tag').allTextContents();
+  check('each set port speed is tagged where its line meets the box', tags.filter((t) => t === '10G').length === 4 && tags.filter((t) => t === '1G').length === 4, tags.join(' '));
+  await page.getByRole('button', { name: 'Cables', exact: true }).click();
+  await page.waitForTimeout(300);
+  check('the speed tags stay under the Cables lens', (await page.getByTestId('diagram-speed-tag').count()) === 8);
+  await page.screenshot({ path: SHOTS + 'speed-tags-cables.png' });
+
   check('no page errors', pageErrors.length === 0, pageErrors.join(' | '));
 } finally {
   if (browser) await browser.close().catch(() => {});

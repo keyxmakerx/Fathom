@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ChassisView, ClosetView } from './contract';
-import { quickCard, roleWord } from './quickCard';
+import { quickCard, quickPortCard, roleWord } from './quickCard';
 
 const port = (id: string, cabled: boolean) =>
   ({ id, label: id, connector: 'rj45', face: 'front', cable: cabled ? { cableId: 'k1', farPortId: 'p9', farChassisId: 'c2', outsideCloset: false } : null }) as unknown as ChassisView['ports'][number];
@@ -66,5 +66,21 @@ describe('quickCard', () => {
     expect(roleWord('access_point')).toBe('Access point');
     expect(roleWord(null)).toBe('Device');
     expect(roleWord('  ')).toBe('Device');
+  });
+});
+
+describe('quickPortCard (r116: a click on a port has a card of its own)', () => {
+  it('is the port peek\'s title and rows under the word Port, with no address to copy', () => {
+    const card = quickPortCard(null, VIEW, 'p1')!;
+    expect(card.kind).toBe('Port');
+    expect(card.title).toBe('p1');
+    expect(card.address).toBeNull();
+    expect(card.opens).toBe(false);
+    expect(card.rows.map((r) => r.key)).toEqual(['To', 'VLAN', 'Cable']);
+    expect(card.rows.find((r) => r.key === 'To')!.value).toContain('painite');
+  });
+  it('says Not connected for a free port, and has none for a port that is not here', () => {
+    expect(quickPortCard(null, VIEW, 'p2')!.rows.find((r) => r.key === 'To')!.empty).toBe(true);
+    expect(quickPortCard(null, VIEW, 'nope')).toBeNull();
   });
 });

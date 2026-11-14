@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FormEvent } from 'react';
 
 import { beginSignIn, completeSignIn, isSecondFactorNeeded, signOut, type SignInChallenge } from './api/auth';
@@ -6,6 +6,7 @@ import { identityOfSlot, PRINCIPAL_KIND_OPERATOR } from './api/constants';
 import { appCodeEnrolmentRequired } from './api/credentials';
 import { ApiRefusal } from './api/errors';
 import { makePracticeSpace } from './components/home/practiceSpace';
+import { describeOwnNetworkFailure, makeOwnNetwork, OwnNetworkFailure, type OwnNetworkProgress, type PreparedOwnNetwork } from './components/home/ownNetwork';
 import {
   beginOperatorBootstrap,
   completeOperatorBootstrap,
@@ -21,17 +22,13 @@ import { OPEN_ELSEWHERE_EVENT } from './api/estate';
 import { isPhoneNow } from './components/phone/usePhone';
 import { PhoneHomeScan } from './components/phone/PhoneHomeScan';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
-import { Account } from './components/Account';
-import { ConnectAiApp } from './components/ai/ConnectAiApp';
-import { ClaimOrganisation } from './components/claim';
 import { TermixOrganisation } from './components/termix/useTermix';
 import { TypeItYourself } from './components/typing/typeItYourself';
-import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
 import { FirstRun } from './components/FirstRun';
 import { InviteWhileSignedIn } from './components/InviteWhileSignedIn';
 import { Reset, tokenFromLocation } from './components/Reset';
-import { Home, type HomeTab } from './components/home';
+import type { HomeTab } from './components/home';
 import { initialPageLink } from './components/home/pageLink';
 
 /** The Home tab the address asks for (`#admin/…`, `#steward/…`; r71), else Designs. */
@@ -45,7 +42,6 @@ import type { Lens, Place, ShellProps } from './components/Shell';
 import { saveLook } from './components/drawing/look';
 import { loadResume } from './components/design/resume';
 import { saveSheet } from './components/inventory/sheetPref';
-import { DesignPlace } from './components/design/DesignPlace';
 import { canDrawFor } from './components/design/useDesignSession';
 import { LENSES_IN } from './components/shell/lens';
 import { PopoverRow, usePopoverClose } from './components/shell/Popover';
@@ -53,6 +49,7 @@ import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
 import { generateKeyPair, listKeySlots } from './crypto/keys';
 import { initialsFromAddress } from './initials';
+import { selfMark } from './selfMark';
 import { installExpiryTimers } from './state/expiryTimers';
 import { takeSignedOutNotice } from './state/signedOutNotice';
 import {
@@ -66,6 +63,23 @@ import {
   type ActiveSession,
 } from './state/sessionState';
 import { claimThisTab, loadAccountSession, sweepStaleTabSessions } from './state/tabSessions';
+
+// Split from the first screen: sign-in, enrolment and the Home list load at once; the design
+// canvas (React Flow and the engine's callers), the Admin console, Account settings, the AI
+// connect page and the claim flow each arrive as their own file when first opened.
+const Account = lazy(() => import('./components/Account').then((m) => ({ default: m.Account })));
+const ConnectAiApp = lazy(() => import('./components/ai/ConnectAiApp').then((m) => ({ default: m.ConnectAiApp })));
+const ClaimOrganisation = lazy(() => import('./components/claim').then((m) => ({ default: m.ClaimOrganisation })));
+const Home = lazy(() => import('./components/home').then((m) => ({ default: m.Home })));
+const Console = lazy(() => import('./components/console/Console').then((m) => ({ default: m.Console })));
+const DesignPlace = lazy(() => import('./components/design/DesignPlace').then((m) => ({ default: m.DesignPlace })));
+
+/** What shows while one of those files is on its way. */
+function Arriving({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<p role="status" className="arriving">Loading…</p>}>{children}</Suspense>
+  );
+}
 
 /**
  * Which door an unsigned-in visitor is at. Three since ADR-0056 decision 1
@@ -522,6 +536,49 @@ export default function App() {
   }
   // --- end ADR-0055 console entry --------------------------------------
 
+  // Sign-off r123: "Start your own network". Admin's own act first, like the practice space, so the same code prompt
+  // may be asked for; then the claim, the site and an empty design, which opens. A failure part way keeps what was made,
+  // and the next press carries on from it.
+  const [ownBusy, setOwnBusy] = useState(false);
+  const [ownError, setOwnError] = useState<string | null>(null);
+  const ownProgress = useRef<{ prepared: PreparedOwnNetwork; progress: OwnNetworkProgress } | null>(null);
+  const [codeAskedBy, setCodeAskedBy] = useState<'practice' | 'own'>('practice');
+  async function makeOwn(name: string, prepared: PreparedOwnNetwork): Promise<boolean> {
+    const accountSession = getSessionOn(ACCOUNT_PLANE);
+    if (!accountSession) return false;
+    setCodeAskedBy('own');
+    setOwnBusy(true);
+    setOwnError(null);
+    try {
+      if (!getSessionOn(OPERATOR_PLANE)) {
+        await enterConsole(() => {});
+        if (!getSessionOn(OPERATOR_PLANE)) {
+          setOwnError('Admin needs your verification code first. Type it above, then press Start drawing again.');
+          return false;
+        }
+      }
+      const from = ownProgress.current?.prepared === prepared ? ownProgress.current.progress : {};
+      const made = await makeOwnNetwork(name, prepared, accountSession.address, accountSession.accountId, from);
+      ownProgress.current = null;
+      const organisation = (await fetchOrganisations()).find((o) => o.organisationId === made.organisationId);
+      setPlane(ACCOUNT_PLANE);
+      setHomeTab('designs');
+      setDirectEntrySession(accountSession.sessionId);
+      if (organisation) openIn('racks')(organisation, made.design);
+      else setView({ kind: 'home' });
+      return true;
+    } catch (error) {
+      console.error(error);
+      setPlane(ACCOUNT_PLANE);
+      if (error instanceof OwnNetworkFailure) ownProgress.current = { prepared, progress: error.progress };
+      const cause = error instanceof OwnNetworkFailure ? error.cause : error;
+      setOwnError(describeOwnNetworkFailure(error, cause instanceof ApiRefusal ? cause.message : null));
+      return false;
+    } finally {
+      setOwnBusy(false);
+    }
+  }
+
   // ADR-0069: the practice space. Making it is Admin's own act, so it needs the operator session first; when that
   // waits on a verification code, the prompt shows on the practice card and the next press carries on.
   const [practiceBusy, setPracticeBusy] = useState(false);
@@ -530,6 +587,7 @@ export default function App() {
   async function makePractice(): Promise<string | null> {
     const accountSession = getSessionOn(ACCOUNT_PLANE);
     if (!accountSession) return null;
+    setCodeAskedBy('practice');
     setPracticeBusy(true);
     setPracticeError(null);
     try {
@@ -823,6 +881,7 @@ export default function App() {
 
   if (connectQuery !== null && session.kind === 'steward') {
     return (
+<Arriving>
       <ConnectAiApp
         query={connectQuery}
         onLeave={() => {
@@ -830,6 +889,7 @@ export default function App() {
           setConnectQuery(null);
         }}
       />
+</Arriving>
     );
   }
 
@@ -840,6 +900,7 @@ export default function App() {
   // way in is a text button above Home rather than a new region.
   if (accountOpen && session.kind === 'steward') {
     return (
+<Arriving>
       <Account
         address={session.address}
         focus={accountFocus}
@@ -855,6 +916,7 @@ export default function App() {
           )
         }
       />
+</Arriving>
     );
   }
 
@@ -862,6 +924,7 @@ export default function App() {
   // session to redeem against, so it never renders for the operator plane.
   if (claiming !== null && session.kind === 'steward') {
     return (
+<Arriving>
       <ClaimOrganisation
         accountAddress={session.address}
         accountId={session.accountId}
@@ -874,6 +937,7 @@ export default function App() {
         }}
         onCancel={() => setClaiming(null)}
       />
+</Arriving>
     );
   }
 
@@ -881,11 +945,13 @@ export default function App() {
   // reachable from this session until the authenticator app is enrolled.
   if (appCodeNeeded === true) {
     return (
+<Arriving>
       <Account
         address={session.address}
         purpose="app-code"
         onDone={() => setAppCodeNeeded(false)}
       />
+</Arriving>
     );
   }
 
@@ -901,7 +967,7 @@ export default function App() {
   const account =
     session.kind === 'operator' && accountSession === null
       ? { initials: 'OP', address: session.address }
-      : { initials: initialsFromAddress((accountSession ?? session).address), address: (accountSession ?? session).address };
+      : { initials: selfMark((accountSession ?? session).address) ?? initialsFromAddress((accountSession ?? session).address), address: (accountSession ?? session).address };
   const backToHome = (tab: HomeTab = 'designs') => {
     setHomeTab(tab);
     setView({ kind: 'home' });
@@ -960,7 +1026,11 @@ export default function App() {
     session.kind === 'operator'
       ? {
           onOpen: () => {},
-          panel: <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />,
+          panel: (
+            <Arriving>
+              <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />
+            </Arriving>
+          ),
         }
       : consoleHost && !custodyRefused && !waitingInvitee
       ? {
@@ -1028,7 +1098,9 @@ export default function App() {
     // (`admin.rs`'s module header), so neither place is marked.
     return (
       <Shell {...common} place={null} path={[{ label: 'Admin' }]} tree={null} onPlaceChange={() => {}}>
-        <Console operatorId={session.address} />
+        <Arriving>
+          <Console operatorId={session.address} />
+        </Arriving>
       </Shell>
     );
   }
@@ -1053,6 +1125,7 @@ export default function App() {
         onHome={session.kind === 'operator' ? () => backToHome() : undefined}
       >
         <PhoneHomeScan onScan={setPendingScan} />
+        <Arriving>
         <Home
           address={account.address}
           // A design the person opened from Home (their first, or the sample) is a choice made here: coming back
@@ -1088,7 +1161,7 @@ export default function App() {
                   error: practiceError,
                   justMade: practiceJustMade,
                   onOpened: () => setPracticeJustMade(null),
-                  codePrompt: operatorCodePending ? (
+                  codePrompt: operatorCodePending && codeAskedBy === 'practice' ? (
                     <AdminCodePromptForm
                       enteringConsole={enteringConsole}
                       operatorCode={operatorCode}
@@ -1099,7 +1172,26 @@ export default function App() {
                 }
               : undefined
           }
+          own={
+            admin !== undefined
+              ? {
+                  onMake: makeOwn,
+                  busy: ownBusy || (enteringConsole && codeAskedBy === 'own'),
+                  error: ownError,
+                  codePrompt:
+                    operatorCodePending && codeAskedBy === 'own' ? (
+                      <AdminCodePromptForm
+                        enteringConsole={enteringConsole}
+                        operatorCode={operatorCode}
+                        onCodeChange={setOperatorCode}
+                        onSubmit={(event, close) => void submitOperatorCode(event, close)}
+                      />
+                    ) : null,
+                }
+              : undefined
+          }
         />
+        </Arriving>
       </Shell>
     );
   }
@@ -1171,6 +1263,7 @@ export default function App() {
   return (
     <TypeItYourself.Provider value={view.organisation.typeItYourself}>
       <TermixOrganisation.Provider value={view.organisation.organisationId}>
+<Arriving>
       <DesignPlace
         {...shellPlaceProps}
         organisationId={view.organisation.organisationId}
@@ -1183,6 +1276,7 @@ export default function App() {
         scanRequest={scanRequest}
         onOpenScan={setPendingScan}
       />
+</Arriving>
       </TermixOrganisation.Provider>
     </TypeItYourself.Provider>
   );

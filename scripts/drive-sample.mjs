@@ -77,7 +77,7 @@ let browser = null;
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: CLIENT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -139,7 +139,8 @@ try {
 
     // The trace starts from a racked device; the canvas offers it on a rack's devices.
     const router = page.locator('.react-flow__node-chassis', { hasText: 'router-1' }).first();
-    await router.click({ button: 'right', position: { x: 20, y: 6 } });
+    // dispatched on the node itself: at the sample's zoom a pointer click can land on the rack's free-space layer
+    await router.dispatchEvent('contextmenu', { button: 2, clientX: 0, clientY: 0 });
     const item = page.locator('.drawing-context-menu__item', { hasText: 'Trace from here' });
     check('the router offers Trace from here', (await item.count()) === 1);
     if ((await item.count()) === 1) {
@@ -152,6 +153,46 @@ try {
       check('the trace crosses switch-1 and switch-2', /switch-1/.test(text) && /switch-2/.test(text), text.slice(0, 400));
       check('the trace ends at the desktop', /desktop-1/.test(hops.at(-1) ?? ''), hops.at(-1));
       await shot(page, 'SN-03-trace');
+    }
+
+    // Cable physics (r129): a rack dropped in a new place sets its cables swinging, and they settle.
+    // Broke silently twice: once when long runs drew straight, once when a dropped rack's cables were
+    // remade and forgot where they had been. Light pass only; the drag uses the Select tool.
+    await page.getByRole('button', { name: 'Fit to view' }).click();
+    await page.waitForTimeout(700);
+    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    const rackNode = page.locator('.react-flow__node-rack').first();
+    const rb = await rackNode.boundingBox();
+    const cablePaths = () => page.evaluate(() => [...document.querySelectorAll('.react-flow__edge path')].map((p) => p.getAttribute('d')).join('|'));
+    if (rb != null) {
+      const before = await cablePaths();
+      const sx = rb.x + 6;
+      const sy = rb.y + rb.height - 8;
+      await page.mouse.move(sx, sy);
+      await page.mouse.down();
+      const whileDragging = new Set();
+      for (let i = 1; i <= 10; i++) {
+        await page.mouse.move(sx - i * 12, sy + i * 6);
+        await page.waitForTimeout(16);
+        whileDragging.add(await cablePaths());
+      }
+      await page.mouse.up();
+      // r129: the rack carries its devices and their cables while it is dragged, not only on the drop.
+      check('the cables follow the rack while it is dragged', whileDragging.size >= 3, `${whileDragging.size} distinct frames`);
+      const frames = new Set();
+      const t0 = Date.now();
+      while (Date.now() - t0 < 2200) {
+        frames.add(await cablePaths());
+        await page.waitForTimeout(40);
+      }
+      const settledA = await cablePaths();
+      await page.waitForTimeout(400);
+      check('a dropped rack moves its cables', settledA !== before);
+      check('the cables swing after the rack lands', frames.size >= 6, `${frames.size} distinct frames`);
+      check('the cables settle', settledA === (await cablePaths()));
+      await shot(page, 'SN-03b-rack-moved');
+    } else {
+      check('the rack is on the canvas to drag', false);
     }
 
     await page.locator('.shell-bar__brand').first().click();

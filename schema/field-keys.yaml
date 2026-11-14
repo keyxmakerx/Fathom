@@ -690,3 +690,6 @@ fields:
   NatPool.address: 641
   NatPool.address_to: 642
   NatPool.port: 643
+  # 0.40: where a thing sits along a shelf
+  SitsOn.x_mm: 644
+  SitsOn.y_mm: 645

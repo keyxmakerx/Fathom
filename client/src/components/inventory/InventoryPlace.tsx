@@ -25,7 +25,11 @@ import type { FieldDefView } from '../../document/fields';
 import { ListToolbar, type KindFilter } from './ListToolbar';
 import { isKind, kindNoun } from './kinds';
 import { listIssues } from '../../document/issues';
-import { isNodeOfKind } from '../../document/model';
+import { isNodeOfKind, type Document } from '../../document/model';
+import { restoreTo } from '../../document/restore';
+import { SampleChip } from '../home/SampleChip';
+import { sampleOfDesign } from '../home/firstSteps';
+import { ToolRow } from './ToolRow';
 import { EverywherePanel } from './EverywherePanel';
 import { IssuesList } from '../troubleshoot/IssuesList';
 import { modelRows } from '../../document/firmware';
@@ -38,6 +42,9 @@ import { imageRows } from '../firmware/images';
 import { modelKey, modelOfKey, modelTableRows } from '../firmware/rows';
 import { nextSorts, setSort, sortRows } from './sorting';
 import { ColumnMenu } from './ColumnMenu';
+import { fitColumns } from './fitColumns';
+import { usePhone } from '../phone/usePhone';
+import { useWindowWidth } from '../shell/Dock';
 import { ListFoot } from './ListFoot';
 import { PROGRESS_FROM, applyPlan, applyPlanChunked, bulkStillUndoable, dryRun, keepSelected, type BulkPlan } from './bulk';
 import { undo as undoBatch } from '../../document/undo';
@@ -93,7 +100,7 @@ import { VaultPlaceContext, useVault } from '../vault/useVault';
 import { edgesIn } from '../../document/model';
 import { referenceFor } from '../termix/loginRef';
 import { LabelsPreview } from '../../print/LabelsPreview';
-import { isLabelListKind, labelItems, storeLabel, type LabelItem } from '../../print/labels';
+import { brotherCableRows, isLabelListKind, labelItems, storeLabel, type LabelItem } from '../../print/labels';
 import { isStoreId, storeById } from '../../document/stock';
 import { loadJsonPref, saveJsonPref } from '../../prefs';
 import { TermixSend } from '../termix/TermixSend';
@@ -103,6 +110,14 @@ import { askPanel } from '../drawing/Editor';
 import { DEVICE_WORDS, deviceMenuItems, type MenuActions, type MenuItem } from '../drawing/contextMenuItems';
 import { deviceMenuActions } from '../drawing/deviceMenuActions';
 import { duplicateDeviceChange, removeDeviceChange, takeOutChange } from '../drawing/editorChanges';
+import { ChecksSurface } from '../checks/ChecksPanel';
+import { totalCount } from '../checks/checksModel';
+import { useSiteLinkFindings } from '../checks/siteLinkChecks';
+import { useChecksController } from '../checks/useChecksController';
+import { useDesignEngine, useMirrorFor, type DesignEngine } from '../design/useDesignEngine';
+import { elementRow } from './elementRow';
+import { SelectThing, SelectThingHint } from '../shell/ThingName';
+import type { SideTab } from '../shell/sideSlot';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -114,6 +129,9 @@ const SHEET_KINDS: ReadonlySet<Kind> = new Set<Kind>(['devices', 'ports', 'parts
 
 export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
   session: DesignSession;
+  /** The design's one engine and mirror (`useDesignEngine`, held in DesignPlace), for Checks. Absent in tests: the
+   * place makes its own. */
+  engine?: DesignEngine;
   /** "Show on canvas": switches the place to the canvas with `selection` chosen; `then` names a device menu
    * item (`DEVICE_WORDS`) the canvas runs once it is there (sign-off r58: Inventory's menu hands off). */
   onShowOnRack: (selection: Selection, then?: string) => void;
@@ -137,6 +155,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   organisationId: string;
   /** Ids an open AI idea names, marked in the list (ADR-0072 decision 7). */
   aiTargets?: ReadonlySet<string>;
+  /** The design as its first save made it, for the Sample chip's reset. */
+  loadFirstSave?: () => Promise<Document>;
 }
 
 /** Lets the page paint before the next step of a long job. */
@@ -190,7 +210,7 @@ function writeSession(key: string, value: string | null): void {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, onShowIssue, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, aiTargets, ...shellProps } = props;
+  const { session, onShowOnRack, onShowIssue, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, aiTargets, loadFirstSave, engine, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
@@ -227,7 +247,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [notice, setNotice] = useState<string | null>(null);
   // The filter line stays folded until Filter is pressed or a filter is set (r30-small).
   const [filterShown, setFilterShown] = useState(false);
-  const [labels, setLabels] = useState<{ items: LabelItem[]; note?: string; cables?: boolean } | null>(null);
+  const [labels, setLabels] = useState<{ items: LabelItem[]; note?: string; cables?: boolean; brotherRows?: string[][] } | null>(null);
   const [pasteText, setPasteText] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // The design as it was when the importer opened, and as it is now (the dialog's callback is old by
@@ -295,6 +315,21 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       parts: partRows(doc, view, placeIdx),
     } as Record<string, InvRow[]>;
   }, [doc, view, placeIdx, fieldDefs]);
+
+  // ADR-0091 as built: Checks on Inventory and Sheet, from the design's one engine. The panel stays folded until the
+  // person opens it (it would cover the list); a name in it opens that item's page.
+  const ownEngine = useDesignEngine();
+  const designEngine = engine ?? ownEngine;
+  const { mirrorNow } = useMirrorFor(designEngine, doc);
+  const siteLinkFindings = useSiteLinkFindings(doc, organisationId, session.designId);
+  const checks = useChecksController({
+    doc,
+    boot: designEngine.ensureMirror,
+    mirrorNow,
+    loadCostMs: designEngine.loadCostMs,
+    extra: siteLinkFindings,
+    foldedUntilChosen: true,
+  });
 
   // Where: counts, lists and search all follow it (listState.where).
   const where = ls.where;
@@ -416,6 +451,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     return picked.length > 0 ? picked : columnsAll.slice(0, 4);
   }, [columnsAll, prefs, kind, lens]);
 
+  // A phone draws the columns that fit its width; the table never scrolls sideways there (ADR-0075).
+  const phone = usePhone();
+  const windowWidth = useWindowWidth();
+  const shownColumns = useMemo(() => (phone ? fitColumns(columns, windowWidth) : columns), [phone, columns, windowWidth]);
+
   const schema = useMemo(() => schemaFor(kindWord(kind), columnsAll, FACETS[kind] ?? []), [kind, columnsAll]);
   const filtered = useMemo(() => filterRows(baseRows, schema, q), [baseRows, schema, q]);
   const rows = useMemo(() => sortRows(filtered.rows, sorts), [filtered, sorts]);
@@ -513,6 +553,17 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   const openPage = (row: InvRow) => {
     push({ open: row.key, tab: '' }, { lastOpened: row.key });
+  };
+
+  /** A name in Checks: open the page of the row that element is, in whichever list holds it. False when no list does. */
+  const openElement = (id: string): boolean => {
+    const hit = doc == null ? null : elementRow(doc, rowsByKind, id);
+    if (hit == null) return false;
+    setPrefs(null);
+    setNotice(null);
+    setAdding(null);
+    push({ kind: hit.kind as Kind, q: '', sorts: [], view: '', open: hit.row.key, tab: '', find: '' }, { lastOpened: hit.row.key });
+    return true;
   };
 
   /** One step back, as the browser's Back button does; the label says where it goes. */
@@ -868,17 +919,63 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     },
   };
 
+  // r116: the same bar as the canvas. Doing here acts on the device whose page is open and hands it to the canvas, the
+  // way this place's device menu does (r58); the Sample chip is the design's, not the canvas's.
+  const pageChassis = pageSelection?.kind === 'chassis' ? pageSelection.id : null;
+  const needsDevice = pageChassis == null ? 'open a device first' : undefined;
+  const doing: NonNullable<ShellProps['doing']> = [
+    { id: 'plan', label: DEVICE_WORDS.planChange, onSelect: canDraw && pageChassis != null ? () => onCanvas(DEVICE_WORDS.planChange)(pageChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
+    { id: 'down', label: DEVICE_WORDS.itsDown, onSelect: canDraw && pageChassis != null ? () => onCanvas(DEVICE_WORDS.itsDown)(pageChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
+    { id: 'trace', label: DEVICE_WORDS.trace, onSelect: pageChassis != null ? () => onCanvas(DEVICE_WORDS.trace)(pageChassis) : undefined, hint: needsDevice },
+  ];
+  const isSample = session.designId != null && sampleOfDesign(accountId, session.designId) != null;
+  const resetSample = async () => {
+    if (loadFirstSave == null || accountId == null || doc == null) return;
+    const first = await loadFirstSave();
+    applyDocChange(restoreTo(doc, first, 'Reset the sample', { actor: accountId, now: Date.now() }));
+  };
+  // Back is the tool row's, first in it, only while there is a page to go back from.
+  const framed = Boolean(adding || (openKey && (ipamPage || page || (kind === 'addresses' && openRow))));
+  const backWord = adding || backLabel === undefined || backLabel === '' ? kindLabel : backLabel;
+  // ADR-0091 as built: Checks is a tab on the edge here too, first, as on the canvas.
+  const checksTab: SideTab = {
+    id: 'checks',
+    label: 'Checks',
+    count: checks.result != null ? totalCount(checks.result) : 0,
+    open: checks.open,
+    onOpen: () => checks.setOpen(true),
+    onClose: () => checks.setOpen(false),
+  };
+  const sideTabs: readonly SideTab[] | undefined = doc == null ? shellProps.sideTabs : [checksTab, ...(shellProps.sideTabs ?? [])];
+
   return (
-    <Shell {...shellProps} lens={lens} editor={null} viewOnly={!canDraw} mainView={mainView}>
-      {labels ? <LabelsPreview items={labels.items} note={labels.note} cables={labels.cables} onClose={() => setLabels(null)} /> : null}
+    <SelectThing.Provider value={openElement}>
+    <SelectThingHint.Provider value="Open its page">
+    <Shell
+      {...shellProps}
+      sideTabs={sideTabs}
+      lens={lens}
+      editor={null}
+      viewOnly={!canDraw}
+      mainView={mainView}
+      designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined}
+      doing={doc != null ? doing : undefined}
+    >
+      {labels ? <LabelsPreview items={labels.items} note={labels.note} cables={labels.cables} brotherRows={labels.brotherRows} onClose={() => setLabels(null)} /> : null}
       {doc == null ? (
         <div className="inventory-place__loading">{loadError ?? <SkeletonRows label="Opening the design…" rows={9} />}</div>
       ) : (
         <PasteGateBoundary redact={redact}>
         <div className={sheet ? 'inventory-place inventory-place--sheet' : 'inventory-place'}>
+          {/* r116: this view's tool row: Back (only from a page), Find, and the lens beside it. */}
+          <ToolRow
+            back={framed ? { word: backWord, onBack: closePage } : undefined}
+            find={sheet ? undefined : <FindBox index={searchIndex} arm={() => setFindArmed(true)} value={ls.find} onValue={(v) => go({ find: v })} where={where} onOpen={openHit} onClearWhere={() => go({ where: NO_WHERE })} slot={findSlot} />}
+            lens={lens}
+            onLensChange={shellProps.onLensChange}
+          />
           {sheet ? null : (
           <>
-          <FindBox index={searchIndex} arm={() => setFindArmed(true)} value={ls.find} onValue={(v) => go({ find: v })} where={where} onOpen={openHit} onClearWhere={() => go({ where: NO_WHERE })} slot={findSlot} />
           <WhereBar where={where} options={whereOpts} onChange={(w) => go({ where: w })} />
           <div className="inv-find-slot" ref={setFindSlot} />
           </>
@@ -968,12 +1065,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           ) : adding || (openKey && (ipamPage || page || (kind === 'addresses' && openRow))) ? (
             <div className="inv-pageframe">
               {refusal}
-              <div className="inv-pageframe__bar">
-                <button type="button" className="inv-pageframe__back" onClick={closePage}>
-                  ← Back to {adding || backLabel === undefined || backLabel === '' ? kindLabel : backLabel}
-                </button>
-                {adding ? <span className="inv-pageframe__crumb">{adding === 'prefix' ? 'New prefix' : adding === 'vlan' ? 'New VLAN' : adding === 'upload' ? 'Upload image' : 'Corrections waiting'}</span> : null}
-              </div>
+              {adding ? (
+                <div className="inv-pageframe__bar">
+                  <span className="inv-pageframe__crumb">{adding === 'prefix' ? 'New prefix' : adding === 'vlan' ? 'New VLAN' : adding === 'upload' ? 'Upload image' : 'Corrections waiting'}</span>
+                </div>
+              ) : null}
               <div className="inv-pageframe__body">{kind === 'addresses' ? <AddressNote row={openRow} onOpenDevice={() => switchKind('devices')} /> : (ipamPage ?? page)}</div>
             </div>
           ) : (
@@ -1027,6 +1123,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                           items: labelItems(kind, checkedRows, window.location.origin, session.designId ?? ''),
                           note: kind === 'cables' ? 'Two labels per cable, one for each end.' : undefined,
                           cables: kind === 'cables',
+                          brotherRows: kind === 'cables' ? brotherCableRows(checkedRows, window.location.origin, session.designId ?? '') : undefined,
                         })
                     : undefined
                 }
@@ -1059,7 +1156,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 <DataTable
                   key={`${kind}:${moves}`}
                   aiMarked={aiTargets}
-                  columns={columns}
+                  columns={shownColumns}
                   rows={rows}
                   openKey={lastOpened}
                   checked={checked}
@@ -1069,6 +1166,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                   onFilterTag={(tag) => go({ q: joinUnits([...units(q), `tags:${quoteValue(tag)}`]) })}
                   onOpen={openPage}
                   rowMenu={(row) => deviceMenuOf(row.selection) ?? []}
+                  sheet={sheet}
                   onToggleChecked={toggleChecked}
                   onToggleAll={(all) => setChecked(all ? new Set(rows.map((r) => r.key)) : new Set())}
                   onSort={(key, additive) => go({ sorts: nextSorts(sorts, key, additive) })}
@@ -1198,10 +1296,14 @@ export function InventoryPlace(props: InventoryPlaceProps) {
               }}
             />
           ) : null}
+          {/* Show needs the canvas: here a name opens the item's page instead. */}
+          <ChecksSurface controller={checks} canShow={false} />
         </div>
         </PasteGateBoundary>
       )}
     </Shell>
+    </SelectThingHint.Provider>
+    </SelectThing.Provider>
   );
 }
 

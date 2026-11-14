@@ -444,7 +444,8 @@ async function runProof(ctx, seed) {
   const planPanel = page.locator('[data-testid=plans-panel]');
   await planPanel.waitFor({ timeout: 10000 });
   const addForm = page.locator('[data-testid=plans-add-step]');
-  await addForm.getByLabel('Kind', { exact: true }).selectOption('other');
+  // The form asks the kind first (sign-off r120).
+  await addForm.locator('[data-testid=plans-kinds] [data-kind=other]').click();
   const about = addForm.getByLabel('About (optional)', { exact: true });
   const routerOption = await about.locator('option', { hasText: 'router-1' }).first().getAttribute('value');
   await about.selectOption(routerOption);

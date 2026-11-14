@@ -283,8 +283,8 @@ export function swayAt(amp: Pt, ms: number): Pt {
 }
 
 /** The kick a move gives: the slack lags behind the way its ends went, capped. */
-export function swayKick(current: Pt, moved: Pt): Pt {
-  const clamp = (v: number) => Math.max(-SWAY_MAX_PX, Math.min(SWAY_MAX_PX, v));
+export function swayKick(current: Pt, moved: Pt, max = SWAY_MAX_PX): Pt {
+  const clamp = (v: number) => Math.max(-max, Math.min(max, v));
   return { x: clamp(current.x - moved.x * 0.4), y: clamp(current.y - moved.y * 0.4) };
 }
 

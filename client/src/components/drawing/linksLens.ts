@@ -12,7 +12,8 @@
  *
  * Pure; read off the design alone, with no new field. */
 
-import { edgesIn, edgesOut, findNode, type Document } from '../../document/model';
+import type { Document } from '../../document/model';
+import { portSpeed } from '../../document/portSpeed';
 import { deriveNetworks } from '../../document/networks-derive';
 import type { ClosetView } from './contract';
 
@@ -62,13 +63,6 @@ export function speedText(bps: number): string {
   return `${bps}`;
 }
 
-function speedOf(doc: Document, interfaceId: string): number | null {
-  const f = findNode(doc, interfaceId)?.fields['Interface.speed'];
-  if (f?.presence !== 'set') return null;
-  const v = typeof f.value === 'number' ? f.value : typeof f.value === 'string' ? Number(f.value) : NaN;
-  return Number.isFinite(v) && v > 0 ? v : null;
-}
-
 export function linksMarks(doc: Document | null, view: ClosetView): LinksMarks {
   if (doc == null) return EMPTY;
   const net = deriveNetworks(doc);
@@ -95,28 +89,13 @@ export function linksMarks(doc: Document | null, view: ClosetView): LinksMarks {
     }
   }
 
-  const chassis = new Map([...view.racks.flatMap((r) => r.chassis), ...(view.unplaced ?? [])].map((c) => [c.id, c]));
   const cables = new Map<string, LinksLine>();
   for (const cable of view.cables) {
     let speed: number | null = null;
     for (const end of cable.ends) {
       if (!('portId' in end)) continue;
-      const ifaces = edgesIn(doc, end.portId, 'Occupies').map((e) => e.from);
-      if (ifaces.length === 0) {
-        // A hand-drawn port names its interface by label, as the Routing lens reads it.
-        const ch = chassis.get(end.chassisId);
-        const label = ch?.ports.find((p) => p.id === end.portId)?.label;
-        if (ch != null && label != null) {
-          for (const h of edgesOut(doc, ch.deviceId, 'HasInterface')) {
-            const name = findNode(doc, h.to)?.fields['Interface.name'];
-            if (name?.presence === 'set' && name.value === label) ifaces.push(h.to);
-          }
-        }
-      }
-      for (const i of ifaces) {
-        const s = speedOf(doc, i);
-        if (s != null) speed = speed == null ? s : Math.min(speed, s);
-      }
+      const s = portSpeed(doc, end.portId);
+      if (s != null) speed = speed == null ? s : Math.min(speed, s);
     }
     const v = byCable.get(cable.id);
     const vlans = v == null ? [] : [...v.ids].sort((a, b) => a - b);

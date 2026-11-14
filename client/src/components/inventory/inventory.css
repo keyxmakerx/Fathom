@@ -638,6 +638,38 @@
   text-overflow: ellipsis;
 }
 
+/* r127: the Sheet's way to a row's page, so a click in the grid only selects. Shown on the row's
+   hover and on the active cell; always there on a touch screen, which has no hover. */
+.inv-table__open {
+  flex: none;
+  margin-left: auto;
+  padding: 0 var(--s1);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  line-height: 20px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.inv-table__row:hover .inv-table__open,
+.inv-table__cell--active .inv-table__open,
+.inv-table__open:focus-visible {
+  opacity: 1;
+}
+
+.inv-table__open:hover {
+  border-color: var(--hairline);
+}
+
+@media (hover: none) {
+  .inv-table__open {
+    opacity: 1;
+  }
+}
+
 .inv-table__blank {
   color: var(--muted);
 }
@@ -2329,3 +2361,34 @@ button.inv-path__host {
 .inventory-place__everywhere { display: flex; flex-direction: column; gap: 8px; min-width: 0; overflow-x: auto; }
 .inventory-place__everywhere-bar { display: flex; flex-wrap: wrap; gap: 8px; }
 .inventory-place__everywhere-bar input { flex: 1 1 220px; min-width: 0; }
+
+/* r116: Inventory's and the Sheet's tool row: Back, Find, and the lens beside it. */
+.inv-toolrow {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding-right: var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+.inv-toolrow > .inv-find {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-bottom: 0;
+}
+.inv-toolrow__grow {
+  flex: 1 1 auto;
+}
+.inv-toolrow__back {
+  flex: none;
+  margin-left: var(--s3);
+  height: var(--control-h, 28px);
+  padding: 0 var(--s3);
+  font-size: var(--t-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.inv-toolrow > .shell-bar__lenses {
+  flex: none;
+  margin: var(--s2) 0;
+}

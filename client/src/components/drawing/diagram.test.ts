@@ -17,6 +17,42 @@ describe('layoutDiagram', () => {
   });
 });
 
+describe('layoutDiagram: every device', () => {
+  const rack = { label: 'R1', chassis: [chassis('racked', 4)], shelves: [{ id: 's', label: 'Shelf', positionU: 1, heightU: 1, occupants: [{ id: 'onshelf', kind: 'chassis', label: 'mini', chassis: { hostname: 'mini', role: 'server' } }, { id: 'panel', kind: 'passive', label: 'Panel' }] }] };
+  const view = {
+    racks: [rack],
+    surfaces: [
+      { id: 'desk', label: 'Desk', fixtures: [{ id: 'sw', kind: 'chassis', label: 'sw', chassis: { hostname: 'switch-2', role: 'switch' }, fixtures: [] }] },
+      { id: 'wall', label: 'Wall', fixtures: [{ id: 'board', kind: 'passive', label: 'board', fixtures: [{ id: 'cam', kind: 'chassis', label: 'cam', chassis: { hostname: 'camera-1', role: null }, fixtures: [] }] }] },
+    ],
+    free: [{ id: 'free1', hostname: 'free-box', role: null }],
+    unplaced: [{ id: 'free1', hostname: 'free-box', role: null }, { id: 'loose', hostname: 'loose', role: null }],
+    cables: [],
+  } as unknown as ClosetView;
+
+  it('draws racked, shelved, wall, desk, free and unplaced devices once each, and no passives', () => {
+    const ids = layoutDiagram(view).map((b) => b.id);
+    expect(ids).toEqual(['racked', 'onshelf', 'sw', 'cam', 'free1', 'loose']);
+  });
+  it('gives each wall, desk and rack its own column', () => {
+    const xs = layoutDiagram(view).map((b) => b.x / COLUMN_PITCH);
+    expect(xs).toEqual([0, 0, 1, 2, 3, 3]);
+  });
+  it('lays surfaces and their devices out the same way whatever order the view lists them in', () => {
+    const fx = (id: string, xMm: number | null, yMm: number | null) => ({ id, kind: 'chassis', label: id, xMm, yMm, chassis: { hostname: id, role: null }, fixtures: [] });
+    const desk = { id: 'd', label: 'Desk', form: 'desk', fixtures: [fx('printer', 1300, 100), fx('unmeasured', null, null), fx('switch', 200, 100), fx('desktop', 700, 100), fx('shelf-pc', 100, 900)] };
+    const wall = { id: 'w', label: 'Wall', form: 'wall', fixtures: [fx('cam2', 1700, 2200), fx('cam1', 300, 2200)] };
+    const ceiling = { id: 'c', label: 'Ceiling', form: 'ceiling', fixtures: [fx('ap', 600, 600)] };
+    const order = (surfaces: unknown[]) => layoutDiagram({ racks: [], surfaces, cables: [] } as unknown as ClosetView).map((b) => b.id);
+    const want = ['cam1', 'cam2', 'switch', 'desktop', 'printer', 'shelf-pc', 'unmeasured', 'ap'];
+    expect(order([desk, wall, ceiling])).toEqual(want);
+    expect(order([ceiling, { ...desk, fixtures: [...desk.fixtures].reverse() }, wall])).toEqual(want);
+  });
+  it('carries the role so the icons look can pick an icon for a device that is not racked', () => {
+    expect(layoutDiagram(view).find((b) => b.id === 'onshelf')?.role).toBe('server');
+  });
+});
+
 describe('orthRoute', () => {
   const a = { x: 0, y: 0, w: BOX_W, h: BOX_H };
   it('runs straight down between boxes that overlap in x', () => {

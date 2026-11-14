@@ -176,7 +176,7 @@ export function ClaimOrganisation({
           </div>
           <div className="signin__field">
             <label className="signin__label" htmlFor="claim-notice-address">
-              Notice address
+              Contact email
             </label>
             <input
               id="claim-notice-address"
@@ -303,7 +303,7 @@ function recoveryKeyFile(text: string): string {
 
 /** Saves the recovery key as a file, from this browser, with no server
  * round trip. */
-function downloadRecoveryKey(text: string): void {
+export function downloadRecoveryKey(text: string): void {
   const blob = new Blob([recoveryKeyFile(text)], { type: 'text/plain;charset=utf-8' });
   const href = URL.createObjectURL(blob);
   const link = document.createElement('a');

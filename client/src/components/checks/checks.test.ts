@@ -203,6 +203,12 @@ describe('the panel', () => {
     expect((html.match(/>Show</g) ?? []).length).toBe(2);
     expect(html).toContain('sw-01');
   });
+  it('has the one panel head: its name and a fold arrow, not the word "Fold"', () => {
+    const html = render(controller());
+    expect(html).toContain('<h2 class="panel-head__name">Checks</h2>');
+    expect(html).toContain('aria-label="Fold Checks"');
+    expect(html).not.toContain('>Fold<');
+  });
   it('draws a refusal with its word and glyph', () => {
     const html = render(controller({ result: result({ refuse: 1, findings: [finding({ severity: 'refuse' })] }) }));
     expect(html).toContain('✕');

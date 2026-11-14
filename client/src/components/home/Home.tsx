@@ -22,7 +22,7 @@ import { About } from '../about/About';
 import { ACCOUNT_PLANE, getSessionOn } from '../../state/sessionState';
 import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
 import { AwaitingSteward } from './AwaitingSteward';
-import { PracticeWelcome, type PracticeOffer } from './PracticeWelcome';
+import { PracticeWelcome, type OwnNetworkOffer, type PracticeOffer } from './PracticeWelcome';
 import { PlaceFields, type Loadable } from '../organisation/FoldersPanel';
 import { kindForLevel } from '../organisation/place';
 import { fetchAi } from '../../api/ai';
@@ -97,6 +97,8 @@ export interface HomeProps {
   admin?: { onOpen: () => void; panel: ReactNode };
   /** ADR-0069: a practice space of their own, offered to the person who runs the server (present with `admin`). */
   practice?: PracticeOffer;
+  /** Sign-off r123: an organisation of their own with a site and an empty design, offered beside the practice lab. */
+  own?: OwnNetworkOffer;
   /** Told whether the person joined from an invitation and still waits, so the
    * caller can leave out what would send them the wrong way (the Admin pill). */
   onWaitingInviteeChange?: (waiting: boolean) => void;
@@ -138,6 +140,7 @@ export function Home({
   onTabChange,
   admin,
   practice,
+  own,
   onWaitingInviteeChange,
 }: HomeProps) {
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
@@ -659,7 +662,7 @@ export function Home({
         )}
         <div className="home__title">{selectedOrganisation?.displayName ?? 'Home'}</div>
         {shownTab === 'designs' && organisations.status === 'ready' && organisations.value.length === 0 && practice && !waitingInvitee && (
-          <PracticeWelcome address={address} offer={practice} onOpen={() => void practice.onMake()} />
+          <PracticeWelcome address={address} offer={practice} onOpen={() => void practice.onMake()} own={own} />
         )}
         {organisations.status === 'ready' && organisations.value.length === 0 && waitingInvitee && <AwaitingSteward address={address} />}
         <HomeTabs tabs={tabs} current={shownTab} onSelect={selectTab} testIds={{ designs: 'home-designs', admin: 'console-entry' }} />

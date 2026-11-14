@@ -1,6 +1,7 @@
 // Scenes for the drawing drives, copied into client/src/ as drive-seed.ts only
 // while a drive runs. Built with the real document commands, so each is a real Document.
 
+import { setPortSpeed } from './document/portSpeed';
 import { parseCatalogueModel, type CatalogueModel } from './api/catalogue';
 import { createPremises } from './components/racks/emptyDesign';
 import { connectPorts, type Sheath } from './document/cables';
@@ -615,7 +616,14 @@ export function seedShelfRoomScene(catalogue: CatalogueModel[], me: string): Doc
     const t = newSketchDevice(working, name, me);
     working = placeOnShelf(t.doc, t.chassisId, shelfId, slot, { actor: me });
     for (let i = 0; i < ports; i += 1) working = addSketchPort(working, t.chassisId, { label: `eth${i}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+    // Sign-off shelf-view, version 3: a port on a side, seen only from that end of the shelf.
+    if (name === 'kvm') working = addSketchPort(working, t.chassisId, { label: 'mgmt', connector: 'rj45', service: 'ethernet', face: 'right' }, { actor: me });
   }
+  // Sign-off shelf-view, answer C: one thing whose catalogue model records its size (the maker's
+  // 75 x 75 mm), so the shelf draws it solid beside the guessed, dashed ones.
+  const edge = newSketchDevice(working, 'bnuuy-edge', me);
+  working = placeOnShelf(edge.doc, edge.chassisId, shelfId, 4, { actor: me });
+  working = setChassisField(working, edge.chassisId, 'model', 'R2', { actor: me });
   const view = viewOf(working, catalogue);
   const rack = view.racks.find((r) => r.id === rackId)!;
   const swPorts = rack.chassis.find((c) => c.hostname === 'core-sw')!.ports;
@@ -623,6 +631,8 @@ export function seedShelfRoomScene(catalogue: CatalogueModel[], me: string): Doc
   shelfThings.slice(0, 3).forEach((o, i) => {
     working = connectPorts(working, o.ports[0]!.id, swPorts[i]!.id, { sheath: 'blue' as Sheath }, { actor: me });
   });
+  // Sign-off shelf-view: one cable between two things on the same shelf, which hangs between them.
+  working = connectPorts(working, shelfThings[0]!.ports[1]!.id, shelfThings[1]!.ports[1]!.id, { sheath: 'yellow' as Sheath }, { actor: me });
   return working;
 }
 
@@ -1029,21 +1039,18 @@ export function seedLinksScene(catalogue: CatalogueModel[], me: string): Documen
   working = addVlan(working, { vlanId: 10, name: 'Users', attach: [at(fw[1]!), at(core[0]!), at(core[1]!)] }, { actor: me });
   working = addVlan(working, { vlanId: 20, name: 'Servers', attach: [at(acc[0]!), at(acc[1]!), at(acc[2]!)] }, { actor: me });
   working = addVlan(working, { vlanId: 30, name: 'Wi-Fi', attach: [at(acc[3]!)] }, { actor: me });
-  const speeds: [string, { label: string }, number][] = [
-    ['edge-fw', fw[1]!, 1e9],
-    ['core-sw', core[0]!, 1e9],
-    ['core-sw', core[1]!, 10e9],
-    ['acc-sw1', acc[0]!, 10e9],
-    ['acc-sw1', acc[1]!, 10e9],
-    ['srv-01', srv[0]!, 10e9],
-    ['acc-sw1', acc[2]!, 1e9],
+  const speeds: [{ id: string }, string][] = [
+    [fw[1]!, '1G'],
+    [core[0]!, '1G'],
+    [core[1]!, '10G'],
+    [acc[0]!, '10G'],
+    [acc[1]!, '10G'],
+    [srv[0]!, '10G'],
+    [acc[2]!, '1G'],
+    [nas[0]!, '1G'],
   ];
-  const b = begin(working, { actor: me });
-  for (const [host, port, bps] of speeds) {
-    const iface = edgesOut(b.doc, ch(host).deviceId, 'HasInterface').map((e) => findNode(b.doc, e.to)!).find((n) => n.fields['Interface.name']?.value === port.label);
-    if (iface != null) setNodeField(b, iface.id, 'Interface.speed', bps);
-  }
-  return finish(b, 'Interface speeds');
+  for (const [port, speed] of speeds) working = setPortSpeed(working, port.id, speed, { actor: me });
+  return working;
 }
 
 /** Successive versions of one design, for the History drive: two devices, a colleague's second device,
