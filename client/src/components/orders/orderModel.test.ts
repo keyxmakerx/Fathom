@@ -8,12 +8,14 @@ import {
   durationWords,
   fieldsAtOpen,
   finishBlocker,
+  historyWords,
   isOverdue,
   matchTeams,
   mayCancelOrder,
   mayPickUp,
   mayWork,
   missingAtOpen,
+  overdueRuleWords,
   readyForYou,
   setsUsed,
   signOff,
@@ -170,6 +172,30 @@ describe('where an order stands, and who may do what', () => {
     expect(isOverdue({ ...def, dueMinutes: 60 }, st, 1_700_000_100 + 3599)).toBe(false);
     expect(isOverdue({ ...def, dueMinutes: 60 }, st, 1_700_000_100 + 3601)).toBe(true);
     expect(isOverdue(def, st, 2_000_000_000)).toBe(false);
+  });
+
+  it('puts an escalated overdue job in front of whoever holds that role on its team', () => {
+    const escalated = (over: Record<string, unknown>) => {
+      const o = order({}, { teams: { 'T-net': { on: false, roles: ['lead'], powers: [] } } });
+      const port = o.lanes[0].stages[1].jobs[0];
+      Object.assign(port, over);
+      return o;
+    };
+    expect(readyForYou(escalated({ escalated: null })).map((j) => j.id)).toEqual([]);
+    expect(readyForYou(escalated({ escalated: 'lead' })).map((j) => j.id)).toEqual(['port']);
+    expect(readyForYou(escalated({ escalated: 'overseer' })).map((j) => j.id)).toEqual([]);
+  });
+
+  it('says an overdue rule, and what the engine did, in words', () => {
+    const o = order();
+    expect(overdueRuleWords(o, { afterMinutes: 0, action: 'escalate', to: 'lead' })).toBe('as soon as it is overdue, show it to the team’s lead');
+    expect(overdueRuleWords(o, { afterMinutes: 2880, action: 'reassign', to: 'team' })).toBe('2 days after it is due, hand it back to the team');
+    expect(overdueRuleWords(o, { afterMinutes: 60, action: 'reassign', to: 'T-net' })).toBe('1 hour after it is due, hand it to Network design');
+    expect(overdueRuleWords(o, { afterMinutes: 7200, action: 'move_on', to: null })).toBe('5 days after it is due, move on without it');
+    const withRules = order({
+      definition: { ...DEF, lanes: [{ ...DEF.lanes[0], stages: [{ ...DEF.lanes[0].stages[0], jobs: [job('check', 'T-desk', { due_minutes: 1440, overdue: [{ after_minutes: 0, action: 'escalate', to: 'lead' }] })] }] }] },
+    });
+    expect(historyWords(withRules, 'overdue', { job: 'check', rule: 0 })).toBe('showed Check the order to the team’s lead, as it was overdue');
   });
 
   it('says a length of time as a person would', () => {

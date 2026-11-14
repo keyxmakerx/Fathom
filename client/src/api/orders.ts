@@ -316,7 +316,7 @@ export async function saveOrderType(
 // ---------------------------------------------------------------------------
 
 export type OrderStatus = 'open' | 'done' | 'cancelled';
-export type JobStatus = 'not_started' | 'left_out' | 'waiting' | 'ready' | 'done' | 'cancelled';
+export type JobStatus = 'not_started' | 'left_out' | 'waiting' | 'ready' | 'done' | 'cancelled' | 'skipped';
 export type StageStatus = 'not_started' | 'running' | 'awaiting_sign_off' | 'done';
 
 export interface OrderLine {
@@ -357,9 +357,17 @@ export type AnswerValue = string | number | boolean | string[] | { design: strin
 export interface JobState {
   id: string;
   name: string;
+  /** The team it is with now: its own, or the one an overdue rule handed it to. */
   team: string;
+  ownTeam: string;
   status: JobStatus;
   pickedBy: string | null;
+  /** When its `due` passes, from the server; null when it has none or isn't ready. */
+  dueAt: number | null;
+  /** The overdue rules the engine has carried out, by their place in the list. */
+  fired: number[];
+  /** The role an `escalate` rule put it in front of. */
+  escalated: string | null;
   steps: string[];
   ticks: number[];
   asks: string[];
@@ -462,8 +470,12 @@ export function parseOrder(v: unknown): Order {
                   id: s(z.id),
                   name: s(z.name),
                   team: s(z.team),
+                  ownTeam: s(z.own_team) || s(z.team),
                   status: (s(z.status) || 'not_started') as JobStatus,
                   pickedBy: os(z.picked_by),
+                  dueAt: on(z.due_at),
+                  fired: arr(z.fired).filter((t): t is number => typeof t === 'number'),
+                  escalated: os(z.escalated),
                   steps: strs(z.steps),
                   ticks: arr(z.ticks).filter((t): t is number => typeof t === 'number'),
                   asks: strs(z.asks),

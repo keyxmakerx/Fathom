@@ -276,7 +276,8 @@ fn check_action(a: &Action) -> Result<(), OrderError> {
         Action::PickUp { .. }
         | Action::Tick { .. }
         | Action::Finish { .. }
-        | Action::Approve { .. } => Ok(()),
+        | Action::Approve { .. }
+        | Action::Overdue { .. } => Ok(()),
     }
 }
 
@@ -383,6 +384,7 @@ pub fn action_word(a: &Action) -> &'static str {
         Action::Cancel { .. } => "cancel",
         Action::Approve { .. } => "approve",
         Action::CancelOrder { .. } => "cancel_order",
+        Action::Overdue { .. } => "overdue",
     }
 }
 
@@ -426,6 +428,10 @@ pub fn action_to_json(a: &Action) -> Json {
         ]),
         Action::Approve { stage } => obj(vec![("stage", Json::Str(stage.clone()))]),
         Action::CancelOrder { reason } => obj(vec![("reason", Json::Str(reason.clone()))]),
+        Action::Overdue { job, rule } => obj(vec![
+            ("job", Json::Str(job.clone())),
+            ("rule", Json::Int(*rule as i64)),
+        ]),
     }
 }
 
@@ -518,6 +524,16 @@ pub fn action_from_json(
         "cancel_order" => Action::CancelOrder {
             reason: take(&mut m, "reason")?,
         },
+        "overdue" => {
+            let job = take(&mut m, "job")?;
+            let Some(Json::Int(rule)) = m.remove("rule") else {
+                return Err(bad());
+            };
+            Action::Overdue {
+                job,
+                rule: usize::try_from(rule).map_err(|_| bad())?,
+            }
+        }
         _ => return Err(bad()),
     };
     if !m.is_empty() {
@@ -1206,11 +1222,12 @@ pub async fn get_order(
                 .job(&j.id)
                 .is_some_and(|s| s.status == JobStatus::Ready && s.plan.is_some())
     });
-    if !plan_waiting || view.order.status() != OrderStatus::Open {
+    let overdue_waiting = !view.order.overdue_due(now_unix().max(0) as u64).is_empty();
+    if !(plan_waiting || overdue_waiting) || view.order.status() != OrderStatus::Open {
         return Ok(view);
     }
     let mut view = load(tx, auth, id, true).await?;
-    catch_up_plans(tx, auth, &mut view).await?;
+    catch_up(tx, auth, &mut view).await?;
     Ok(view)
 }
 
@@ -1226,7 +1243,7 @@ pub async fn act(
         return Err(OrderError::Malformed("an order action"));
     }
     let mut view = load(tx, auth, id, true).await?;
-    catch_up_plans(tx, auth, &mut view).await?;
+    catch_up(tx, auth, &mut view).await?;
     if view.order.events().len() as i64 >= MAX_EVENTS {
         return Err(OrderError::Limit("this order has as many events as it may"));
     }
@@ -1318,6 +1335,7 @@ fn job_status_word(s: JobStatus) -> &'static str {
         JobStatus::Ready => "ready",
         JobStatus::Done => "done",
         JobStatus::Cancelled => "cancelled",
+        JobStatus::Skipped => "skipped",
     }
 }
 
@@ -1370,8 +1388,17 @@ impl OrderView {
                                 obj(vec![
                                     ("id", Json::Str(job.id.clone())),
                                     ("name", Json::Str(job.name.clone())),
-                                    ("team", Json::Str(job.team.clone())),
+                                    ("team", Json::Str(o.team_of(job).to_owned())),
+                                    ("own_team", Json::Str(job.team.clone())),
                                     ("status", Json::Str(job_status_word(js.status).into())),
+                                    ("due_at", opt_int(o.due_at(job))),
+                                    (
+                                        "fired",
+                                        Json::Arr(
+                                            js.fired.iter().map(|t| Json::Int(*t as i64)).collect(),
+                                        ),
+                                    ),
+                                    ("escalated", opt_str(&js.escalated)),
                                     ("picked_by", opt_str(&js.picked_by)),
                                     (
                                         "steps",
@@ -1868,6 +1895,73 @@ pub async fn opener_names(
 /// stage is read from the estate index, which the server rebuilds after each accepted save, so
 /// this asks nothing of the browser. Run before an order is shown or acted on; a job whose plan
 /// is not in the index yet simply waits. Each finish is one sealed event like any other.
+/// What the engine does by itself before anyone reads or acts on an order: overdue rules whose time
+/// has come (decision 11), then plans that were recorded. The order is locked by the caller.
+///
+/// **Why on read and not on a timer.** An order is sealed under its organisation's key, and that key
+/// is only opened for a signed-in member's request (`repo::TenantContext`; `docs/PHASE-2-STORAGE-DESIGN.md` §4); a server
+/// task with no request has no key to open it with, and giving it one would undo that rule. So the
+/// clock is checked whenever anyone in the organisation opens the Work tab, an order or acts on one
+/// (the Work tab asks every few seconds while it is open). Each rule is recorded at the moment it
+/// fell due, not when it was noticed, and a rule that fell due while nobody looked is carried out
+/// once, in order, the next time anyone does: decision 11's catch-up.
+async fn catch_up(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    view: &mut OrderView,
+) -> Result<(), OrderError> {
+    catch_up_overdue(tx, auth, view).await?;
+    catch_up_plans(tx, auth, view).await
+}
+
+async fn catch_up_overdue(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    view: &mut OrderView,
+) -> Result<(), OrderError> {
+    let now = now_unix().max(0) as u64;
+    // Each pass fires the earliest rule due; the next rule of that job is listed once it has fired.
+    // Bounded by the number of rules in the order.
+    let bound: usize = view
+        .order
+        .definition()
+        .jobs()
+        .map(|j| j.overdue.len())
+        .sum();
+    for _ in 0..bound {
+        let Some((job, rule, when)) = view.order.overdue_due(now).into_iter().next() else {
+            break;
+        };
+        if view.order.events().len() as i64 >= MAX_EVENTS {
+            break;
+        }
+        let last = view.order.events().last().map_or(0, |e| e.at);
+        let event = Event {
+            at: when.max(last),
+            by: Actor::Engine,
+            action: Action::Overdue { job, rule },
+        };
+        if view.order.apply(event, &AsNobody).is_err() {
+            break;
+        }
+        let seq = i32::try_from(view.order.events().len()).map_err(|_| corrupt("order history"))?;
+        let stored = view.order.events().last().cloned().expect("just applied");
+        store_event(tx, auth, &view.id, seq, &stored).await?;
+        tx.execute(
+            "UPDATE orders SET status = $3, updated_at = $4 \
+             WHERE organisation_id = $1 AND id = $2 AND status = 'open'",
+            &[
+                &auth.ctx.tenant().to_string(),
+                &view.id,
+                &status_word(view.order.status()),
+                &(now as i64),
+            ],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 async fn catch_up_plans(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,

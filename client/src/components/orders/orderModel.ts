@@ -2,7 +2,7 @@
 // fits, where an order stands, and what the person looking may do. The engine on the server
 // decides every act; these only spare a person a refusal by not offering what it would refuse.
 
-import type { AnswerValue, Condition, Definition, JobDef, JobState, JobStatus, LaneState, Order, OrderField, StageState, StageStatus, TeamNames } from '../../api/orders';
+import type { AnswerValue, Condition, Definition, JobDef, JobState, JobStatus, LaneState, Order, OrderField, OverdueRule, StageState, StageStatus, TeamNames } from '../../api/orders';
 
 // ---------------------------------------------------------------------------
 // Conditions and fields
@@ -131,6 +131,7 @@ export function whenWords(unix: number, now = Date.now() / 1000): string {
 
 /** Pure: when a ready job is due, in unix seconds, or null when it has no `due` or isn't ready. */
 export function dueAt(def: JobDef | undefined, st: JobState): number | null {
+  if (st.dueAt !== null && st.dueAt !== undefined) return st.status === 'ready' ? st.dueAt : null;
   if (!def || def.dueMinutes === null || st.readyAt === null || st.status !== 'ready') return null;
   return st.readyAt + def.dueMinutes * 60;
 }
@@ -153,6 +154,7 @@ export const JOB_WORDS: Record<JobStatus, string> = {
   ready: 'Ready',
   done: 'Done',
   cancelled: 'Cancelled',
+  skipped: 'Moved on, overdue',
 };
 
 export const STAGE_WORDS: Record<StageStatus, string> = {
@@ -255,8 +257,27 @@ export function mayCancelOrder(order: Order): boolean {
 }
 
 /** Pure: the jobs that are yours to act on now, for the order list's "for you" line. */
+/** Pure: an overdue job an `escalate` rule put in front of a role you hold on its team. */
+export function escalatedToYou(order: Order, job: JobState): boolean {
+  return order.status === 'open' && job.status === 'ready' && job.escalated !== null && order.you.teams[job.team]?.roles.includes(job.escalated) === true;
+}
+
 export function readyForYou(order: Order): JobState[] {
-  return order.lanes.flatMap((l) => l.stages.flatMap((s) => s.jobs)).filter((j) => mayWork(order, j));
+  return order.lanes.flatMap((l) => l.stages.flatMap((s) => s.jobs)).filter((j) => mayWork(order, j) || escalatedToYou(order, j));
+}
+
+/** Pure: one overdue rule in words, as the order type says it. */
+export function overdueRuleWords(order: Order, rule: OverdueRule): string {
+  const when = rule.afterMinutes === 0 ? 'as soon as it is overdue' : `${durationWords(rule.afterMinutes)} after it is due`;
+  const what =
+    rule.action === 'escalate'
+      ? `show it to the team’s ${rule.to === 'overseer' ? 'supervisor' : 'lead'}`
+      : rule.action === 'move_on'
+        ? 'move on without it'
+        : rule.to === 'team' || rule.to === null
+          ? 'hand it back to the team'
+          : `hand it to ${teamWords(order.teams, rule.to)}`;
+  return `${when}, ${what}`;
 }
 
 /** Pure: the open fields a job asks for (decision 15: filled in by the job, not at open). */
@@ -304,6 +325,20 @@ export function historyWords(order: Order, action: string, detail: Record<string
     }
     case 'cancel_order':
       return `cancelled the order${reason}`;
+    case 'overdue': {
+      const id = typeof detail.job === 'string' ? detail.job : '';
+      const rule = typeof detail.rule === 'number' ? jobDef(order.definition, id)?.overdue[detail.rule] : undefined;
+      if (!rule) return `moved ${job} on, as it was overdue`;
+      const what =
+        rule.action === 'escalate'
+          ? `showed ${job} to the team’s ${rule.to === 'overseer' ? 'supervisor' : 'lead'}`
+          : rule.action === 'move_on'
+            ? `moved on without ${job}`
+            : rule.to === 'team' || rule.to === null
+              ? `handed ${job} back to the team`
+              : `handed ${job} to ${teamWords(order.teams, rule.to)}`;
+      return `${what}, as it was overdue`;
+    }
     default:
       return action;
   }

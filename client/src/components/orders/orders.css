@@ -119,6 +119,11 @@
 .order-job--done .order-job__name, .order-job--cancelled .order-job__name, .order-job--left_out .order-job__name, .order-job--not_started .order-job__name { font-weight: 400; color: var(--muted); }
 .order-job--cancelled .order-job__name, .order-job--left_out .order-job__name { text-decoration: line-through; }
 .order-job--overdue { box-shadow: inset 3px 0 0 var(--ink); padding-left: var(--s2); }
+.order-job--skipped .order-job__name { font-weight: 400; color: var(--muted); }
+.order-job__handed, .order-job__escalated { color: var(--ink); }
+.order-job__overdue { display: flex; flex-direction: column; gap: 2px; }
+.order-job__overdue ol { margin: 0; padding-left: var(--s4); display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+.order-job__overdue li.is-fired { color: var(--ink); }
 .order-job__body { display: flex; flex-direction: column; gap: var(--s2); padding: 0 0 var(--s2) var(--s3); font-size: var(--t-small); }
 .order-job__steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .order-job__actions { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }

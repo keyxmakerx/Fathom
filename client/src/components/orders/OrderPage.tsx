@@ -15,7 +15,6 @@ import {
   answerWords,
   asksOf,
   dueAt,
-  durationWords,
   finishBlocker,
   historyWords,
   isOverdue,
@@ -26,6 +25,7 @@ import {
   mayPickUp,
   mayWork,
   orderNumber,
+  overdueRuleWords,
   personWords,
   signOff,
   stageOf,
@@ -249,6 +249,8 @@ function JobCard({
         ? `Done${job.finishedBy ? ` by ${personWords(order.people, job.finishedBy)}` : ''}${job.finishedAt ? `, ${whenWords(job.finishedAt, now)}` : ''}`
         : job.status === 'cancelled'
           ? `Cancelled${job.note ? `: “${job.note}”` : ''}`
+          : job.status === 'skipped'
+            ? `Moved on without it, as it was overdue${job.finishedAt ? `, ${whenWords(job.finishedAt, now)}` : ''}`
           : job.status === 'waiting' && waits.length > 0
             ? `Waiting for ${waits.join(', ')}`
             : JOB_WORDS[job.status];
@@ -257,29 +259,34 @@ function JobCard({
     <div className={`order-job order-job--${job.status}${overdue ? ' order-job--overdue' : ''}`} data-testid={`job-${job.id}`}>
       <button type="button" className="order-job__head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="order-job__name">{job.name}</span>
-        <span className="order-job__team">{teamWords(order.teams, job.team)}</span>
+        <span className="order-job__team">
+          {teamWords(order.teams, job.team)}
+          {job.team !== job.ownTeam ? <span className="order-job__handed"> · handed on from {teamWords(order.teams, job.ownTeam)}</span> : null}
+        </span>
         <span className="order-job__state">
           {state}
           {job.status === 'ready' && job.steps.length > 0 ? ` · ${job.ticks.length} of ${job.steps.length} steps` : ''}
         </span>
-        <span className="order-job__due">{overdue ? <b>Overdue</b> : due !== null ? `Due ${whenWords(due, now)}` : ''}</span>
+        <span className="order-job__due">
+          {overdue ? <b>Overdue</b> : due !== null ? `Due ${whenWords(due, now)}` : ''}
+          {overdue && job.escalated ? <span className="order-job__escalated"> · shown to the {job.escalated === 'overseer' ? 'supervisor' : 'lead'}</span> : null}
+        </span>
       </button>
       {open ? (
         <div className="order-job__body">
-          {overdue && def && def.overdue.length > 0 ? (
-            <p className="org-sub">
-              Past its due time. This order type says:{' '}
-              {def.overdue
-                .map((r) =>
-                  r.action === 'escalate'
-                    ? `after ${durationWords(Math.max(r.afterMinutes, 1))}, show it to the team’s ${r.to === 'overseer' ? 'supervisor' : 'lead'}`
-                    : r.action === 'move_on'
-                      ? `after ${durationWords(Math.max(r.afterMinutes, 1))}, move on without it`
-                      : `after ${durationWords(Math.max(r.afterMinutes, 1))}, hand it ${r.to === 'team' ? 'back to the team' : `to ${teamWords(order.teams, r.to ?? '')}`}`,
-                )
-                .join('; ')}
-              . A lead or Steward does that by hand for now.
-            </p>
+          {def && def.overdue.length > 0 && (job.status === 'ready' || job.fired.length > 0) ? (
+            <div className="order-job__overdue" data-testid={`overdue-${job.id}`}>
+              <span className="work-fields__label">If it runs late</span>
+              <ol>
+                {def.overdue.map((r, i) => (
+                  <li key={i} className={job.fired.includes(i) ? 'is-fired' : ''}>
+                    {job.fired.includes(i) ? '✓ ' : ''}
+                    {overdueRuleWords(order, r)}
+                    {job.fired.includes(i) ? ' · done by Fathom' : due !== null ? ` · ${whenWords(due + r.afterMinutes * 60, now)}` : ''}
+                  </li>
+                ))}
+              </ol>
+            </div>
           ) : null}
           {job.steps.length > 0 ? (
             <ul className="order-job__steps">

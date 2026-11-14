@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use deadpool_postgres::Pool;
 use fathom_canon::Json;
 
+use fathom_orders::engine::{Action, Actor};
 use fathom_server::authority::{Capability, SoftwareKey};
 use fathom_server::crypto::{now_unix, Key32};
 use fathom_server::grants::{self, Authority, AuthorityError, EpochWatch};
@@ -1068,4 +1069,87 @@ async fn described_as(pool: &Pool, ring: &KeyRing, org: &Org, who: AccountId, id
     }
     .await)
     .expect("describes")
+}
+
+#[tokio::test]
+async fn an_overdue_rule_is_carried_out_by_the_engine_when_the_order_is_next_looked_at() {
+    let pool = support::migrated_pool().await;
+    let ring = keyring(46);
+    let e = an_estate(&pool, &ring).await;
+    let org = &e.org;
+    let steward = org.stewards[0].account;
+    // DIA's "Check the order" escalates as soon as it is overdue and goes back to the queue two
+    // days later. Made due at once here, both rules at once, so the test needn't wait.
+    let source = DIA.replace("due: 1d", "due: 0m").replace(
+        "{ after: 2d, reassign: team }",
+        "{ after: 0m, reassign: team }",
+    );
+    assert_ne!(source, DIA);
+    let req = TypeRequest {
+        source,
+        ..dia(None)
+    };
+    let ty = save(&pool, &ring, org, steward, req).await.expect("saves");
+    let desk = e.members["order-desk"].account;
+    let view = open(&pool, &ring, org, desk, &ty.id, answers("10G"))
+        .await
+        .expect("opens");
+    // Opening stores only the opening; the clock is checked when the order is next read.
+    assert_eq!(view.order.events().len(), 1);
+
+    let seen = get(&pool, &ring, org, desk, &view.id).await;
+    let st = seen.order.job("check").unwrap();
+    assert_eq!(st.escalated.as_deref(), Some("lead"));
+    assert_eq!(st.fired.iter().copied().collect::<Vec<_>>(), vec![0, 1]);
+    let moves: Vec<(&Actor, &Action)> = seen
+        .order
+        .events()
+        .iter()
+        .skip(1)
+        .map(|ev| (&ev.by, &ev.action))
+        .collect();
+    assert_eq!(
+        moves,
+        vec![
+            (
+                &Actor::Engine,
+                &Action::Overdue {
+                    job: "check".into(),
+                    rule: 0
+                }
+            ),
+            (
+                &Actor::Engine,
+                &Action::Overdue {
+                    job: "check".into(),
+                    rule: 1
+                }
+            ),
+        ]
+    );
+
+    // They were stored and sealed: reading again replays them and fires nothing new.
+    let again = get(&pool, &ring, org, desk, &view.id).await;
+    assert_eq!(again.order.events().len(), 3);
+    // And the history says them in the order's JSON.
+    let Json::Obj(m) = again.to_json() else {
+        panic!()
+    };
+    let Json::Arr(history) = &m["history"] else {
+        panic!()
+    };
+    assert_eq!(field(&history[1], "action"), &Json::Str("overdue".into()));
+
+    // Someone on the team still picks it up and finishes it as before.
+    doing(
+        &pool,
+        &ring,
+        org,
+        desk,
+        &view.id,
+        "pick_up",
+        &[job("check")],
+    )
+    .await
+    .expect("picks up");
 }
