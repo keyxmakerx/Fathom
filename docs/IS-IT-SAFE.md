@@ -76,6 +76,8 @@ Fathom's own origin plus one outside address (`crates/fathom-server/src/client.r
 |---|---|---|
 | Have I Been Pwned's range API (`api.pwnedpasswords.com`) | A vault login is marked critical, or a Steward turned breach checks on | The first five characters of the password's SHA-1, with padding. The password and the rest of its hash never leave the tab (ADR-0071 part three, `client/src/vault/breach.ts`). |
 
+Anyone signed in can see which of these a server has switched on: **About this Fathom**, in the account menu or as "About" in Ctrl K. It shows on or off for each, never an address or a key, along with the build's commit and a few checks this browser runs for itself (`crates/fathom-server/src/about.rs`, `client/src/components/about/`).
+
 ---
 
 ## Where credentials go

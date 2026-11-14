@@ -67,6 +67,11 @@ FROM toolchain AS build
 # the WASM module and sets panic = "abort", which would turn one panicking
 # request into a whole-server outage. See the comment on [profile.server] in
 # the workspace Cargo.toml.
+# The commit and its date, stamped into the binary for "About this Fathom" (cards r134 and r135,
+# `crates/fathom-server/src/about.rs` reads them with `option_env!`). `publish.yml` passes them;
+# a local `docker compose build` leaves them empty and About says "a development build".
+ARG FATHOM_COMMIT=
+ARG FATHOM_BUILT=
 RUN cargo build --locked --profile server -p fathom-server
 
 # A directory for the runtime stage to copy, and the reason it is made HERE,
@@ -159,6 +164,11 @@ RUN npm ci --ignore-scripts
 # build` has no way to notice a public/ file that was never staged.
 COPY --from=wasm-build /src/target/wasm32-unknown-unknown/release/fathom_wasm.wasm /src/client/public/engine/fathom_wasm.wasm
 
+# The same commit, so the page can tell whether it and the server are the same build (About's
+# second self-test). Vite exposes `VITE_`-prefixed variables to the client as
+# `import.meta.env.VITE_FATHOM_COMMIT`.
+ARG FATHOM_COMMIT=
+ENV VITE_FATHOM_COMMIT=${FATHOM_COMMIT}
 RUN npm run build
 
 # ---- backup -----------------------------------------------------------
