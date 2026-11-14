@@ -1,19 +1,9 @@
 /**
- * What the three "Not finished" Steward pages say (alpha, 2026-11-12). Plain words, checked against
- * `docs/STATE.md` (orders, the IP plan store) and `docs/decisions/` ADR-0085 (email). When a real
- * screen lands, delete its lines here and drop `notFinished` in `stewardRail.ts`.
+ * What the "Not finished" Steward pages say (alpha, 2026-11-12). Plain words, checked against
+ * `docs/STATE.md` (the IP plan store) and `docs/decisions/` ADR-0085 (email). When a real
+ * screen lands, delete its lines here and drop `notFinished` in `stewardRail.ts`. Order types
+ * landed on 2026-11-14 (`components/orders/`).
  */
-
-export const ORDER_TYPES_WORKS: readonly string[] = [
-  'Fathom can read an order type written as a file and tell you every problem with it, line by line.',
-  'The server keeps order types and orders, and works out each order’s jobs and sign-offs.',
-  'Starter order types are in the corpus folder: a dedicated internet circuit, a new site build, taking a service out.',
-];
-export const ORDER_TYPES_MISSING: readonly string[] = [
-  'No screen to write an order type, open an order or sign one off.',
-  'No overdue clock.',
-  'An order does not yet stop a clash with another plan.',
-];
 
 export const IP_PLAN_WORKS: readonly string[] = [
   'The server keeps an IP plan for the organisation: address blocks, prefixes, ranges, addresses, VLANs and AS numbers.',

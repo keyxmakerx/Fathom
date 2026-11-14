@@ -1198,7 +1198,20 @@ pub async fn get_order(
     auth: &Authority<'_>,
     id: &str,
 ) -> Result<OrderView, OrderError> {
-    load(tx, auth, id, false).await
+    let view = load(tx, auth, id, false).await?;
+    let plan_waiting = view.order.definition().jobs().any(|j| {
+        j.makes_plan
+            && view
+                .order
+                .job(&j.id)
+                .is_some_and(|s| s.status == JobStatus::Ready && s.plan.is_some())
+    });
+    if !plan_waiting || view.order.status() != OrderStatus::Open {
+        return Ok(view);
+    }
+    let mut view = load(tx, auth, id, true).await?;
+    catch_up_plans(tx, auth, &mut view).await?;
+    Ok(view)
 }
 
 /// Take one action on an order, as the caller. The engine decides; a refusal changes nothing.
@@ -1213,6 +1226,7 @@ pub async fn act(
         return Err(OrderError::Malformed("an order action"));
     }
     let mut view = load(tx, auth, id, true).await?;
+    catch_up_plans(tx, auth, &mut view).await?;
     if view.order.events().len() as i64 >= MAX_EVENTS {
         return Err(OrderError::Limit("this order has as many events as it may"));
     }
@@ -1464,5 +1478,481 @@ impl OrderView {
             ("holds", Json::Arr(holds)),
             ("history", Json::Arr(history)),
         ])
+    }
+}
+
+// ---------------------------------------------------------------------------
+// What the screens need beyond the engine's state (ADR-0084 pieces 4 and 5)
+// ---------------------------------------------------------------------------
+
+fn scalar_json(s: &fathom_orders::Scalar) -> Json {
+    match s {
+        fathom_orders::Scalar::Text(t) => Json::Str(t.clone()),
+        fathom_orders::Scalar::Int(i) => Json::Int(*i),
+        fathom_orders::Scalar::Bool(b) => Json::Bool(*b),
+    }
+}
+
+/// A `when`, as the browser evaluates it to ask a field only when its answer says so. The same
+/// fixed comparisons as the file (decision 2); never an expression.
+fn condition_json(c: &fathom_orders::Condition) -> Json {
+    use fathom_orders::{Compare, Condition};
+    match c {
+        Condition::All(cs) => obj(vec![(
+            "all",
+            Json::Arr(cs.iter().map(condition_json).collect()),
+        )]),
+        Condition::Any(cs) => obj(vec![(
+            "any",
+            Json::Arr(cs.iter().map(condition_json).collect()),
+        )]),
+        Condition::Field { field, compare } => {
+            let (op, value) = match compare {
+                Compare::Is(s) => ("is", scalar_json(s)),
+                Compare::IsNot(s) => ("is_not", scalar_json(s)),
+                Compare::In(ss) => ("in", Json::Arr(ss.iter().map(scalar_json).collect())),
+                Compare::AtLeast(n) => ("at_least", Json::Int(*n)),
+                Compare::AtMost(n) => ("at_most", Json::Int(*n)),
+                Compare::Set => ("set", Json::Null),
+                Compare::NotSet => ("not_set", Json::Null),
+            };
+            obj(vec![
+                ("field", Json::Str(field.clone())),
+                ("op", Json::Str(op.into())),
+                ("value", value),
+            ])
+        }
+    }
+}
+
+fn opt_condition(c: &Option<fathom_orders::Condition>) -> Json {
+    c.as_ref().map_or(Json::Null, condition_json)
+}
+
+fn strs(items: &[String]) -> Json {
+    Json::Arr(items.iter().cloned().map(Json::Str).collect())
+}
+
+/// A field, as the order page asks and shows it.
+fn field_json(f: &fathom_orders::Field) -> Json {
+    obj(vec![
+        ("key", Json::Str(f.key.clone())),
+        ("label", Json::Str(f.label.clone())),
+        ("kind", Json::Str(f.kind.word().into())),
+        ("required", Json::Bool(f.required)),
+        ("choices", strs(&f.choices)),
+        (
+            "family",
+            f.family.map_or(Json::Null, |fam| {
+                Json::Str(
+                    match fam {
+                        fathom_orders::Family::Ipv4 => "ipv4",
+                        fathom_orders::Family::Ipv6 => "ipv6",
+                    }
+                    .into(),
+                )
+            }),
+        ),
+        (
+            "size",
+            f.size.map_or(Json::Null, |s| Json::Int(i64::from(s))),
+        ),
+        ("min", f.min.map_or(Json::Null, Json::Int)),
+        ("max", f.max.map_or(Json::Null, Json::Int)),
+        ("help", opt_str(&f.help)),
+        ("when", opt_condition(&f.when)),
+        ("from_set", opt_str(&f.from_set)),
+        ("line", Json::Int(f.line as i64)),
+    ])
+}
+
+fn overdue_json(r: &fathom_orders::OverdueRule) -> Json {
+    use fathom_orders::OverdueAction;
+    let (action, to) = match &r.action {
+        OverdueAction::Escalate(role) => ("escalate", Json::Str(role.clone())),
+        OverdueAction::ReassignToQueue => ("reassign", Json::Str("team".into())),
+        OverdueAction::ReassignTo(team) => ("reassign", Json::Str(team.clone())),
+        OverdueAction::MoveOn => ("move_on", Json::Null),
+    };
+    obj(vec![
+        ("after_minutes", Json::Int(r.after.minutes as i64)),
+        ("action", Json::Str(action.into())),
+        ("to", to),
+    ])
+}
+
+fn job_json(j: &fathom_orders::Job) -> Json {
+    obj(vec![
+        ("id", Json::Str(j.id.clone())),
+        ("name", Json::Str(j.name.clone())),
+        ("team", Json::Str(j.team.clone())),
+        ("steps", strs(&j.steps)),
+        ("asks", strs(&j.asks)),
+        ("when", opt_condition(&j.when)),
+        (
+            "due_minutes",
+            j.due.map_or(Json::Null, |d| Json::Int(d.minutes as i64)),
+        ),
+        (
+            "overdue",
+            Json::Arr(j.overdue.iter().map(overdue_json).collect()),
+        ),
+        ("optional", Json::Bool(j.optional)),
+        ("makes_plan", Json::Bool(j.makes_plan)),
+        ("needs", strs(&j.needs)),
+        (
+            "send_back",
+            j.send_back.as_ref().map_or(Json::Null, |sb| {
+                obj(vec![
+                    ("to", Json::Str(sb.to.clone())),
+                    ("label", Json::Str(sb.label.clone())),
+                ])
+            }),
+        ),
+        ("reserves", opt_str(&j.reserves)),
+        ("holds", strs(&j.holds)),
+        ("line", Json::Int(j.line as i64)),
+    ])
+}
+
+/// A definition as the board draws it and the order page asks it: every field, and every lane
+/// with its stages and jobs. Team values are what the definition holds: slugs in a file being
+/// written, team ids once installed.
+pub fn definition_json(def: &Definition) -> Json {
+    obj(vec![
+        ("id", Json::Str(def.id.clone())),
+        ("name", Json::Str(def.name.clone())),
+        ("code", opt_str(&def.number)),
+        (
+            "fields",
+            Json::Arr(def.fields.iter().map(field_json).collect()),
+        ),
+        (
+            "lanes",
+            Json::Arr(
+                def.lanes
+                    .iter()
+                    .map(|lane| {
+                        obj(vec![
+                            ("id", Json::Str(lane.id.clone())),
+                            ("name", Json::Str(lane.name.clone())),
+                            ("starts_after", opt_str(&lane.starts_after)),
+                            ("implicit", Json::Bool(lane.implicit)),
+                            (
+                                "stages",
+                                Json::Arr(
+                                    lane.stages
+                                        .iter()
+                                        .map(|s| {
+                                            obj(vec![
+                                                ("id", Json::Str(s.id.clone())),
+                                                ("name", Json::Str(s.name.clone())),
+                                                ("approval", opt_str(&s.approval)),
+                                                (
+                                                    "jobs",
+                                                    Json::Arr(
+                                                        s.jobs.iter().map(job_json).collect(),
+                                                    ),
+                                                ),
+                                                ("line", Json::Int(s.line as i64)),
+                                            ])
+                                        })
+                                        .collect(),
+                                ),
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+/// Every team that stands now, id to `{slug, name}`, for matching slugs and naming teams.
+async fn team_names(
+    tx: &Transaction<'_>,
+    live: &BTreeMap<String, String>,
+) -> Result<Json, OrderError> {
+    let ids: Vec<String> = live.keys().cloned().collect();
+    let rows = tx
+        .query("SELECT id, name FROM teams WHERE id = ANY($1)", &[&ids])
+        .await?;
+    let names: BTreeMap<String, String> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
+    Ok(Json::Obj(
+        live.iter()
+            .map(|(id, slug)| {
+                (
+                    id.clone(),
+                    obj(vec![
+                        ("slug", Json::Str(slug.clone())),
+                        (
+                            "name",
+                            Json::Str(names.get(id).cloned().unwrap_or_else(|| slug.clone())),
+                        ),
+                    ]),
+                )
+            })
+            .collect(),
+    ))
+}
+
+/// What a Steward's file reads as, without saving it: every problem with its line, or the
+/// definition as the board draws it, the slugs it names and the teams that stand to match them
+/// to. A Steward's (the board and the File tab check as the Steward types).
+pub async fn check_type(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    source: &str,
+    field_sets: &[String],
+) -> Result<Json, OrderError> {
+    let people = teams::order_people(tx, auth, &BTreeSet::new()).await?;
+    if !people.steward {
+        return Err(AuthorityError::NotAuthorised.into());
+    }
+    if source.len() > MAX_SOURCE_BYTES
+        || field_sets.len() > MAX_FIELD_SETS
+        || field_sets.iter().any(|s| s.len() > MAX_SOURCE_BYTES)
+    {
+        return Err(OrderError::Malformed("an order type is too large"));
+    }
+    let teams = team_names(tx, &people.live).await?;
+    let (problems, definition, slugs) = match read_type(source, field_sets) {
+        Ok(def) => {
+            let slugs = strs(
+                &def.team_slugs()
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>(),
+            );
+            (Vec::new(), definition_json(&def), slugs)
+        }
+        Err(ps) => (ps, Json::Null, Json::Arr(Vec::new())),
+    };
+    Ok(obj(vec![
+        (
+            "problems",
+            Json::Arr(
+                problems
+                    .into_iter()
+                    .map(|p| {
+                        obj(vec![
+                            ("line", Json::Int(p.line as i64)),
+                            ("message", Json::Str(p.message)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        ("definition", definition),
+        ("slugs", slugs),
+        ("teams", teams),
+    ]))
+}
+
+/// The teams that stand now, for the type page's slug matching.
+pub async fn live_teams(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<Json, OrderError> {
+    let people = teams::order_people(tx, auth, &BTreeSet::new()).await?;
+    team_names(tx, &people.live).await
+}
+
+/// The order as the order page shows it: [`OrderView::to_json`] plus its definition as asked
+/// (fields, and each job's due time, needs and send-back), the caller's standing on the order's
+/// teams so the page offers only what the engine would take, the names of the people in it and
+/// of its teams. The engine still decides every act; this only saves a person a refusal.
+pub async fn describe(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    view: &OrderView,
+) -> Result<Json, OrderError> {
+    let def = view.order.definition();
+    let people = teams::order_people(tx, auth, &teams_of(def)).await?;
+    let mut accounts: BTreeSet<String> = BTreeSet::new();
+    accounts.insert(view.order.opened_by().to_string());
+    accounts.insert(auth.ctx.actor().to_string());
+    for e in view.order.events() {
+        if let Actor::Person(p) = &e.by {
+            accounts.insert(p.clone());
+        }
+    }
+    let accounts: Vec<String> = accounts.into_iter().collect();
+    let names = tx
+        .query(
+            "SELECT a.id, a.display_name FROM memberships m \
+               JOIN accounts a ON a.id = m.account_id \
+              WHERE m.organisation_id = $1 AND a.id = ANY($2)",
+            &[&auth.ctx.tenant().to_string(), &accounts],
+        )
+        .await?;
+    let you = obj(vec![
+        ("account", Json::Str(auth.ctx.actor().to_string())),
+        ("steward", Json::Bool(people.steward)),
+        (
+            "teams",
+            Json::Obj(
+                people
+                    .standing
+                    .iter()
+                    .map(|(team, s)| {
+                        (
+                            team.clone(),
+                            obj(vec![
+                                ("on", Json::Bool(s.member || !s.roles.is_empty())),
+                                (
+                                    "roles",
+                                    Json::Arr(s.roles.iter().cloned().map(Json::Str).collect()),
+                                ),
+                                (
+                                    "powers",
+                                    Json::Arr(
+                                        s.powers
+                                            .iter()
+                                            .map(|p| Json::Str(p.as_str().into()))
+                                            .collect(),
+                                    ),
+                                ),
+                            ]),
+                        )
+                    })
+                    .collect(),
+            ),
+        ),
+    ]);
+    let Json::Obj(mut m) = view.to_json() else {
+        unreachable!("an order is an object")
+    };
+    m.insert("definition".into(), definition_json(def));
+    m.insert("you".into(), you);
+    m.insert(
+        "people".into(),
+        Json::Obj(
+            names
+                .iter()
+                .map(|r| (r.get::<_, String>(0), Json::Str(r.get::<_, String>(1))))
+                .collect(),
+        ),
+    );
+    m.insert("teams".into(), team_names(tx, &people.live).await?);
+    Ok(Json::Obj(m))
+}
+
+/// The display names of the people who opened `lines`, for the list of orders.
+pub async fn opener_names(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    lines: &[OrderLine],
+) -> Result<BTreeMap<String, String>, OrderError> {
+    let accounts: Vec<String> = lines
+        .iter()
+        .map(|l| l.opened_by.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    if accounts.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    Ok(tx
+        .query(
+            "SELECT a.id, a.display_name FROM memberships m \
+               JOIN accounts a ON a.id = m.account_id \
+              WHERE m.organisation_id = $1 AND a.id = ANY($2)",
+            &[&auth.ctx.tenant().to_string(), &accounts],
+        )
+        .await?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect())
+}
+
+/// Finishes, as the engine, every `makes: plan` job whose linked plan is now recorded in its
+/// design (ADR-0084 decision 4 and 19: "the job is done when the plan is recorded"). The plan's
+/// stage is read from the estate index, which the server rebuilds after each accepted save, so
+/// this asks nothing of the browser. Run before an order is shown or acted on; a job whose plan
+/// is not in the index yet simply waits. Each finish is one sealed event like any other.
+async fn catch_up_plans(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    view: &mut OrderView,
+) -> Result<(), OrderError> {
+    if view.order.status() != OrderStatus::Open {
+        return Ok(());
+    }
+    let waiting: Vec<(String, String, String)> = view
+        .order
+        .definition()
+        .jobs()
+        .filter(|j| j.makes_plan)
+        .filter_map(|j| {
+            let st = view.order.job(&j.id)?;
+            if st.status != JobStatus::Ready {
+                return None;
+            }
+            st.plan
+                .as_ref()
+                .map(|(d, p)| (j.id.clone(), d.clone(), p.clone()))
+        })
+        .collect();
+    if waiting.is_empty() {
+        return Ok(());
+    }
+    let tenant = auth.ctx.tenant().to_string();
+    let keys = crate::estate::IndexKeys::derive(auth.tenant_key, &tenant);
+    for (job, design, plan) in waiting {
+        let row = crate::estate::one_row(tx, &keys, &tenant, &design, &plan)
+            .await
+            .map_err(|_| corrupt("estate index"))?;
+        let recorded = matches!(
+            row.as_ref().and_then(|r| match r {
+                Json::Obj(m) => m.get("work"),
+                _ => None,
+            }),
+            Some(Json::Obj(w)) if w.get("state") == Some(&Json::Str("recorded".into()))
+        );
+        if !recorded {
+            continue;
+        }
+        let last = view.order.events().last().map_or(0, |e| e.at);
+        let event = Event {
+            at: (now_unix().max(0) as u64).max(last),
+            by: Actor::Engine,
+            action: Action::Finish { job },
+        };
+        // The engine refuses when steps are left unticked or an answer is missing; then the job
+        // stays ready and says why when someone looks.
+        if view.order.apply(event, &AsNobody).is_err() {
+            continue;
+        }
+        let seq = i32::try_from(view.order.events().len()).map_err(|_| corrupt("order history"))?;
+        let stored = view.order.events().last().cloned().expect("just applied");
+        store_event(tx, auth, &view.id, seq, &stored).await?;
+        tx.execute(
+            "UPDATE orders SET status = $3, updated_at = $4 \
+             WHERE organisation_id = $1 AND id = $2 AND status = 'open'",
+            &[
+                &tenant,
+                &view.id,
+                &status_word(view.order.status()),
+                &(stored.at as i64),
+            ],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// The engine's own acts ask nothing of people.
+struct AsNobody;
+
+impl People for AsNobody {
+    fn on_team(&self, _: &str, _: &str) -> bool {
+        false
+    }
+    fn has_power(&self, _: &str, _: &str, _: &str) -> bool {
+        false
+    }
+    fn has_role(&self, _: &str, _: &str, _: &str) -> bool {
+        false
+    }
+    fn is_steward(&self, _: &str) -> bool {
+        false
     }
 }

@@ -32,7 +32,8 @@ import { FirmwareSettingsPage } from './FirmwareSettingsPage';
 import { DeviceReadingPage } from './DeviceReadingPage';
 import { shownRail } from './stewardRail';
 import { NotFinishedMark, NotFinishedPage } from '../ui/NotFinished';
-import { IP_PLAN_MISSING, IP_PLAN_WORKS, MAIL_MISSING, MAIL_WORKS, ORDER_TYPES_MISSING, ORDER_TYPES_WORKS } from './notFinishedText';
+import { IP_PLAN_MISSING, IP_PLAN_WORKS, MAIL_MISSING, MAIL_WORKS } from './notFinishedText';
+import { OrderTypesPage } from '../orders/OrderTypesPage';
 import { TeamsPage, ThroughTeams } from '../teams/TeamsPage';
 import './organisation.css';
 
@@ -198,7 +199,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   function content() {
     if (page.kind === 'firmware') return <FirmwareSettingsPage organisationId={org} />;
     if (page.kind === 'device-reading') return <DeviceReadingPage organisationId={org} />;
-    if (page.kind === 'order-types') return <NotFinishedPage title="Order types" works={ORDER_TYPES_WORKS} missing={ORDER_TYPES_MISSING} />;
+    if (page.kind === 'order-types') return <OrderTypesPage organisationId={org} />;
     if (page.kind === 'ip-plan') return <NotFinishedPage title="IP plan" works={IP_PLAN_WORKS} missing={IP_PLAN_MISSING} />;
     if (page.kind === 'mail')
       return <NotFinishedPage title="Mail" works={MAIL_WORKS} missing={MAIL_MISSING} />;

@@ -305,7 +305,27 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   engine on every read. Who may act is the engine's answer from the caller's membership, roles and
   powers on the order's teams (`teams::order_people`). Every text in a type, answer or reason goes
   through the redaction gate's bare check. Routes under `/organisations/{o}/order-types` and
-  `/organisations/{o}/orders`. Not yet: the overdue clock, the screens, and `holds` in the clash check.
+  `/organisations/{o}/orders`. Not yet: the overdue clock, and `holds` in the clash check.
+- **Orders on screen (ADR-0084 pieces 4 and 5 in part; 2026-11-14, draft).** Steward › Order types
+  (`components/orders/OrderTypesPage.tsx`) lists the types, starts one from a starter in
+  `corpus/orders/`, a blank one or a brought-in `.yaml`, and shows it three ways from the same file:
+  the board (lanes as rows, stages as columns, job cards with team, steps, due, sign-off, waits-for
+  and send-back), the File tab (line numbers; the server checks it as it is typed through
+  `POST /organisations/{o}/order-types/check` and marks each problem's line) and Asks for. Each
+  slug is matched to a standing team before Save; saving makes a new version; Download file gives
+  the `.yaml`. The board draws and does not drag: a change is made in the file. The Work tab lists
+  open orders above the rest of the work, each with where it is per lane and the job that is yours,
+  opens a new one from its type's questions (a `device` or `port` field picked from the estate
+  index), and opens an order's page: the track per lane, a sign-off box offered only to someone the
+  engine would let sign, each job with its steps, its questions, Pick it up, Done (said why not
+  before it is pressed), send back with a reason, cancel, a `makes: plan` job's plan linked from the
+  plans the person can see, the answers (changed with a reason once their stage is done), what the
+  order holds, its history, and cancelling the order. The order's JSON now carries its definition,
+  the caller's standing on its teams (`you`) and the names of its people and teams, so the page
+  offers only what the engine would take; the engine still decides each act. A `makes: plan` job is
+  finished by the engine, as a sealed event, once the estate index shows its plan recorded, when the
+  order is next read or acted on. A job past its `due` is marked Overdue and lists its type's rules;
+  nothing moves it by itself yet. `scripts/drive-orders.mjs` walks it against the real server.
 - **The IP plan store, server half (ADR-0083 decisions 1, 3, 4 and 5; schema 0.36, field keys
   562-636; migration 0065; 2026-11-02).** A fourth schema layer, `plan`, declares eleven kinds
   (`IpamVrf`, `IpamRouteTarget`, `IpamAggregate`, `IpamPrefix`, `IpamRange`, `IpamAddress`,

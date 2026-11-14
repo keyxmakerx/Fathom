@@ -908,3 +908,164 @@ async fn another_organisation_sees_no_order_and_no_order_type() {
     .expect("lists");
     assert!(none.is_empty());
 }
+
+fn field<'a>(j: &'a Json, k: &str) -> &'a Json {
+    match j {
+        Json::Obj(m) => m.get(k).unwrap_or_else(|| panic!("no `{k}`")),
+        _ => panic!("not an object"),
+    }
+}
+
+/// The Steward's File tab checks as it is typed (ADR-0084 piece 5): nothing is saved, a broken
+/// file comes back as its problems with lines, a good one as the board draws it with the slugs
+/// it names and the teams that stand to match them to. A member who is not a Steward checks
+/// nothing.
+#[tokio::test]
+async fn a_steward_checks_a_file_without_saving_it() {
+    let pool = support::migrated_pool().await;
+    let ring = keyring(44);
+    let e = an_estate(&pool, &ring).await;
+    let org = &e.org;
+    let steward = org.stewards[0].account;
+    let good = check_as(&pool, &ring, org, steward, DIA.to_string())
+        .await
+        .expect("checks");
+    assert_eq!(field(&good, "problems"), &Json::Arr(vec![]));
+    let def = field(&good, "definition");
+    assert_eq!(
+        field(def, "name"),
+        &Json::Str("Dedicated Internet Access".into())
+    );
+    let Json::Arr(lanes) = field(def, "lanes") else {
+        panic!()
+    };
+    let Json::Arr(stages) = field(&lanes[0], "stages") else {
+        panic!()
+    };
+    assert_eq!(field(&stages[0], "id"), &Json::Str("order".into()));
+    let Json::Arr(slugs) = field(&good, "slugs") else {
+        panic!()
+    };
+    assert_eq!(slugs.len(), SLUGS.len());
+    let Json::Obj(teams) = field(&good, "teams") else {
+        panic!()
+    };
+    assert_eq!(
+        field(&teams[&e.teams["field"]], "slug"),
+        &Json::Str("field".into())
+    );
+
+    let broken = check_as(
+        &pool,
+        &ring,
+        org,
+        steward,
+        DIA.replace("kind: choice", "kind: chioce"),
+    )
+    .await
+    .expect("answers with problems");
+    assert_eq!(field(&broken, "definition"), &Json::Null);
+    let Json::Arr(problems) = field(&broken, "problems") else {
+        panic!()
+    };
+    assert!(problems
+        .iter()
+        .any(|p| matches!(field(p, "message"), Json::Str(m) if m.contains("chioce"))));
+    assert!(matches!(field(&problems[0], "line"), Json::Int(n) if *n > 1));
+
+    // Nothing was saved by either.
+    let types = as_who!(&pool, &ring, org, steward, |tx, auth| orders::list_types(
+        &tx, &auth
+    )
+    .await)
+    .expect("lists");
+    assert!(types.is_empty());
+
+    let member = e.members["field"].account;
+    assert!(matches!(
+        check_as(&pool, &ring, org, member, DIA.to_string()).await,
+        Err(OrderError::Authority(AuthorityError::NotAuthorised))
+    ));
+}
+
+/// The order page is told what it needs to offer only what the engine would take: the
+/// definition as asked, the caller's standing on the order's teams, and the names of the people
+/// and teams in it.
+#[tokio::test]
+async fn the_order_page_is_told_who_may_do_what() {
+    let pool = support::migrated_pool().await;
+    let ring = keyring(45);
+    let e = an_estate(&pool, &ring).await;
+    let org = &e.org;
+    let steward = org.stewards[0].account;
+    let ty = save(&pool, &ring, org, steward, dia(None))
+        .await
+        .expect("saves");
+    let desk = e.members["order-desk"].account;
+    let view = open(&pool, &ring, org, desk, &ty.id, answers("10G"))
+        .await
+        .expect("opens");
+    let as_desk = described_as(&pool, &ring, org, desk, &view.id).await;
+    let you = field(&as_desk, "you");
+    assert_eq!(field(you, "account"), &Json::Str(desk.to_string()));
+    assert_eq!(field(you, "steward"), &Json::Bool(false));
+    let Json::Obj(standing) = field(you, "teams") else {
+        panic!()
+    };
+    assert_eq!(
+        field(&standing[&e.teams["order-desk"]], "on"),
+        &Json::Bool(true)
+    );
+    assert_eq!(
+        field(&standing[&e.teams["field"]], "on"),
+        &Json::Bool(false)
+    );
+    let Json::Obj(people) = field(&as_desk, "people") else {
+        panic!()
+    };
+    assert_eq!(people[&desk.to_string()], Json::Str("order-desk".into()));
+    let Json::Obj(teams) = field(&as_desk, "teams") else {
+        panic!()
+    };
+    assert_eq!(
+        field(&teams[&e.teams["ip-design"]], "slug"),
+        &Json::Str("ip-design".into())
+    );
+    let Json::Arr(fields) = field(field(&as_desk, "definition"), "fields") else {
+        panic!()
+    };
+    assert!(fields
+        .iter()
+        .any(|f| field(f, "key") == &Json::Str("bandwidth".into())));
+
+    let as_steward = described_as(&pool, &ring, org, steward, &view.id).await;
+    assert_eq!(
+        field(field(&as_steward, "you"), "steward"),
+        &Json::Bool(true)
+    );
+}
+
+async fn check_as(
+    pool: &Pool,
+    ring: &KeyRing,
+    org: &Org,
+    who: AccountId,
+    source: String,
+) -> Result<Json, OrderError> {
+    as_who!(pool, ring, org, who, |tx, auth| orders::check_type(
+        &tx,
+        &auth,
+        &source,
+        &[CUSTOMER.to_string()]
+    )
+    .await)
+}
+
+async fn described_as(pool: &Pool, ring: &KeyRing, org: &Org, who: AccountId, id: &str) -> Json {
+    as_who!(pool, ring, org, who, |tx, auth| async {
+        let v = orders::get_order(&tx, &auth, id).await?;
+        orders::describe(&tx, &auth, &v).await
+    }
+    .await)
+    .expect("describes")
+}

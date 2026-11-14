@@ -221,6 +221,15 @@ does not depend on people is checked again. Every text in a definition, answer a
 through the redaction gate's bare check (decision 2), the definition's texts one by one rather
 than its raw lines, because YAML's own `key:` reads as a secret's keyword. Not yet: the overdue
 clock (piece 3), and the Work tab and order page (piece 4).
+**Built (pieces 4 and 5, in part; 2026-11-14, draft):** Steward › Order types (list, starters,
+blank, bring in a file, the board drawn from the file, the File tab checked on the server as it is
+typed with each problem on its line, Asks for, team matching, versions by saving, Download file)
+and orders on the Work tab (the list, opening an order, and the order page with every act the
+engine takes). A `makes: plan` job links a plan the person can see and is finished by the engine
+once the estate index shows it recorded. Not yet: dragging on the board (the file is the way to
+change it), moving an open order onto a new version, piece 3's clock (overdue is a mark and lists
+its rules), `holds` in the clash check, and piece 6.
+
 The two later items from r105 are issues #315 (a Steward makes a clash a hard stop for a folder)
 and #316 (change freezes).
 

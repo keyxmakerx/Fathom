@@ -9,9 +9,9 @@ describe('the Steward list (ADR-0088)', () => {
     expect(shown.flatMap((g) => g.entries.map((e) => e.page))).toEqual(['people', 'teams', 'waiting', 'folders', 'firmware', 'device-reading', 'order-types', 'ip-plan', 'mail', 'passwords', 'ai', 'ai-rules']);
   });
 
-  it('hides nothing in the alpha: orders, the IP plan and mail are listed and carry the Not finished mark', () => {
+  it('hides nothing in the alpha: the IP plan and mail are listed and carry the Not finished mark; order types are finished', () => {
     const entries = shownRail({ waitingReady: true }).flatMap((g) => g.entries);
-    expect(entries.filter((e) => e.notFinished).map((e) => e.page)).toEqual(['order-types', 'ip-plan', 'mail']);
+    expect(entries.filter((e) => e.notFinished).map((e) => e.page)).toEqual(['ip-plan', 'mail']);
   });
 
   it('leaves Waiting for you out until its count has loaded', () => {

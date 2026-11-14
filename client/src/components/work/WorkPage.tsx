@@ -4,6 +4,7 @@ import { openElsewhere } from '../../api/estate';
 import { fetchWork, type WorkAnswer, type WorkRow } from '../../api/work';
 import { ticketHref } from '../../document/work';
 import { coverageSentence } from '../inventory/EverywherePanel';
+import { OrdersSection } from '../orders/OrdersSection';
 import {
   KIND_FILTERS,
   KIND_WORD,
@@ -63,6 +64,7 @@ export function WorkPage({
     saveFilters(store, organisationId, next);
   };
   const busy = useRef(false);
+  const [ordersFull, setOrdersFull] = useState(false);
 
   const load = useCallback(() => {
     if (busy.current) return;
@@ -105,8 +107,15 @@ export function WorkPage({
       .catch((e: unknown) => setDone({ open: true, answer: null, error: e instanceof Error ? e.message : String(e) }));
   };
 
-  if (loaded.status === 'loading') return <p className="work__muted">Gathering the work…</p>;
-  if (loaded.status === 'error') return <p className="work__muted">Could not gather the work: {loaded.message}</p>;
+  const orders = <OrdersSection organisationId={organisationId} refreshMs={WORK_REFRESH_MS} onFull={setOrdersFull} />;
+  if (ordersFull || loaded.status !== 'ready') {
+    return (
+      <div className="work" data-testid="work-page">
+        {orders}
+        {ordersFull ? null : <p className="work__muted">{loaded.status === 'loading' ? 'Gathering the work…' : `Could not gather the work: ${loaded.status === 'error' ? loaded.message : ''}`}</p>}
+      </div>
+    );
+  }
   const { answer } = loaded;
   const { now, coming, counts } = sections(answer.rows, filters, answer.you);
   const sites = sitesOf(answer.rows);
@@ -115,6 +124,7 @@ export function WorkPage({
 
   return (
     <div className="work" data-testid="work-page">
+      {orders}
       <div className="work__bar">
         <div className="work__kinds" role="group" aria-label="Kind of work">
           {KIND_FILTERS.map(([k, label]) => (

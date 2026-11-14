@@ -64,7 +64,7 @@ export const STEWARD_RAIL: readonly StewardGroup[] = [
   {
     heading: 'Work',
     entries: [
-      { page: 'order-types', label: 'Order types', built: true, notFinished: true, owner: 'ADR-0084 orders' },
+      { page: 'order-types', label: 'Order types', built: true, owner: 'ADR-0084 orders' },
       { page: 'ip-plan', label: 'IP plan', built: true, notFinished: true, owner: 'ADR-0083 IP plan' },
       { page: 'mail', label: 'Mail', built: true, notFinished: true, owner: 'ADR-0085 email' },
     ],
