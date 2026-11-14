@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Document } from '../../document/model';
-import type { CheckFinding, ChecksResult } from '../../engine/engine';
+import type { CheckAction, CheckFinding, ChecksResult } from '../../engine/engine';
 import type { Mirror } from '../../engine/mirror';
 import {
   buildBadgeMap,
@@ -84,6 +84,13 @@ export interface ChecksController {
   toggleShow(f: CheckFinding): void;
   refusal: RefusalState | null;
   dismissRefusal(): void;
+  /** A line under the summary with one button: "2 IP plan findings ignored here · Show them again". */
+  aside?: CheckAside | null;
+}
+
+export interface CheckAside {
+  text: string;
+  action: CheckAction;
 }
 
 interface Inputs {
@@ -94,16 +101,17 @@ interface Inputs {
   mirrorNow: (load?: boolean) => Mirror | null;
   /** How long the last sync of the module took, ms; null before there has been a measurable one. */
   loadCostMs: () => number | null;
-  /** Findings the engine cannot make because they need another design: links between sites. */
+  /** Findings the engine cannot make because they need another design or the server: links between sites, the IP plan. */
   extra?: readonly CheckFinding[];
   /** Until the person chooses, the panel stays folded rather than opening for refusals and warnings: Inventory and
    * Sheet, where it would cover the list or the page. */
   foldedUntilChosen?: boolean;
+  aside?: CheckAside | null;
 }
 
 const NO_EXTRA: readonly CheckFinding[] = [];
 
-export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = NO_EXTRA, foldedUntilChosen = false }: Inputs): ChecksController {
+export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = NO_EXTRA, foldedUntilChosen = false, aside = null }: Inputs): ChecksController {
   const [store] = useState(createChecksStore);
   const [engineResult, setResult] = useState<ChecksResult | null>(null);
   const result = useMemo(() => withSiteLinkFindings(engineResult, extra), [engineResult, extra]);
@@ -314,5 +322,6 @@ export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = 
     toggleShow,
     refusal,
     dismissRefusal,
+    aside,
   };
 }

@@ -112,6 +112,7 @@ import { deviceMenuActions } from '../drawing/deviceMenuActions';
 import { duplicateDeviceChange, removeDeviceChange, takeOutChange } from '../drawing/editorChanges';
 import { ChecksSurface } from '../checks/ChecksPanel';
 import { totalCount } from '../checks/checksModel';
+import { useIpPlanFindings } from '../checks/ipPlanChecks';
 import { useSiteLinkFindings } from '../checks/siteLinkChecks';
 import { useChecksController } from '../checks/useChecksController';
 import { useDesignEngine, useMirrorFor, type DesignEngine } from '../design/useDesignEngine';
@@ -321,13 +322,23 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const ownEngine = useDesignEngine();
   const designEngine = engine ?? ownEngine;
   const { mirrorNow } = useMirrorFor(designEngine, doc);
-  const siteLinkFindings = useSiteLinkFindings(doc, organisationId, session.designId);
+  const linkFindings = useSiteLinkFindings(doc, organisationId, session.designId);
+  const planChecks = useIpPlanFindings(doc, organisationId, session.designId);
+  const extraFindings = useMemo(() => [...linkFindings, ...planChecks.findings], [linkFindings, planChecks.findings]);
+  const planAside = useMemo(
+    () =>
+      planChecks.ignored > 0
+        ? { text: `${planChecks.ignored} IP plan ${planChecks.ignored === 1 ? 'finding' : 'findings'} ignored in this browser`, action: { label: 'Show again', run: async () => planChecks.unignore() } }
+        : null,
+    [planChecks],
+  );
   const checks = useChecksController({
     doc,
     boot: designEngine.ensureMirror,
     mirrorNow,
     loadCostMs: designEngine.loadCostMs,
-    extra: siteLinkFindings,
+    extra: extraFindings,
+    aside: planAside,
     foldedUntilChosen: true,
   });
 

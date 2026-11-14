@@ -322,8 +322,31 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   hash of VRF and network, unique per organisation, refuses a duplicate in a VRF that enforces unique
   space and anything handed out twice. A reservation is held by a person or a piece of work, ends
   after 30 days unless told otherwise, and reads `lapsed` after its end. Routes: `…/ipam/list`,
-  `…/create`, `…/update` (with the version read), `…/delete`, `…/next`. **No screens yet**, no
-  difference checks and no NetBox files (ADR-0083 order steps 3, 4 and 6).
+  `…/create`, `…/update` (with the version read), `…/delete`, `…/next`. **The screen is Steward ›
+  IP plan** (alpha, 2026-11-14; `IpPlanPage.tsx`, `ipPlanModel.ts`, `api/ipPlan.ts`): the address
+  tree per VRF, nested by containment in both families, each block's use and its first free
+  stretches as prefixes; VLAN groups, ASN ranges, VRFs and route targets; add, change, delete or
+  release each, with the store's refusal shown as it is; next free and Reserve under a key; and
+  **NetBox files out**, one CSV per import page in NetBox 4.7.5's columns. Proved against the real
+  server by `scripts/drive-ip-plan.mjs`. **The difference checks** (decision 2, order step 4;
+  `checks/ipPlanChecks.ts`): Checks on the canvas, Inventory and Sheet reads the plan and adds
+  *configured differently* (length, or VRF), *configured but not planned* (one per drawn network,
+  naming the block it would go under), *planned but not configured* (an active planned address whose
+  Meant for names a device in this design), a VRF the plan does not have, and a BGP AS number in a
+  planned range the plan does not hold. A reservation holding an address is In use, not a difference;
+  an organisation with no plan gets none. *In use twice*: an address the plan holds in the global
+  table (not one planned with a shared role such as VRRP) that the estate index finds on a device in
+  another design the person may read (`api/estate.ts` search, at most 64 addresses, asked again while
+  a design is still being indexed; the index keeps no VRF, so the finding says so). **Adopt** makes
+  the plan record from what is drawn (a prefix under the block it would go in, a VRF, an AS number)
+  through the store's own create; **Ignore** hides a finding in this browser only, with "Show again"
+  in the panel. **The canvas mark** (decision 7, `checks/PlannedMark.tsx`): a planned-but-not-drawn
+  address is a dashed plan-colour tag on its device, off with the Checks layer. **NetBox files in**
+  (decision 6, step 6; `import/ipPlanImport.ts`): Steward › IP plan › Read NetBox files takes CSVs
+  of aggregates, prefixes, IP ranges, IP addresses, VRFs, VLAN groups, VLANs, ASN ranges and ASNs,
+  passes every value through the redaction gate, previews each row as New, Match, Differs or Not
+  read, and adds them through the store in dependency order (Differs only when asked). Not yet:
+  reservations tied to finished work, route targets in, and NetBox JSON.
 - **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
   request writes an `access` line with the client's address and the proxy it came through
   (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).

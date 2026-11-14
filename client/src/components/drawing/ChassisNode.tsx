@@ -3,6 +3,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { PORT_GLYPHS } from '../ports';
 import { CheckBadge } from '../checks/CheckBadge';
+import { PlannedAddressMark } from '../checks/PlannedMark';
 import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type InletView, type PortView, type Sheath } from './contract';
 import type { Facing } from './elevation';
 import { cardFrames, connectorName, faceplateLayoutFor, plateItems, portWhere, type PortBox } from './faceplate';
@@ -277,6 +278,7 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
     <div className="drawing-chassis-wrap" style={{ height }}>
       <LitPathMark cableIds={myCableIds} />
       <CheckBadge id={chassis.deviceId} />
+      <PlannedAddressMark deviceId={chassis.deviceId} />
       <div className={className} style={{ height }}>
         {plainPlate ? (
           <div className="drawing-chassis__header">

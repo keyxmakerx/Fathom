@@ -18,14 +18,19 @@ plan and record a change, and keep it all with a tamper-evident history. It is n
 means by "usable", and it has not had that walkthrough yet. Expect rough edges and a layout that is still
 being settled.
 
-**Three parts are not finished.** Each is listed and carries a plain **Not finished** mark, so nobody
+**Two parts are not finished.** Each is listed and carries a plain **Not finished** mark, so nobody
 clicks into a dead end without being told:
 
 | Part | Where you see the mark | What exists | What does not |
 |---|---|---|---|
 | **Orders** | Steward, Work, Order types | The server keeps order types and orders and runs their jobs and sign-offs | No screens, no overdue clock |
-| **IP plan** | Steward, Work, IP plan | The server keeps the organisation's plan and hands out the next free prefix, address, VLAN or AS number | No screens, no check against a design, no NetBox files (a design's own Prefixes and VLANs tables are finished) |
 | **Mail** | Steward, Work, Mail; the operator console's Mail form; the forgotten-password page | An operator can save mail settings, sealed | Nothing is sent: no reset or notice by mail, and invitations are handed over by the Steward |
+
+The **IP plan** (Steward, Work, IP plan) is finished for the alpha: the address tree with each block's use
+and free space, VLANs, AS numbers and VRFs, next free and reservations, and NetBox files both ways.
+Checks compares each design with it: an address drawn with another length or in another VRF than
+planned, a network nothing plans (with Adopt to put it in the plan), an address planned for a device but
+not drawn on it (marked on the canvas too), and an address drawn in two designs.
 
 Also not in the alpha: sending mail, passkeys, signed equipment packs, and the scale and high-availability
 design. `docs/STATE.md` has the full list. Use the images tagged for the alpha, not `latest`, once a release
