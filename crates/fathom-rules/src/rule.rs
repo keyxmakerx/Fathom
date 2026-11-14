@@ -94,8 +94,9 @@ pub struct HopPlan {
 #[derive(Debug, Clone)]
 pub struct BindPlan {
     pub name: String,
-    /// `all: Kind` binds every live node of the kind instead of walking from the anchor.
-    pub all: bool,
+    /// `all: Kind` starts from every live node of the kind instead of from the anchor;
+    /// with `via` it walks on from each of them, and binds every node those walks reach.
+    pub all: Option<KindId>,
     pub hops: Vec<HopPlan>,
     pub card: Card,
     pub kind: KindId,
@@ -429,6 +430,7 @@ fn plan_bind(
             ))
         }
     };
+    let mut all_from: Option<KindId> = None;
     if let Some(all) = spec.get("all") {
         let kind_name = all.scalar_display();
         let kind = schema.kind(&kind_name).ok_or_else(|| {
@@ -438,21 +440,23 @@ fn plan_bind(
                 format!("`{kind_name}` is not a kind in schema/"),
             )
         })?;
-        if spec.get("via").is_some() || card != Card::Many {
-            return Err(lerr(
-                file,
-                spec.line,
-                "`all` takes no `via` and is card many",
-            ));
+        if card != Card::Many {
+            return Err(lerr(file, spec.line, "`all` is card many"));
         }
         reads.kinds.insert(kind);
-        return Ok(BindPlan {
-            name: name.to_owned(),
-            all: true,
-            hops: Vec::new(),
-            card,
-            kind,
-        });
+        // `all` with `via` walks on from every node of the kind: the result is every
+        // node those walks reach, merged, so it says nothing about which start reached
+        // which. A rule compares what it finds by field (a VLAN's number), never by start.
+        if spec.get("via").is_none() {
+            return Ok(BindPlan {
+                name: name.to_owned(),
+                all: Some(kind),
+                hops: Vec::new(),
+                card,
+                kind,
+            });
+        }
+        all_from = Some(kind);
     }
     let via = spec
         .get("via")
@@ -468,7 +472,7 @@ fn plan_bind(
             format!("a binding walks 1 to {MAX_HOPS} edges"),
         ));
     }
-    let mut cur: Vec<KindId> = vec![anchor];
+    let mut cur: Vec<KindId> = vec![all_from.unwrap_or(anchor)];
     let mut hops = Vec::new();
     for h in hops_src {
         let (role, rev, kind_name, filters, without_names) = match &h.value {
@@ -595,7 +599,7 @@ fn plan_bind(
     };
     Ok(BindPlan {
         name: name.to_owned(),
-        all: false,
+        all: all_from,
         hops,
         card,
         kind,

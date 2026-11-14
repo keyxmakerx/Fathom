@@ -696,3 +696,5 @@ fields:
   # 0.41: plaintext management services (sign-off r137)
   SystemSettings.telnet_enabled: 646
   SystemSettings.http_enabled: 647
+  # 0.41: DHCP servers (sign-off r145)
+  DhcpServer.group_name: 648

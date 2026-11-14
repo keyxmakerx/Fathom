@@ -544,12 +544,18 @@ mod body {
         IpamAsnRange,
         /// One ASN in the plan, from a range or on its own (ADR-0083 decision 4).
         IpamAsn,
+        /// A device's own DHCP server, as its config states it: one node per server the device
+        /// runs (a Junos dhcp-local-server group, an EOS interface with `dhcp server ipv4`), and
+        /// the units it answers on by ServesDhcpOn. DhcpRelay's sibling: a relay forwards to a
+        /// server, this is the server. Fathom never observes a lease or a pool; this is what the
+        /// config SAYS, and a finding must never imply it watched a packet.
+        DhcpServer,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 94;
+        pub const COUNT: usize = 95;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 94] = [
+        pub const ALL: [NodeKind; 95] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -644,6 +650,7 @@ mod body {
             NodeKind::IpamVlan,
             NodeKind::IpamAsnRange,
             NodeKind::IpamAsn,
+            NodeKind::DhcpServer,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -744,6 +751,7 @@ mod body {
                 NodeKind::IpamVlan => "IpamVlan",
                 NodeKind::IpamAsnRange => "IpamAsnRange",
                 NodeKind::IpamAsn => "IpamAsn",
+                NodeKind::DhcpServer => "DhcpServer",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -842,6 +850,7 @@ mod body {
                 "IpamVlan" => Some(NodeKind::IpamVlan),
                 "IpamAsnRange" => Some(NodeKind::IpamAsnRange),
                 "IpamAsn" => Some(NodeKind::IpamAsn),
+                "DhcpServer" => Some(NodeKind::DhcpServer),
                 _ => None,
             }
         }
@@ -946,6 +955,7 @@ mod body {
                 NodeKind::IpamVlan => &[],
                 NodeKind::IpamAsnRange => &[&["name"]],
                 NodeKind::IpamAsn => &[&["asn"]],
+                NodeKind::DhcpServer => &[],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -1045,6 +1055,7 @@ mod body {
                 NodeKind::IpamVlan => Layer::Plan,
                 NodeKind::IpamAsnRange => Layer::Plan,
                 NodeKind::IpamAsn => Layer::Plan,
+                NodeKind::DhcpServer => Layer::Config,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -1145,6 +1156,7 @@ mod body {
                 NodeKind::IpamVlan => false,
                 NodeKind::IpamAsnRange => false,
                 NodeKind::IpamAsn => false,
+                NodeKind::DhcpServer => true,
             }
         }
         /// The schema minor that first declared the kind (`since:`); `None`
@@ -1246,6 +1258,7 @@ mod body {
                 NodeKind::IpamVlan => Some(36),
                 NodeKind::IpamAsnRange => Some(36),
                 NodeKind::IpamAsn => Some(36),
+                NodeKind::DhcpServer => Some(41),
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -1347,6 +1360,7 @@ mod body {
                 NodeKind::IpamVlan => &[crate::bag::FieldKey(618), crate::bag::FieldKey(619), crate::bag::FieldKey(620), crate::bag::FieldKey(621), crate::bag::FieldKey(622), crate::bag::FieldKey(623), crate::bag::FieldKey(624)],
                 NodeKind::IpamAsnRange => &[crate::bag::FieldKey(625), crate::bag::FieldKey(626), crate::bag::FieldKey(627), crate::bag::FieldKey(628), crate::bag::FieldKey(629), crate::bag::FieldKey(630)],
                 NodeKind::IpamAsn => &[crate::bag::FieldKey(631), crate::bag::FieldKey(632), crate::bag::FieldKey(633), crate::bag::FieldKey(634), crate::bag::FieldKey(635), crate::bag::FieldKey(636)],
+                NodeKind::DhcpServer => &[crate::bag::FieldKey(648)],
             }
         }
     }
@@ -1758,12 +1772,17 @@ mod body {
         ReservedFor,
         /// ADR-0076. The issue a part went away for repair under.
         ForIssue,
+        /// The device that runs the DHCP server. HasDhcpRelay's shape.
+        HasDhcpServer,
+        /// The units whose clients this server answers (sign-off r145). The VLAN is reached on
+        /// from the unit by L3Interface, so "which VLANs does a server answer" is two hops.
+        ServesDhcpOn,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 132;
+        pub const COUNT: usize = 134;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 132] = [
+        pub const ALL: [EdgeKind; 134] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1896,6 +1915,8 @@ mod body {
             EdgeKind::InStore,
             EdgeKind::ReservedFor,
             EdgeKind::ForIssue,
+            EdgeKind::HasDhcpServer,
+            EdgeKind::ServesDhcpOn,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -2034,6 +2055,8 @@ mod body {
                 EdgeKind::InStore => "InStore",
                 EdgeKind::ReservedFor => "ReservedFor",
                 EdgeKind::ForIssue => "ForIssue",
+                EdgeKind::HasDhcpServer => "HasDhcpServer",
+                EdgeKind::ServesDhcpOn => "ServesDhcpOn",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -2170,6 +2193,8 @@ mod body {
                 "InStore" => Some(EdgeKind::InStore),
                 "ReservedFor" => Some(EdgeKind::ReservedFor),
                 "ForIssue" => Some(EdgeKind::ForIssue),
+                "HasDhcpServer" => Some(EdgeKind::HasDhcpServer),
+                "ServesDhcpOn" => Some(EdgeKind::ServesDhcpOn),
                 _ => None,
             }
         }
@@ -2308,6 +2333,8 @@ mod body {
                 EdgeKind::InStore => EdgeClass::Reference,
                 EdgeKind::ReservedFor => EdgeClass::Reference,
                 EdgeKind::ForIssue => EdgeClass::Reference,
+                EdgeKind::HasDhcpServer => EdgeClass::Containment,
+                EdgeKind::ServesDhcpOn => EdgeClass::Reference,
             }
         }
     }
@@ -2486,7 +2513,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::NatPool, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::OverlayNetwork, NodeKind::Lesson, NodeKind::LessonStep, NodeKind::Card, NodeKind::FloorPlan, NodeKind::Room, NodeKind::RoomCorner, NodeKind::Store, NodeKind::StockItem, NodeKind::StockLevel, NodeKind::FieldValue],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::NatPool, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::OverlayNetwork, NodeKind::Lesson, NodeKind::LessonStep, NodeKind::Card, NodeKind::FloorPlan, NodeKind::Room, NodeKind::RoomCorner, NodeKind::Store, NodeKind::StockItem, NodeKind::StockLevel, NodeKind::FieldValue, NodeKind::DhcpServer],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -2536,6 +2563,8 @@ mod body {
                 EdgeKind::InStore => &[NodeKind::StockItem],
                 EdgeKind::ReservedFor => &[NodeKind::StockItem],
                 EdgeKind::ForIssue => &[NodeKind::StockItem],
+                EdgeKind::HasDhcpServer => &[NodeKind::Device],
+                EdgeKind::ServesDhcpOn => &[NodeKind::DhcpServer],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -2673,6 +2702,8 @@ mod body {
                 EdgeKind::InStore => &[NodeKind::Store],
                 EdgeKind::ReservedFor => &[NodeKind::PlanStep],
                 EdgeKind::ForIssue => &[NodeKind::Issue],
+                EdgeKind::HasDhcpServer => &[NodeKind::DhcpServer],
+                EdgeKind::ServesDhcpOn => &[NodeKind::LogicalUnit],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2810,6 +2841,8 @@ mod body {
                 EdgeKind::InStore => EdgeCardBound { min: 0, max: Some(1) },
                 EdgeKind::ReservedFor => EdgeCardBound { min: 0, max: Some(1) },
                 EdgeKind::ForIssue => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::HasDhcpServer => EdgeCardBound { min: 0, max: None },
+                EdgeKind::ServesDhcpOn => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2947,6 +2980,8 @@ mod body {
                 EdgeKind::InStore => EdgeCardBound { min: 0, max: None },
                 EdgeKind::ReservedFor => EdgeCardBound { min: 0, max: None },
                 EdgeKind::ForIssue => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasDhcpServer => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::ServesDhcpOn => EdgeCardBound { min: 0, max: None },
             }
         }
         /// As `NodeKind::since_minor`.
@@ -3084,6 +3119,8 @@ mod body {
                 EdgeKind::InStore => Some(30),
                 EdgeKind::ReservedFor => Some(30),
                 EdgeKind::ForIssue => Some(30),
+                EdgeKind::HasDhcpServer => Some(41),
+                EdgeKind::ServesDhcpOn => Some(41),
             }
         }
         /// `retired: true`: still read wherever history names it, but no new
@@ -3222,6 +3259,8 @@ mod body {
                 EdgeKind::InStore => false,
                 EdgeKind::ReservedFor => false,
                 EdgeKind::ForIssue => false,
+                EdgeKind::HasDhcpServer => false,
+                EdgeKind::ServesDhcpOn => false,
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -3360,6 +3399,8 @@ mod body {
                 EdgeKind::InStore => false,
                 EdgeKind::ReservedFor => false,
                 EdgeKind::ForIssue => false,
+                EdgeKind::HasDhcpServer => false,
+                EdgeKind::ServesDhcpOn => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -3497,6 +3538,8 @@ mod body {
                 EdgeKind::InStore => false,
                 EdgeKind::ReservedFor => false,
                 EdgeKind::ForIssue => false,
+                EdgeKind::HasDhcpServer => false,
+                EdgeKind::ServesDhcpOn => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -3634,6 +3677,8 @@ mod body {
                 EdgeKind::InStore => &[],
                 EdgeKind::ReservedFor => &[],
                 EdgeKind::ForIssue => &[],
+                EdgeKind::HasDhcpServer => &[],
+                EdgeKind::ServesDhcpOn => &[],
             }
         }
     }
@@ -12372,6 +12417,34 @@ mod body {
         }
     }
 
+    /// Fields of kind `DhcpServer`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DhcpServerField {
+        GroupName,
+    }
+
+    impl DhcpServerField {
+        pub const COUNT: usize = 1;
+        /// Every field, declaration order.
+        pub const ALL: [DhcpServerField; 1] = [
+            DhcpServerField::GroupName,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                DhcpServerField::GroupName => "group_name",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                DhcpServerField::GroupName => crate::bag::FieldKey(648),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -12935,7 +13008,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 582] = [
+    pub const FIELD_KEYS: [(&str, u32); 583] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -13518,18 +13591,19 @@ mod body {
         ("SitsOn.y_mm", 645),
         ("SystemSettings.telnet_enabled", 646),
         ("SystemSettings.http_enabled", 647),
+        ("DhcpServer.group_name", 648),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 81] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 82] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
         0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x41, 0x38, 0x00, 0x10,
         0x81, 0x9e, 0x10, 0x30, 0x00, 0x00, 0x14, 0x45, 0x87, 0x8e, 0x02, 0xc0, 0x40, 0x3c, 0x8e, 0x80,
-        0x01,
+        0x01, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

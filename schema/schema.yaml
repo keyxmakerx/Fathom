@@ -45,7 +45,7 @@ schema:
                     # 0.38  a plan's team
                     # 0.39  NAT pools on firewalls
                     # 0.40  where a thing sits along a shelf
-                    # 0.41  plaintext management services (telnet, plain HTTP)
+                    # 0.41  plaintext management services (telnet, plain HTTP); DHCP servers
   oldest_readable: "0.10"   # The oldest header a reader opens. Kinds and edges added later say `since:`;
                             # schemagen derives the accepted versions and the kinds each may hold.
 
@@ -304,6 +304,8 @@ classes:
       - StockLevel
       # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
       - FieldValue
+      # DHCP servers (0.41, sign-off r145): DhcpRelay's sibling, drawn the same way.
+      - DhcpServer
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
   - class: Notable
@@ -2391,6 +2393,21 @@ kinds:
     identity:
       - [ asn ]
 
+  # Sign-off r145 (2026-11-14): the DHCP server half of "two DHCP servers on one VLAN".
+  - kind: DhcpServer
+    since: "0.41"
+    layer: config
+    emits: true
+    doc: |
+      A device's own DHCP server, as its config states it: one node per server the device
+      runs (a Junos dhcp-local-server group, an EOS interface with `dhcp server ipv4`), and
+      the units it answers on by ServesDhcpOn. DhcpRelay's sibling: a relay forwards to a
+      server, this is the server. Fathom never observes a lease or a pool; this is what the
+      config SAYS, and a finding must never imply it watched a packet.
+    fields:
+      - { name: group_name, type: Identifier, card: "0..1", emit: O, doc: "The Junos dhcp-local-server group. Absent on EOS, which turns the server on per interface." }
+    identity: []
+
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
   # require reverse adjacency, and ADR-0007's reverse index already guarantees it (11 §14.3).
@@ -4224,6 +4241,32 @@ edges:
     fields: []
     emit_dict: null
     doc: ADR-0076. The issue a part went away for repair under.
+  - edge: HasDhcpServer
+    since: "0.41"
+    class: containment
+    from: [Device]
+    to: [DhcpServer]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: The device that runs the DHCP server. HasDhcpRelay's shape.
+  - edge: ServesDhcpOn
+    since: "0.41"
+    class: reference
+    from: [DhcpServer]
+    to: [LogicalUnit]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      The units whose clients this server answers (sign-off r145). The VLAN is reached on
+      from the unit by L3Interface, so "which VLANs does a server answer" is two hops.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

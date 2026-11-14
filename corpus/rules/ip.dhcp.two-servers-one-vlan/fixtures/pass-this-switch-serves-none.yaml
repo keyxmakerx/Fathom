@@ -1,0 +1,25 @@
+# Both route VLAN 10 and only the EOS switch serves it: the Junos side, which serves nothing, is quiet.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: core-sw-01, platform: eos, role: switch } }
+  - { id: d2, kind: Device, set: { hostname: core-sw-02, platform: junos-ex, role: switch } }
+  - { id: i1, kind: Interface, set: { name: Vlan10 } }
+  - { id: i2, kind: Interface, set: { name: irb } }
+  - { id: u1, kind: LogicalUnit, set: { index: 0 } }
+  - { id: u2, kind: LogicalUnit, set: { index: 10 } }
+  - { id: v1, kind: Vlan, set: { vlan_id: 10 } }
+  - { id: v2, kind: Vlan, set: { vlan_id: 10, name: users } }
+  - { id: s1, kind: DhcpServer, set: {} }
+  - { id: s2, kind: DhcpServer, set: { group_name: g1 } }
+edges:
+  - { kind: HasInterface, from: d1, to: i1 }
+  - { kind: HasInterface, from: d2, to: i2 }
+  - { kind: HasUnit, from: i1, to: u1 }
+  - { kind: HasUnit, from: i2, to: u2 }
+  - { kind: HasVlan, from: d1, to: v1 }
+  - { kind: HasVlan, from: d2, to: v2 }
+  - { kind: L3Interface, from: v1, to: u1 }
+  - { kind: L3Interface, from: v2, to: u2 }
+  - { kind: HasDhcpServer, from: d1, to: s1 }
+  - { kind: ServesDhcpOn, from: s1, to: u1 }
+  - { kind: HasDhcpServer, from: d2, to: s2 }
+anchor: v2

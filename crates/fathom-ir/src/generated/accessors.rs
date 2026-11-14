@@ -2955,6 +2955,14 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(636))
         }
     }
+    /// Typed reads for `DhcpServer` fields.
+    pub mod dhcp_server {
+        /// `DhcpServer.group_name` — `Identifier`, card `0..1`, emit `O`.
+        /// The Junos dhcp-local-server group. Absent on EOS, which turns the server on per interface.
+        pub fn group_name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(648))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -3543,6 +3551,7 @@ mod body {
             645 => Some((core::any::TypeId::of::<u16>(), "u16")),
             646 => Some((core::any::TypeId::of::<bool>(), "bool")),
             647 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            648 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             _ => None,
         }
     }
@@ -4133,6 +4142,7 @@ mod body {
             645 => crate::canon::slot_to::<u16>(645, "u16", value),
             646 => crate::canon::slot_to::<bool>(646, "bool", value),
             647 => crate::canon::slot_to::<bool>(647, "bool", value),
+            648 => crate::canon::slot_to::<crate::scalar::Identifier>(648, "crate::scalar::Identifier", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -4721,6 +4731,7 @@ mod body {
             645 => crate::canon::slot_from::<u16>(j),
             646 => crate::canon::slot_from::<bool>(j),
             647 => crate::canon::slot_from::<bool>(j),
+            648 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

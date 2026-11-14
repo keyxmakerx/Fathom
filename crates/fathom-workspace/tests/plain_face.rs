@@ -1293,6 +1293,7 @@ fn since_keys_match_the_old_hand_written_tables() {
         (29, &[N::FloorPlan, N::Room, N::RoomCorner]),
         (30, &[N::Store, N::StockItem, N::StockLevel]),
         (39, &[N::NatPool]),
+        (41, &[N::DhcpServer]),
     ];
     let edges: &[(u32, &[E])] = &[
         (
@@ -1329,6 +1330,7 @@ fn since_keys_match_the_old_hand_written_tables() {
             ],
         ),
         (39, &[E::HasNatPool]),
+        (41, &[E::HasDhcpServer, E::ServesDhcpOn]),
     ];
     for k in N::ALL.iter().filter(|k| k.layer() != Layer::Plan) {
         let want = nodes.iter().find(|(_, ks)| ks.contains(k)).map(|(m, _)| *m);

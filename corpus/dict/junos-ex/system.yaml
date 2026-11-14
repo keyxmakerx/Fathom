@@ -130,3 +130,24 @@ entries:
         - { as: n1, kind: SystemSettings, owner: n0, fields: [ { field: http_enabled, const_bool: true } ] }
     versions: "*"
     reviewed_by: <named human>
+
+  # `system services dhcp-local-server group <g> interface <ifl>` -- sign-off r145 (the
+  # check ip.dhcp.two-servers-one-vlan). Read 2026-11-14 from Juniper's "Configuring a
+  # Switch as a DHCP Server (CLI Procedure)" (ELS), whose examples are
+  # `set system services dhcp-local-server group server1 interface irb.301` and
+  # `set vlans server l3-interface irb.301`;
+  # https://juniper.net/documentation/en_US/junos13.2/topics/task/configuration/dhcp-server-cli-els.html
+  # The unit resolves through `interface_unit`, the relay's idiom; a name that is no unit
+  # here leaves the edge Pending, named. Its VLAN is reached on by L3Interface, which
+  # vlans.yaml's `l3-interface` entry draws.
+  - id: junos-ex/system.services.dhcp-local-server.group.interface
+    path: [system, services, dhcp-local-server, group, "$g", interface, "$ifl"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: DhcpServer, owner: n0, key: "$g", fields: [ { field: group_name, from: "$g", scalar: Identifier } ] }
+      edges:
+        - { kind: ServesDhcpOn, from: n1, to: { interface_unit: "$ifl" } }
+    versions: "*"
+    reviewed_by: <named human>

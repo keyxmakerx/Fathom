@@ -95,8 +95,10 @@ fn shipped_tree_declaration_counts_hold() {
     // (`HasStore`, `HasStock`, `HasStockLevel`, `InStore`, `ReservedFor`, `ForIssue`).
     // The IP plan store (schema 0.36, ADR-0083): +11 `plan`-layer kinds, no edges, no class.
     // NAT on firewalls (schema 0.39): +1 kind (`NatPool`), +1 edge (`HasNatPool`), +6 keys (638-643).
-    assert_eq!(tree.kinds.len(), 94, "kind count");
-    assert_eq!(tree.edges.len(), 140, "edge count (108 + 8 derived)");
+    // DHCP servers (schema 0.41, sign-off r145): +1 kind (`DhcpServer`), +2 edges
+    // (`HasDhcpServer`, `ServesDhcpOn`), +1 key (648).
+    assert_eq!(tree.kinds.len(), 95, "kind count");
+    assert_eq!(tree.edges.len(), 142, "edge count (108 + 8 derived)");
     // Custom-field values (2026-10-02, schema 0.16): +1 kind (`FieldValue`), +1 edge
     // (`HasFieldValue`), +1 CLASS (`Fieldable`), +2 field keys (380 -> 382).
     assert_eq!(tree.scalars.len(), 61, "scalar count");
@@ -123,7 +125,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 572 -> 578: NAT on firewalls (638-643, schema 0.39).
     // 578 -> 579: where a thing sits along a shelf (`SitsOn.x_mm`, 644, schema 0.40).
     // 580 -> 582: telnet and plain HTTP management (646, 647, schema 0.41).
-    assert_eq!(fk.entries.len(), 582, "field-key registry entries");
+    // 582 -> 583: DhcpServer.group_name (648, schema 0.41).
+    assert_eq!(fk.entries.len(), 583, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so

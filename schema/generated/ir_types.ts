@@ -100,7 +100,8 @@ export type NodeKind =
   | "IpamVlanGroup"
   | "IpamVlan"
   | "IpamAsnRange"
-  | "IpamAsn";
+  | "IpamAsn"
+  | "DhcpServer";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -196,6 +197,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "IpamVlan",
   "IpamAsnRange",
   "IpamAsn",
+  "DhcpServer",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -331,7 +333,9 @@ export type EdgeKind =
   | "HasStockLevel"
   | "InStore"
   | "ReservedFor"
-  | "ForIssue";
+  | "ForIssue"
+  | "HasDhcpServer"
+  | "ServesDhcpOn";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -465,6 +469,8 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "InStore",
   "ReservedFor",
   "ForIssue",
+  "HasDhcpServer",
+  "ServesDhcpOn",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -533,6 +539,7 @@ export const NODE_KIND_SINCE: Readonly<Partial<Record<NodeKind, number>>> = {
   IpamVlan: 36,
   IpamAsnRange: 36,
   IpamAsn: 36,
+  DhcpServer: 41,
 };
 /** As `NODE_KIND_SINCE`, for asserted edge kinds. */
 export const EDGE_KIND_SINCE: Readonly<Partial<Record<EdgeKind, number>>> = {
@@ -575,6 +582,8 @@ export const EDGE_KIND_SINCE: Readonly<Partial<Record<EdgeKind, number>>> = {
   InStore: 30,
   ReservedFor: 30,
   ForIssue: 30,
+  HasDhcpServer: 41,
+  ServesDhcpOn: 41,
 };
 /** Edge kinds marked `retired: true`: read where history names them, never added by a new change. */
 export const RETIRED_EDGE_KINDS: readonly EdgeKind[] = [
@@ -749,6 +758,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   IpamVlan: ["group", "vid", "name", "status", "allocation_key", "folder", "note"],
   IpamAsnRange: ["name", "first", "last", "rir", "folder", "note"],
   IpamAsn: ["asn", "range", "meant_for", "allocation_key", "folder", "note"],
+  DhcpServer: ["group_name"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -1335,4 +1345,5 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "SitsOn.y_mm": 645,
   "SystemSettings.telnet_enabled": 646,
   "SystemSettings.http_enabled": 647,
+  "DhcpServer.group_name": 648,
 };

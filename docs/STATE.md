@@ -656,7 +656,11 @@ acting transaction, and caps a body at 1 MiB until the signature is checked.
 design against the written rules in `corpus/rules/` (addresses on a link, VLAN access and trunk,
 cable media, link speed, one cable per port, single-fed power, single-cabled switches, and since
 schema 0.41 telnet or plain-HTTP management, `sec.mgmt.plaintext`, read from Junos SRX and EX
-`system services` and from EOS `management telnet`; EOS plain-HTTP eAPI is not read yet).
+`system services` and from EOS `management telnet`; EOS plain-HTTP eAPI is not read yet; and two
+devices serving DHCP on one VLAN number, `ip.dhcp.two-servers-one-vlan`, read from Junos EX
+`dhcp-local-server` with `vlans … l3-interface` and from EOS `dhcp server ipv4` under `interface VlanN`).
+A rule binding may start from every node of a kind and walk on (`all:` with `via:`), which is how
+that check sees every VLAN any server answers.
 - A bar chip counts findings and opens a docked, draggable panel; severity is a word and a glyph, never a
   colour. Each finding has a **Why?** card: the plain reason, the fix, when it is acceptable, and a source
   note. A wrong drop is refused with a card naming the rule. Badges show for refuse and warn only.

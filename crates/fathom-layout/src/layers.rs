@@ -370,6 +370,9 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     geometry of its own. `56` §4.1 has no row for it, so it is drawn
         //     UNTABLED beside its `NtpServer` sibling rather than hidden.
         | NodeKind::DhcpRelay
+        //     Sign-off r145 (2026-11-14): a DHCP server is the relay's sibling,
+        //     a per-device setting with no geometry, drawn UNTABLED beside it.
+        | NodeKind::DhcpServer
         //     ADR-0052 §3 (2026-09-18): a capture is a per-device fact with no
         //     geometry of its own, the same shape as `DhcpRelay` above. `56`
         //     has no row for it — it predates the config drawer entirely — so
