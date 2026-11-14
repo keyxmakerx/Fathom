@@ -75,7 +75,7 @@ let browser = null;
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: CLIENT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -154,7 +154,15 @@ try {
   await page.waitForSelector('.drawing', { timeout: 60_000 });
   await page.waitForTimeout(800);
   check('canvas: the drawing tools are folded away', !(await shown('.shell-canvas-bar__group')));
-  check('canvas: the bar says View only and Undo is off', (await page.getByText('View only').count()) > 0 && (await page.locator('.shell-pill [aria-label="Undo"]').isDisabled()));
+  // r116: Undo is in the bar on every view (the bottom pill is the camera only); a narrow bar folds it into More.
+  const undoOff = async () => {
+    if ((await page.locator('[data-testid="bar-undo"]').count()) > 0) return page.locator('[data-testid="bar-undo"]').isDisabled();
+    await page.locator('[data-testid="shell-more"]').click();
+    const off = await page.locator('.shell-popover__row', { hasText: /^Undo$/ }).first().isDisabled();
+    await page.keyboard.press('Escape');
+    return off;
+  };
+  check('canvas: the bar says View only and Undo is off', (await page.getByText('View only').count()) > 0 && (await undoOff()));
   check('canvas: the minimap is folded away', !(await shown('.canvas-minimap')));
   await shot('phone-05-canvas.png');
   await context.close();
@@ -231,6 +239,60 @@ try {
     await ctx.close();
   }
 
+  // ---- Owner audit 2026-11-11: the bar was 721px wide on a 390px phone (Home), and past 760px it clipped ----
+  {
+    const fitsBar = (pg) => pg.evaluate(() => {
+      const bar = document.querySelector('.shell-bar');
+      return { page: document.documentElement.scrollWidth, bar: bar.scrollWidth, width: window.innerWidth };
+    });
+    const ctx = await browser.newContext(PHONE);
+    const ph = await ctx.newPage();
+    ph.on('pageerror', (e) => pageErrors.push(e.message));
+    await ph.goto(`${BASE}/drive.html?scene=home&capability=steward`);
+    await ph.waitForSelector('.shell-bar', { timeout: 240_000 });
+    await ph.waitForTimeout(800);
+    let f = await fitsBar(ph);
+    check('phone Home: the bar fits the screen', f.bar <= f.width + 1 && f.page <= f.width + 1, JSON.stringify(f));
+    check('phone Home: the account is on the screen', await ph.evaluate(() => document.querySelector('.shell-account').getBoundingClientRect().right <= window.innerWidth));
+    await ph.screenshot({ path: SHOTS + 'phone-09-home-bar.png' });
+    await ctx.close();
+
+    for (const width of [768, 1024]) {
+      const c2 = await browser.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 2 });
+      const tp = await c2.newPage();
+      tp.on('pageerror', (e) => pageErrors.push(e.message));
+      await tp.goto(`${BASE}/drive.html?scene=estate&scale=0.15&capability=steward`);
+      await tp.waitForSelector('.drawing', { timeout: 240_000 });
+      await tp.waitForTimeout(800);
+      f = await fitsBar(tp);
+      check(`${width}px: the bar fits the screen`, f.bar <= f.width + 1 && f.page <= f.width + 1, JSON.stringify(f));
+      check(`${width}px: the account is on the screen`, await tp.evaluate(() => document.querySelector('.shell-account').getBoundingClientRect().right <= window.innerWidth));
+      if (width === 768) {
+        const menu = tp.locator('[data-testid=views-menu]');
+        check('768px: the views are one menu naming the current view', (await menu.count()) === 1 && /canvas/i.test(await menu.innerText()));
+        await menu.click();
+        const rows = (await tp.locator('.shell-popover__row').allInnerTexts()).join('|');
+        check('768px: the menu lists the four views and Work', /Diagram/.test(rows) && /Canvas/.test(rows) && /Inventory/.test(rows) && /Sheet/.test(rows) && /Work/.test(rows), rows);
+        await tp.screenshot({ path: SHOTS + 'tablet-01-views-menu.png' });
+        await tp.keyboard.press('Escape');
+      }
+      await c2.close();
+    }
+
+    // The Find list draws the columns that fit; the table does not scroll sideways on a phone.
+    const c3 = await browser.newContext(PHONE);
+    const fp = await c3.newPage();
+    fp.on('pageerror', (e) => pageErrors.push(e.message));
+    await fp.goto(`${BASE}/drive.html?scene=estate&scale=0.15&capability=steward`);
+    await fp.waitForSelector('.inv-table__row', { timeout: 240_000 });
+    const t = await fp.evaluate(() => {
+      const s = document.querySelector('.inv-table__scroll');
+      return { scroll: s.scrollWidth, client: s.clientWidth };
+    });
+    check('phone Find: the table fits its pane, no sideways scroll', t.scroll <= t.client + 1, JSON.stringify(t));
+    await c3.close();
+  }
+
   // ---- A computer is unchanged ----
   {
     const desk = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -254,6 +316,38 @@ try {
     check('labels: two cables give four labels', (await p2.locator('.labels-preview .label').count()) === 4, String(await p2.locator('.labels-preview .label').count()));
     check('labels: cables default to a wrap, one a page, with the name and no code', (await p2.locator('.labels-page').count()) === 4 && (await p2.locator('.labels-preview .label--wrap').count()) === 4 && (await p2.locator('.labels-preview .label svg').count()) === 0);
     await p2.screenshot({ path: SHOTS + 'labels-00-wrap.png' });
+    await p2.locator('.labels-preview select').first().selectOption('wrap-18');
+    check('labels: an 18 mm wrap is offered for cables, one a page', (await p2.locator('.labels-preview .label--wrap').count()) === 4);
+    await p2.screenshot({ path: SHOTS + 'labels-00-wrap-18.png' });
+    {
+      const [download] = await Promise.all([
+        p2.waitForEvent('download', { timeout: 5_000 }),
+        p2.getByRole('button', { name: 'Download for Brother app (.csv)' }).click(),
+      ]);
+      const csvPath = await download.path();
+      const { readFileSync } = await import('node:fs');
+      const lines = readFileSync(csvPath, 'utf8').trim().split('\r\n');
+      check('labels: the Brother .csv has a header and one row per cable', download.suggestedFilename() === 'cable-labels.csv' && lines[0] === 'Label,From,To,Cable,Link' && lines.length === 3, lines.join(' | '));
+      check('labels: the Brother .csv writes the ends as "A-1 > B-2"', / > /.test(lines[1] ?? '') && !(lines[1] ?? '').includes(' · '), lines[1]);
+    }
+    // On a phone: the bar's controls fit the screen, nothing scrolls sideways, and each control is big
+    // enough to tap.
+    await p2.setViewportSize({ width: 390, height: 844 });
+    await p2.waitForTimeout(200);
+    {
+      const fit = await p2.evaluate(() => {
+        const root = document.querySelector('.labels-preview');
+        const bar = [...document.querySelectorAll('.labels-preview__bar button, .labels-preview__bar select')];
+        return {
+          sideways: root.scrollWidth - root.clientWidth,
+          outside: bar.filter((el) => { const r = el.getBoundingClientRect(); return r.left < 0 || r.right > window.innerWidth; }).length,
+          small: bar.filter((el) => el.getBoundingClientRect().height < 40).length,
+        };
+      });
+      check('labels on a phone: nothing scrolls sideways and every control fits and is tappable', fit.sideways <= 0 && fit.outside === 0 && fit.small === 0, JSON.stringify(fit));
+    }
+    await p2.screenshot({ path: SHOTS + 'labels-00-phone.png' });
+    await p2.setViewportSize({ width: 1440, height: 900 });
     await p2.locator('.labels-preview select').first().selectOption('flag-24');
     check('labels: a flag carries the code on both faces', (await p2.locator('.labels-preview .label--flag svg path').count()) === 8);
     await p2.screenshot({ path: SHOTS + 'labels-00-flag.png' });

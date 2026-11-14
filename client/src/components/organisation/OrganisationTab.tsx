@@ -155,7 +155,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
             {people.message}
           </p>
           <p className="home__muted">
-            Only stewards see who is in an organisation and what they can do. A steward can give you that.
+            Only Stewards see who is in an organisation and what they can do. A Steward can give you that.
           </p>
         </section>
       );
@@ -395,7 +395,12 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
           </div>
         ))}
       </nav>
-      <div className="org__body">{content()}</div>
+      <div className="org__body">
+        <p className="home__muted" data-testid="steward-line">
+          For whoever looks after this organisation: people, folders, passwords.
+        </p>
+        {content()}
+      </div>
     </div>
   );
 }

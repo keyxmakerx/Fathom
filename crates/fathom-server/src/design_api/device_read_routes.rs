@@ -13,7 +13,10 @@
 //!   `{"outcome": "read", id, ...}` — read, through the gate, sealed and filed.
 //!   `{"outcome": "failed", failure: {code, message}, engineId? | hostKey?, previous?}` — the device or the
 //!   login refused; filed, nothing kept. Code `already_reading` when this server is reading the
-//!   same device now (r106): nothing sent, nothing filed.
+//!   same device now (r106): nothing sent, nothing filed. Code `cooling_down`, with `retryAt`
+//!   and `refusals`, when the device refused this login lately and Fathom is waiting before it
+//!   sends it there again (r117, finding 10): nothing sent, nothing filed. A `login_refused`
+//!   failure carries the `retryAt` and `refusals` it starts.
 //! - `GET /organisations/{o}/designs/{d}/device-read/{element}`: what the Readings tab shows
 //!   ([`crate::device_reading::panel`]).
 //! - `POST /organisations/{o}/designs/{d}/device-read/dismiss`: body `{element, field, value}`.
@@ -238,6 +241,13 @@ async fn read_handler(
                     )
                     .into());
                 };
+                // A login the device refused waits before it is sent there again (r117, finding
+                // 10). Nothing is opened, sent or filed while it waits.
+                if let Some(w) =
+                    reading::login_waiting(&tx, &keys, &tenant, protocol, &target, &login).await?
+                {
+                    return Ok(json_response(waiting_answer(&w)));
+                }
                 let fk = fk.as_ref().ok_or(VaultError::NoServerKey)?;
                 let (used, auth_name) =
                     reading::open_login(&tx, &auth, fk, &target, protocol, &login).await?;
@@ -327,6 +337,8 @@ async fn read_handler(
             if outcome == "read" {
                 let body = reading::kept(&answer, &kind);
                 let id = in_org!(state, signed, organisation, |tx, auth, keys| {
+                    let tenant = auth.ctx.tenant().to_string();
+                    reading::login_accepted(&tx, &keys, &tenant, protocol, &target, &login).await?;
                     reading::store(&tx, &auth, &keys, &target, &kind, &login, &body).await?
                 });
                 let mut out = match body {
@@ -348,8 +360,21 @@ async fn read_handler(
                 }
                 _ => None,
             };
-            let seen = in_org!(state, signed, organisation, |tx, auth, keys| {
+            let refused_login = matches!(
+                a.get("failure"),
+                Some(Json::Obj(f)) if matches!(f.get("code"), Some(Json::Str(c)) if c == "login_refused")
+            );
+            let (seen, wait) = in_org!(state, signed, organisation, |tx, auth, keys| {
                 let actor = auth.ctx.actor().to_string();
+                let tenant = auth.ctx.tenant().to_string();
+                let wait = if refused_login {
+                    Some(
+                        reading::login_refused(&tx, &keys, &tenant, protocol, &target, &login)
+                            .await?,
+                    )
+                } else {
+                    None
+                };
                 chains::append_org(
                     &tx,
                     auth.ring,
@@ -379,7 +404,7 @@ async fn read_handler(
                 )
                 .await
                 .map_err(VaultError::from)?;
-                match &changed {
+                let seen = match &changed {
                     Some((value, key_type)) => Some(
                         reading::record_seen(
                             &tx,
@@ -393,9 +418,17 @@ async fn read_handler(
                         .await?,
                     ),
                     None => None,
-                }
+                };
+                (seen, wait)
             });
             let mut out = failed_answer(a);
+            // The reader's words stand; the wait that now applies rides beside them.
+            if let (Json::Obj(o), Some(w)) = (&mut out, &wait) {
+                if let Some(Json::Obj(f)) = o.get_mut("failure") {
+                    f.insert("retryAt".to_string(), Json::Int(w.until_ms));
+                    f.insert("refusals".to_string(), Json::Int(w.refusals as i64));
+                }
+            }
             if let (Json::Obj(o), Some(e)) = (&mut out, seen) {
                 if let Json::Obj(identity) = identity_fields(&e) {
                     o.extend(identity);
@@ -456,6 +489,18 @@ fn already_reading() -> Json {
                 ),
             ])),
         ),
+    ]))
+}
+
+/// The login is waiting after the device refused it: nothing was sent and nothing is filed.
+fn waiting_answer(w: &reading::Waiting) -> Json {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    Json::Obj(BTreeMap::from([
+        ("outcome".to_string(), s("failed")),
+        ("failure".to_string(), w.failure(now)),
     ]))
 }
 

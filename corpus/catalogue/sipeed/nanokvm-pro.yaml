@@ -1,0 +1,29 @@
+# corpus/catalogue/sipeed/nanokvm-pro.yaml -- Sipeed NanoKVM Pro, a 4K IP-KVM (Desk version).
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (a 65 mm
+# cube that sits on a shelf).
+# Added 2026-11-13 for sign-off shelf-view: the owner's top shelf holds one (padparadscha).
+# Read 2026-11-13: Sipeed's wiki (wiki.sipeed.com/hardware/en/kvm/NanoKVM_Pro/introduction.html):
+# "65x65x28mm", Ethernet "1000M", HDMI loop-out, USB-C, PoE power input. NAS Compares' review
+# (nascompares.com/2025/11/17/sipeed-nanokvm-pro-kvm-review/): HDMI input, HDMI output, both USB-C
+# ports and Ethernet are "aligned along the rear edge to simplify cable routing", and "On the front of
+# the device, the rotary dial and touchscreen". Recorded: one 1GbE RJ45 on the rear. Not recorded:
+# HDMI and USB-C (PortKind has neither).
+vendor: sipeed
+model: NanoKVM-Pro
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Sipeed wiki, NanoKVM Pro introduction, read 2026-11-13, for 65 x 65 x 28 mm and 1000M
+    Ethernet; NAS Compares' NanoKVM Pro review (2025-11-17), read 2026-11-13, for the Ethernet
+    port being on the rear edge and the screen on the front.
+  read_on: "2026-11-13"
+size_mm: { width: 65, depth: 65, height: 28 }
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 1
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 1, start_number: 1 }

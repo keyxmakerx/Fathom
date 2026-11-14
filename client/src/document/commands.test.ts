@@ -28,6 +28,9 @@ import {
   movePlacement,
   placeChassis,
   placeOnShelf,
+  arrangeShelf,
+  ShelfArrangeError,
+  SHELF_MAX_INSIDE_MM,
   removeChassis,
   removeSketchPort,
   ShelfResizeError,
@@ -606,6 +609,70 @@ function shelfOf(heightU = 42): { doc: Document; rackId: string; shelfId: string
   const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
   return { doc: withShelf, rackId, shelfId };
 }
+
+describe('arrangeShelf (schema 0.40)', () => {
+  function threeOnAShelf() {
+    const { doc, shelfId } = shelfOf();
+    let working = doc;
+    const ids: string[] = [];
+    for (const slot of [1, 2, 3]) {
+      const made = bareChassis(working);
+      working = placeOnShelf(made.doc, made.chassisId, shelfId, slot, { now: NOW });
+      ids.push(made.chassisId);
+    }
+    return { doc: working, shelfId, ids };
+  }
+  const fieldsOf = (doc: Document, id: string) => readSitsOnFields(edgesOut(doc, id, 'SitsOn')[0]);
+
+  it('writes where each thing sits, and reorders the slots to match, as one step', () => {
+    const { doc, shelfId, ids } = threeOnAShelf();
+    const [a, b, c] = ids as [string, string, string];
+    const next = arrangeShelf(doc, shelfId, [
+      { itemId: a, xMm: 300 },
+      { itemId: b, xMm: 0 },
+      { itemId: c, xMm: 150 },
+    ], { now: NOW });
+    expect(fieldsOf(next, b)).toEqual({ slot: 1, xMm: 0 });
+    expect(fieldsOf(next, c)).toEqual({ slot: 2, xMm: 150 });
+    expect(fieldsOf(next, a)).toEqual({ slot: 3, xMm: 300 });
+    expect(next.batches.length).toBe(doc.batches.length + 1);
+  });
+
+  it('writes nothing when nothing moves', () => {
+    const { doc, shelfId, ids } = threeOnAShelf();
+    const once = arrangeShelf(doc, shelfId, [{ itemId: ids[0]!, xMm: 10 }], { now: NOW });
+    expect(arrangeShelf(once, shelfId, [{ itemId: ids[0]!, xMm: 10 }], { now: NOW })).toBe(once);
+  });
+
+  it('leaves a thing nobody placed where its slot is', () => {
+    const { doc, shelfId, ids } = threeOnAShelf();
+    const next = arrangeShelf(doc, shelfId, [{ itemId: ids[2]!, xMm: 0 }], { now: NOW });
+    expect(fieldsOf(next, ids[0]!)).toEqual({ slot: 1 });
+    expect(fieldsOf(next, ids[1]!)).toEqual({ slot: 2 });
+    expect(fieldsOf(next, ids[2]!)).toEqual({ slot: 3, xMm: 0 });
+  });
+
+  it('refuses a thing not on this shelf, and a position past any shelf', () => {
+    const { doc, shelfId, ids } = threeOnAShelf();
+    const { doc: withLoose, chassisId: loose } = bareChassis(doc);
+    expect(() => arrangeShelf(withLoose, shelfId, [{ itemId: loose, xMm: 0 }], { now: NOW })).toThrow(ShelfArrangeError);
+    expect(() => arrangeShelf(doc, shelfId, [{ itemId: ids[0]!, xMm: SHELF_MAX_INSIDE_MM + 1 }], { now: NOW })).toThrow(ShelfArrangeError);
+    expect(() => arrangeShelf(doc, shelfId, [{ itemId: ids[0]!, xMm: 0, yMm: -5 }], { now: NOW })).toThrow(ShelfArrangeError);
+  });
+
+  it('writes how far back a thing sits, and leaves a thing at the front without one', () => {
+    const { doc, shelfId, ids } = threeOnAShelf();
+    const next = arrangeShelf(doc, shelfId, [
+      { itemId: ids[0]!, xMm: 0, yMm: 120 },
+      { itemId: ids[1]!, xMm: 200, yMm: 0 },
+    ], { now: NOW });
+    expect(fieldsOf(next, ids[0]!)).toEqual({ slot: 1, xMm: 0, yMm: 120 });
+    expect(fieldsOf(next, ids[1]!)).toEqual({ slot: 2, xMm: 200 });
+    // Brought back to the front, it says 0 rather than losing the field.
+    const back = arrangeShelf(next, shelfId, [{ itemId: ids[0]!, xMm: 0, yMm: 0 }], { now: NOW });
+    expect(fieldsOf(back, ids[0]!)).toEqual({ slot: 1, xMm: 0, yMm: 0 });
+  });
+});
 
 describe('placeOnShelf', () => {
   it('writes SitsOn with slot', () => {

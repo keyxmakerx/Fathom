@@ -18,7 +18,8 @@ import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
 import type { CableView, ClosetView, Selection } from './contract';
-import { BOX_H, BOX_W, diagramLines, layoutDiagram, orthRoute, type Route } from './diagram';
+import { BOX_H, BOX_W, diagramLines, layoutDiagram } from './diagram';
+import { routeDiagram, type Route } from './diagramRoutes';
 import { DIAGRAM_MAX_ZOOM, MIN_ZOOM, U_PX, zoomBandAt } from './geometry';
 import { DeviceIcon, ICON_H, ICON_W, iconForRole, type IconKind } from './deviceIcons';
 import type { DiagramStyle } from './diagramStyle';
@@ -160,7 +161,7 @@ function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
       <path d={route.d} fill="none" stroke={colour} strokeWidth={width} strokeLinejoin="miter" strokeLinecap="butt" strokeDasharray={dashed ? 'var(--cable-dash)' : undefined} />
       {hollow && <path d={route.d} fill="none" stroke="var(--page)" strokeWidth={`${linksW! * 0.4}px`} strokeLinejoin="miter" strokeLinecap="butt" strokeDasharray={dashed ? 'var(--cable-dash)' : undefined} data-testid="links-trunk-core" />}
       <path d={route.d} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke" />
-      <CableCheckBadge id={cable.id} x={(route.a.x + route.b.x) / 2} y={(route.a.y + route.b.y) / 2} />
+      <CableCheckBadge id={cable.id} x={route.mid.x} y={route.mid.y} />
       {speeds.map((bps, i) => {
         if (bps == null) return null;
         const end = i === 0 ? route.a : route.b;
@@ -242,14 +243,13 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [band, setBand] = useState(() => zoomBandAt(Math.max(zoom, 1)));
 
-  const roles = useMemo(() => new Map(view.racks.flatMap((r) => r.chassis.map((c) => [c.id, c.role] as const))), [view]);
-  // Icons style: a device with an icon is just the icon (lines meet its edge, the name sits under it); the rest stay boxes.
+    // Icons style: a device with an icon is just the icon (lines meet its edge, the name sits under it); the rest stay boxes.
   const boxes = useMemo(
     () =>
       layoutDiagram(view).map((b) =>
-        style === 'icons' && iconForRole(roles.get(b.id)) != null ? { ...b, x: b.x + (b.w - ICON_W) / 2, y: b.y + (b.h - ICON_H) / 2 - 8, w: ICON_W, h: ICON_H } : b,
+        style === 'icons' && iconForRole(b.role) != null ? { ...b, x: b.x + (b.w - ICON_W) / 2, y: b.y + (b.h - ICON_H) / 2 - 8, w: ICON_W, h: ICON_H } : b,
       ),
-    [view, style, roles],
+    [view, style],
   );
   const selectedId = selected?.kind === 'chassis' ? selected.id : null;
 
@@ -286,9 +286,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         height: b.h,
         draggable: false,
         className: (trace != null && !trace.boxes.has(b.id)) || (table != null && !table.lit.chassis.has(b.id)) ? 'trace-faded' : undefined,
-        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(roles.get(b.id)) : null, lens: routing?.devices.get(b.id) ?? [], stopped: trace?.stop?.boxId === b.id } satisfies BoxData,
+        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(b.role) : null, lens: routing?.devices.get(b.id) ?? [], stopped: trace?.stop?.boxId === b.id } satisfies BoxData,
       })),
-    [boxes, selectedId, words, style, roles, routing, trace, table],
+    [boxes, selectedId, words, style, routing, trace, table],
   );
 
   const litId = selectedCableId ?? hoverId;
@@ -297,6 +297,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     for (const ch of [...view.racks.flatMap((r) => r.chassis), ...(view.unplaced ?? [])]) for (const p of ch.ports) if (p.speedBps !== undefined) m.set(p.id, p.speedBps);
     return m;
   }, [view]);
+  // Every line's route, worked out together so no two share a run and none crosses a box; panning does not redo it.
+  const lines = useMemo(() => diagramLines(view, new Set(boxes.map((b) => b.id))), [view, boxes]);
+  const routes = useMemo(() => routeDiagram(boxes, lines.map((l) => ({ id: l.cable.id, a: l.a, b: l.b }))), [boxes, lines]);
   const edges: Edge[] = useMemo(() => {
     const byId = new Map(boxes.map((b) => [b.id, b]));
     // Two lines meeting a box at one spot would print their speed tags over each other: the second goes on the other side.
@@ -309,12 +312,12 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
       }
       return -1;
     };
-    return diagramLines(view, new Set(byId.keys()))
+    return lines
       .filter((line) => drawnCableIds == null || drawnCableIds.has(line.cable.id))
       .map((line) => {
       const ba = byId.get(line.a)!;
       const bb = byId.get(line.b)!;
-      const route = orthRoute(ba, bb, line.lane);
+      const route = routes.get(line.cable.id)!;
       let stub: [StubEnd, StubEnd] | undefined;
       const was = stubbedRef.current.has(line.cable.id);
       const centre = (b: typeof ba) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
@@ -334,7 +337,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, onPath: trace?.cables.has(line.cable.id) ?? false, dimmed: litId != null && !lit, links: links == null ? undefined : (links.cables.get(line.cable.id) ?? null), speeds: endSpeeds(line.cable, portSpeeds), speedSides: [sideAt(route.a), sideAt(route.b)], onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
       } satisfies Edge<LineData, 'diagramLine'>;
     });
-  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace, table, links, portSpeeds]);
+  }, [boxes, lines, routes, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace, table, links, portSpeeds]);
 
   // The trace's numbers: on a box's top-left corner, or a line's middle; and the stop's caution box.
   const traceMarks = useMemo(() => {
@@ -347,7 +350,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     for (const e of edges) {
       const ns = trace.cableNumbers.get(e.id);
       const d = e.data as LineData | undefined;
-      if (ns != null && d != null) dots.push({ key: `c:${e.id}`, text: numberText(ns), x: (d.route.a.x + d.route.b.x) / 2, y: (d.route.a.y + d.route.b.y) / 2 });
+      if (ns != null && d != null) dots.push({ key: `c:${e.id}`, text: numberText(ns), x: d.route.mid.x, y: d.route.mid.y });
     }
     const at = trace.stop?.boxId != null ? boxes.find((b) => b.id === trace.stop!.boxId) : undefined;
     const stop = trace.stop == null ? null : { text: trace.stop.text, x: at != null ? at.x + at.w + STOP_GAP : 0, y: at != null ? at.y : 0 };
@@ -358,7 +361,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   const labels = useMemo(() => {
     if (words == null || words.cables.size === 0) return [];
     const byId = new Map(boxes.map((b) => [b.id, b]));
-    const routes = diagramLines(view, new Set(byId.keys()))
+    const nearby = lines
       .filter((l) => !stubbedRef.current.has(l.cable.id))
       // Only lines with an end near the screen: a big design mounts a screenful of words, not all of them.
       .filter((l) => {
@@ -366,9 +369,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         const near = (b: { x: number; y: number }) => b.x > r.x0 - 300 && b.x < r.x1 + 300 && b.y > r.y0 - 300 && b.y < r.y1 + 300;
         return near(byId.get(l.a)!) || near(byId.get(l.b)!);
       })
-      .map((l) => ({ id: l.cable.id, route: orthRoute(byId.get(l.a)!, byId.get(l.b)!, l.lane) }));
-    return placeLabels(cableCandidates(routes, words.cables, 1 / settled.zoom), boxes, 1 / settled.zoom);
-  }, [words, boxes, view, settled.zoom, settled.rect, edges]);
+      .map((l) => ({ id: l.cable.id, route: routes.get(l.cable.id)! }));
+    return placeLabels(cableCandidates(nearby, words.cables, 1 / settled.zoom), boxes, 1 / settled.zoom);
+  }, [words, boxes, lines, routes, settled.zoom, settled.rect, edges]);
 
   // The Learn layer's notes: to the right of a device, to the left of a cable's middle, each with a
   // short leader; a fixed on-screen size, pushed down past an earlier note rather than over it.
@@ -376,7 +379,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     if (notes == null || notes.length === 0) return [];
     const scale = 1 / settled.zoom;
     const byId = new Map(boxes.map((b) => [b.id, b]));
-    const lines = new Map(diagramLines(view, new Set(byId.keys())).map((l) => [l.cable.id, l]));
+    const byCable = new Map(lines.map((l) => [l.cable.id, l]));
     const W = NOTE_W * scale;
     const H = NOTE_H * scale;
     const GAP = NOTE_GAP * scale;
@@ -391,10 +394,10 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         if (b == null) continue;
         [x, y, side] = [b.x + b.w + GAP, b.y + b.h / 2, 'right'];
       } else {
-        const l = lines.get(note.anchor.id);
+        const l = byCable.get(note.anchor.id);
         if (l == null || stubbedRef.current.has(l.cable.id)) continue;
-        const r = orthRoute(byId.get(l.a)!, byId.get(l.b)!, l.lane);
-        [x, y, side] = [(r.a.x + r.b.x) / 2 - GAP, (r.a.y + r.b.y) / 2, 'left'];
+        const r = routes.get(l.cable.id)!;
+        [x, y, side] = [r.mid.x - GAP, r.mid.y, 'left'];
       }
       const left = side === 'right' ? x : x - W;
       while (taken.some((t) => Math.abs(t.x - left) < W && Math.abs(t.y - y) < H)) y += H;
@@ -402,7 +405,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
       out.push({ note, x, y, side });
     }
     return out;
-  }, [notes, boxes, view, edges, settled.zoom]);
+  }, [notes, boxes, lines, routes, edges, settled.zoom]);
 
   // The bar's Fit button and its zoom percentage, as the Rack look obeys them.
   const prevFit = useRef(fitRequest);

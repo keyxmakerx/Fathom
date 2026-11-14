@@ -58,8 +58,9 @@ import { CardsSection, OpticSection } from './Parts';
 import { OpenFarSite, SiteLinkPicker, siteLinkOf } from './SiteLink';
 import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
 import { RoutingTab, useRoutingLit } from './RoutingTab';
-import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, holderOf, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
+import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, takeOutChange, holderOf, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
 import { loadJsonPref, saveJsonPref } from '../../prefs';
+import { InHeadMenu } from '../shell/PanelHead';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
@@ -957,6 +958,12 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
       {placement.kind === 'shelf' ? <Field label="Slot" value={String(placement.slot)} /> : null}
       {(placement.kind === 'surface' || placement.kind === 'board') && placement.xMm != null && placement.yMm != null ? (
         <Field label="Position" value={`${placement.xMm}mm, ${placement.yMm}mm`} />
+      ) : null}
+      {/* r116: "Take it out" left the device menu and sits beside the placement it undoes. */}
+      {placement.kind !== 'none' ? (
+        <button type="button" className="btn-quiet" onClick={() => commit(takeOutChange(itemId))}>
+          {DEVICE_WORDS.takeOut}
+        </button>
       ) : null}
 
       {asking === 'rack' ? (
@@ -2308,6 +2315,7 @@ function panelFor(
             <span className="kind-actions">
             <ReadNow deviceId={chassis.deviceId} />
             {actions.onEdit != null || more != null ? (
+              <InHeadMenu>
               <details className="dev-more" data-testid="device-more">
                 <summary className="dev-more__button" aria-label="More for this device" title="More for this device">
                   ⋯
@@ -2327,6 +2335,7 @@ function panelFor(
                   </div>
                 )}
               </details>
+              </InHeadMenu>
             ) : null}
             </span>
           </div>

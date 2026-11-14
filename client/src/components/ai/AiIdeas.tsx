@@ -12,6 +12,7 @@ import { decideIdea, fetchIdeas, type AiIdea, type IdeaPreview } from '../../api
 import { useAiPreview } from './aiPreview';
 import type { SideTab } from '../shell/sideSlot';
 import { aiError, ago, Info } from './parts';
+import { PanelHead } from '../shell/PanelHead';
 
 /** How often a design that is open asks for new ideas. An idea is not urgent. */
 const REFRESH_MS = 120_000;
@@ -55,7 +56,12 @@ export function aiIdeasTab(
     open: panelOpen,
     onOpen: () => setPanelOpen(true),
     onClose: () => setPanelOpen(false),
-    content: panelOpen ? content : null,
+    content: panelOpen ? (
+      <>
+        <PanelHead name="AI ideas" onFold={() => setPanelOpen(false)} />
+        {content}
+      </>
+    ) : null,
   };
 }
 

@@ -93,11 +93,10 @@ export function SmtpForm({ actingOperatorId }: SmtpFormProps) {
 
   return (
     <form className="console__form" onSubmit={submit}>
-      <div className="console__form-title">Mail (SMTP)</div>
+      <div className="console__form-title">Outgoing mail (SMTP)</div>
       <p className="console__note">
-        Where this install hands its mail. Set it here rather than in a file: the operator console is the one place
-        that can change it without a restart, and doing it here is what keeps a lockout from needing one. The value
-        is sealed before it is stored and is never shown again — to change any field, send the whole form again.
+        The mail server Fathom sends from. What you save is stored encrypted and never shown again, so to change
+        one field, fill in the whole form again.
       </p>
       <div className="console__fieldrow">
         <div className="console__field">
@@ -191,8 +190,8 @@ export function SmtpForm({ actingOperatorId }: SmtpFormProps) {
       {saved && (
         <>
           <p className="console__muted">
-            Saved as change <code>{saved.id}</code>, in effect at{' '}
-            {new Date(saved.effectiveAtUnix * 1000).toLocaleString()}.
+            Saved. Takes effect at {new Date(saved.effectiveAtUnix * 1000).toLocaleString()} (change number{' '}
+            <code>{saved.id}</code>).
           </p>
           <button type="button" className="console__btn" disabled={busy} onClick={test}>
             {busy ? 'Asking…' : 'Send a test to my own address'}

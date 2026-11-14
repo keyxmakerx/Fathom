@@ -170,7 +170,7 @@ const PRIORITY = { mid: 0, end: 1 } as const;
 
 /** Label spots for every cable that has words: addresses at the port ends, the VLAN word mid-line. */
 export function cableCandidates(
-  routes: ReadonlyArray<{ id: string; route: { a: Pt4; b: Pt4 } }>,
+  routes: ReadonlyArray<{ id: string; route: { a: Pt4; b: Pt4; mid?: { x: number; y: number; vertical: boolean } } }>,
   words: ReadonlyMap<string, CableWords>,
   scale: number,
 ): Candidate[] {
@@ -186,10 +186,11 @@ export function cableCandidates(
     const w = words.get(id);
     if (w == null) continue;
     if (w.mid != null) {
-      const mx = (route.a.x + route.b.x) / 2;
-      const my = (route.a.y + route.b.y) / 2;
-      const straightH = route.a.y === route.b.y;
-      // Straight vertical or bent: beside the vertical run; straight horizontal: above it. Never on the line.
+      // On the line's longest run when the route names it, else halfway between its ends.
+      const mx = route.mid?.x ?? (route.a.x + route.b.x) / 2;
+      const my = route.mid?.y ?? (route.a.y + route.b.y) / 2;
+      const straightH = route.mid != null ? !route.mid.vertical : route.a.y === route.b.y;
+      // Beside a vertical run; above a horizontal one. Never on the line.
       if (straightH) out.push({ key: `${id}:mid`, text: w.mid, x: mx, y: my - 10 * scale, ax: 'middle', priority: PRIORITY.mid });
       else out.push({ key: `${id}:mid`, text: w.mid, x: mx + gap, y: my, ax: 'start', priority: PRIORITY.mid });
     }

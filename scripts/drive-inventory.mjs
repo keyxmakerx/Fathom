@@ -91,7 +91,7 @@ let browser = null;
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);
-  viteProc = spawn('npm', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
+  viteProc = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: CLIENT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -114,7 +114,7 @@ try {
 
   await page.goto(`${BASE}/drive.html?scene=inventory`);
   await page.waitForSelector('.drawing', { timeout: 15_000 });
-  await page.getByRole('button', { name: 'Inventory', exact: true }).click();
+  await page.locator('[data-testid="view-inventory"]').click();
   await page.waitForSelector('.inv-table__row', { timeout: 15_000 });
 
   // 1 — the rail counts every device, the table renders only a window of them.
@@ -138,7 +138,7 @@ try {
   await page.waitForSelector('.inv-page', { timeout: 5_000 });
   check('adding by name opens its page', (await page.locator('.inv-page').innerText()).includes('edge-fw'));
   check('the page replaces the list', (await page.locator('.inv-table__row').count()) === 0);
-  await page.getByRole('button', { name: /^← Back to Devices/ }).click();
+  await page.locator('[data-testid=inv-back]').click();
   await page.waitForSelector('.inv-table__row', { timeout: 5_000 });
   check('Back returns to the list', (await page.locator('.inv-table__row').count()) > 10);
 
@@ -179,7 +179,7 @@ try {
   }
   check('the History tab lists the changes made', (await page.locator('.inv-page__body').innerText()).length > 0);
   await shot('inventory-04-history.png');
-  await page.getByRole('button', { name: /^← Back to Devices/ }).click();
+  await page.locator('[data-testid=inv-back]').click();
   await page.waitForSelector('.inv-table__row', { timeout: 5_000 });
   await page.getByRole('button', { name: 'Columns' }).click();
   await page.getByRole('checkbox', { name: 'Warranty ends' }).check();

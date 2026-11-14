@@ -47,17 +47,17 @@ export function FirmwareSettingsView({
     <section className="org-page" data-testid="steward-firmware">
       <div className="org-page__title">Firmware</div>
       <p className="org-field__hint">
-        How much firmware this organisation may keep on the server, and where its devices download it from. The server’s admin sets the
+        How much firmware this organisation may keep on the server, and where its devices download it from. The server admin sets the
         most it may have. Every change is recorded with who made it.
       </p>
       {locked && (
         <p className="home__error" role="status" data-testid="steward-firmware-locked">
-          The server’s admin has locked these settings{ceiling?.lockReason ? `: “${ceiling.lockReason}”` : '.'} Ask them to change them.
+          The server admin has locked these settings{ceiling?.lockReason ? `: “${ceiling.lockReason}”` : '.'} Ask them to change them.
         </p>
       )}
       {noAddress && !locked && (
         <p className="home__error" role="status" data-testid="steward-firmware-no-address">
-          No download address is set yet, so no device can be given a link. Set one below, or ask the server’s admin to.
+          No download address is set yet, so no device can be given a link. Set one below, or ask the server admin to.
         </p>
       )}
       <dl className="org-facts">
@@ -66,7 +66,7 @@ export function FirmwareSettingsView({
           {gbWords(limits.organisationMaxBytes)} in all, images up to {gbWords(limits.maxImageBytes)} each
         </dd>
         <dt>The most allowed</dt>
-        <dd>{gbWords(limits.organisationCeiling)}, set by the server’s admin</dd>
+        <dd>{gbWords(limits.organisationCeiling)}, set by the server admin</dd>
         <dt>Devices download from</dt>
         <dd className="org-mono">{noAddress ? 'Not set yet' : limits.fetchBaseUrl}</dd>
       </dl>
@@ -154,7 +154,7 @@ export function FirmwareSettingsPage({ organisationId }: { organisationId: strin
     return (
       <section className="org-page">
         <div className="org-page__title">Firmware</div>
-        <p className="org-field__hint">Firmware is off on this server. The server’s admin turns it on.</p>
+        <p className="org-field__hint">Firmware is off on this server. The server admin turns it on.</p>
       </section>
     );
   }

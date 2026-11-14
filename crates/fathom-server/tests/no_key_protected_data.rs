@@ -353,6 +353,14 @@ const TABLES: &[TableClaim] = &[
               and when, the key epoch.",
     },
     TableClaim {
+        name: "device_read_refusals",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "how many times in a row a device refused one vault login, and until when Fathom \
+              waits before sending it there again (migration 0078, sign-off r117 finding 10). \
+              The device is named only by an HMAC of its address under the device reading key; \
+              the login only by its vault entry id and version. No password, key or reading.",
+    },
+    TableClaim {
         name: "order_types",
         protection: Protection::KeyProtected {
             columns: &["ciphertext"],

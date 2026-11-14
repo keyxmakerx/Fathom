@@ -88,7 +88,7 @@ export function ContextMenu({ x, y, items, onClose, title }: ContextMenuProps) {
 
 /**
  * A menu's items, drawn the same wherever a device's actions are listed (sign-off r58): right-click,
- * the panel's ⋯ menu and Inventory's row menu. A heading each time the group changes; an item that
+ * the panel's ⋯ menu and Inventory's row menu. A rule each time the group changes; an item that
  * cannot be used yet stays, greyed, with why under it; its key on the right; removal apart, after a rule.
  */
 export function MenuItems({ items, onPicked }: { items: readonly MenuItem[]; onPicked?: () => void }) {
@@ -96,18 +96,15 @@ export function MenuItems({ items, onPicked }: { items: readonly MenuItem[]; onP
     <>
       {items.map((item, i) => {
         const before = items[i - 1];
-        const heading = item.group != null && item.group !== before?.group ? item.group : null;
+        // r116: a change of group is a rule, not a heading; a removal draws its own rule.
+        const rule = before != null && item.group != null && before.group != null && item.group !== before.group && !item.danger;
         const why = item.disabled != null ? `menu-why-${i}-${item.label.replace(/\W+/g, '-')}` : undefined;
         const cls = ['drawing-context-menu__item'];
         if (item.danger) cls.push('drawing-context-menu__item--danger');
         if (item.disabled != null) cls.push('drawing-context-menu__item--off');
         return (
           <Fragment key={item.label}>
-            {heading != null ? (
-              <div className="drawing-context-menu__group" role="presentation">
-                {heading}
-              </div>
-            ) : null}
+            {rule ? <div className="drawing-context-menu__rule" role="separator" /> : null}
             <button
               type="button"
               role="menuitem"

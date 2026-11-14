@@ -196,7 +196,7 @@ describe('the firmware settings pages', () => {
         onSave: noop,
       }),
     );
-    expect(html).toContain('5 GB, set by the server’s admin');
+    expect(html).toContain('5 GB, set by the server admin');
     expect(html).toContain('value="3"');
     expect(html).toContain('placeholder="http://10.0.0.5:8080"');
     expect(html).toContain('Robin set the total to 3 GB and the download address back to the server’s');

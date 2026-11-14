@@ -919,3 +919,76 @@
   padding: 8px 10px;
   border: 1px solid var(--caution);
 }
+
+/* ---- what kind of change (sign-off r120) ----------------------------- */
+
+.plans-kinds {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.plans-kinds legend {
+  padding: 0;
+  margin-bottom: var(--s1);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.plans-kinds__for {
+  margin: 0 0 var(--s1);
+  color: var(--muted);
+}
+
+.plans-kinds__list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.plans-kinds__list > li {
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.plans-kinds__choice {
+  display: grid;
+  width: 100%;
+  min-height: var(--control-h);
+  padding: var(--s1) var(--s2);
+  border: 0;
+  background: var(--control-bg);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.plans-kinds__choice:hover {
+  background: var(--control-bg-hover);
+}
+
+.plans-kinds__choice:focus-visible {
+  outline: 2px solid var(--tone, var(--ink));
+  outline-offset: -2px;
+}
+
+.plans-kinds__hint {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+.plans-kinds__picked {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin: 0;
+}
+
+.plans-firmware__to {
+  margin: 0;
+}

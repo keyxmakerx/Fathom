@@ -108,7 +108,7 @@ export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeFor
       </div>
       <p className="home__muted">
         Sites, Buildings and Closets sort designs, and say who may read, draw or look after them. None is needed to start one.
-        Zoomed out, Fathom draws them as the map of your estate, with hubs in a double border.
+        Zoomed out, Fathom draws them as a map of your sites, with hubs in a double border.
       </p>
       <details className="home-folders__why">
         <summary>Who sees what</summary>

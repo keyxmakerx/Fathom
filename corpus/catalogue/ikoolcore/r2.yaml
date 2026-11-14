@@ -1,0 +1,31 @@
+# corpus/catalogue/ikoolcore/r2.yaml -- iKOOLCORE R2 mini PC router (Intel N100/N300).
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (a
+# 75 mm desktop cube that sits on a shelf).
+# Added 2026-11-13 for sign-off shelf-view: the owner's top shelf holds one (bnuuy-edge).
+# Read 2026-11-13: CNX Software, "iKOOLCORE R2 mini PC and router review - Part 1: Specs,
+# unboxing, teardown, and first boot" (cnx-software.com/2023/11/21/ikoolcore-r2-mini-pc-router-
+# review-specs-unboxing-teardown-first-boot/). Its spec list: "75 x 75 x 52 mm"; "4x 2.5GbE RJ45
+# ports via 3x Intel i226V 2.5GbE controllers, and 1x Realtek RTL8156BG 2.5GbE controller"; and
+# "The rear panel has the most interesting connectors with four 2.5GbE RJ45 ports." The front
+# has two USB 3.2 Type-A ports and the power button: USB is not recorded (PortKind has no USB).
+# NOT CONFIRMED: the left-to-right order of the four ports (numbered 1..4, single_row assumed),
+# and which 75 mm side is the front (a square footprint, so width and depth are the same).
+vendor: ikoolcore
+model: R2
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    CNX Software's review of the iKOOLCORE R2 (cnx-software.com, 2023-11-21), read 2026-11-13,
+    for 75 x 75 x 52 mm and four 2.5GbE RJ45 ports on the rear panel. Port order is this
+    catalogue's convention, not a photograph.
+  read_on: "2026-11-13"
+size_mm: { width: 75, depth: 75, height: 52 }
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 4
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 4, start_number: 1 }

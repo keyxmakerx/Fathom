@@ -91,8 +91,6 @@ export interface ShellProps {
   layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void; style?: { value: import('../drawing/diagramStyle').DiagramStyle; onChange: (style: import('../drawing/diagramStyle').DiagramStyle) => void }; cables?: { value: import('../drawing/cableStyle').CableStyle; onChange: (style: import('../drawing/cableStyle').CableStyle) => void; colour?: { value: import('../drawing/cableStyle').CableColour; onChange: (colour: import('../drawing/cableStyle').CableColour) => void } }; aids?: ShowAids };
   /** The Views menu, drawn beside Show: named camera positions with their layers (Racks place only). */
   views?: ReactNode;
-  /** The same views as rows, for the View ▾ menu the bar folds into when it is narrow. */
-  viewsFolded?: ReactNode;
   /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
   look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
 
@@ -117,8 +115,6 @@ export interface ShellProps {
 
   /** The Share button; present only for someone who may share (a steward). */
   onShare?: () => void;
-  /** The design's docs list; absent with no design open. */
-  onDocs?: () => void;
   /** The History button; absent with no design open. */
   onHistory?: () => void;
   /** History is open: the button reads as on. */

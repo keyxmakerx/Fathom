@@ -18,7 +18,11 @@ source:
     (https://techspecs.ui.com/unifi/cloud-gateways/ucg-ultra), read 2026-10-10.
     4x 1GbE RJ45 LAN + 1x 2.5GbE RJ45 (default WAN); compact desktop. Face and
     layout not confirmed by a photo.
+    Size from the same tech specs page, "141.8 x 127.6 x 30 mm", re-read 2026-11-13,
+    rounded to whole millimetres; the page does not label the sides, and 141.8 is recorded
+    as the width.
   read_on: "2026-10-10"
+size_mm: { width: 142, depth: 128, height: 30 }
 faceplates:
   - face: front
     port_count: 5

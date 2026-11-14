@@ -17,7 +17,10 @@ source:
     https://www.netgear.com/business/wired/switches/plus/gs308e/, read 2026-10-10.
     8x 1G RJ45; external 12V/1.5A. Layout is the catalogue's convention, not
     photo-confirmed. rack_units nominal (desktop).
+    Size from NETGEAR's GS308E page (netgear.com/ca-en/business/wired/switches/easy-
+    smart/gs308e/), "Dimensions (WxDxH) mm" 158 x 101 x 29, read 2026-11-13.
   read_on: "2026-10-10"
+size_mm: { width: 158, depth: 101, height: 29 }
 faceplates:
   - face: front
     port_count: 8

@@ -6,12 +6,12 @@ export type ConsoleSection = 'accounts' | 'organisations' | 'operators' | 'ai' |
 const LABEL: Record<ConsoleSection, string> = {
   accounts: 'Accounts',
   organisations: 'Organisations',
-  operators: 'Operators',
+  operators: 'Server admins',
   ai: 'AI',
   firmware: 'Firmware',
   activity: 'Activity',
   settings: 'Settings',
-  issued: 'Issued',
+  issued: 'Invitations',
 };
 
 /** Accounts first, because that is what the owner opens Admin to do (invite

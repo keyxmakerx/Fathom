@@ -848,6 +848,194 @@ pub async fn open_login(
 }
 
 // ---------------------------------------------------------------------------
+// 3a. A wait after a refused login (sign-off r117, finding 10)
+// ---------------------------------------------------------------------------
+
+/// The failure code when a login is waiting after the device refused it: nothing was sent.
+pub const COOLING_DOWN: &str = "cooling_down";
+
+/// How long Fathom waits before it sends a login the device refused to that device again: after
+/// the first refusal in a row, the second, and the third and every one after.
+///
+/// Fathom never retries on its own, so each refusal is one press of Read. Devices that lock an
+/// account do it after a few failures: Junos allows three tries by default and locks only when
+/// `retry-options lockout-period` is set (Juniper, "Login Settings", read 2026-11-12); the DISA
+/// STIG for Arista EOS asks for `aaa authentication policy lockout failure 3 duration 900`
+/// (V-255949, read 2026-11-12). With these waits the third refused press cannot come sooner than
+/// 16 minutes after the first, and after that one press an hour at most.
+pub const WAITS_SECS: [i64; 3] = [60, 15 * 60, 60 * 60];
+
+/// A run of refusals older than this starts again from the first wait.
+pub const REFUSALS_FORGOTTEN_AFTER_SECS: i64 = 24 * 60 * 60;
+
+/// The wait after `refusals` refusals in a row (1 or more).
+pub fn wait_after(refusals: i32) -> i64 {
+    let i = usize::try_from(refusals.max(1) - 1).unwrap_or(0);
+    WAITS_SECS[i.min(WAITS_SECS.len() - 1)]
+}
+
+/// A login that may not be sent to this device yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Waiting {
+    pub refusals: i32,
+    pub until_ms: i64,
+}
+
+/// "a minute", "15 minutes", "an hour".
+fn wait_words(secs: i64) -> String {
+    match secs {
+        s if s <= 60 => "a minute".to_string(),
+        3600 => "an hour".to_string(),
+        s if s % 3600 == 0 => format!("{} hours", s / 3600),
+        s => format!("{} minutes", (s + 59) / 60),
+    }
+}
+
+impl Waiting {
+    /// The failure the person is shown. `retryAt` is when Fathom will send the login again, in
+    /// milliseconds since 1970, for the browser to put in the person's own time.
+    pub fn failure(&self, now_ms: i64) -> Json {
+        let left = ((self.until_ms - now_ms).max(0) + 59_999) / 60_000;
+        let left = if left <= 1 {
+            "about a minute".to_string()
+        } else {
+            format!("about {left} minutes")
+        };
+        let times = if self.refusals == 1 {
+            "refused this login".to_string()
+        } else {
+            format!("refused this login {} times in a row", self.refusals)
+        };
+        obj(vec![
+            ("code", s(COOLING_DOWN)),
+            (
+                "message",
+                s(&format!(
+                    "The device {times}. Fathom waits {} before it sends it again, so repeated tries cannot lock the device's account. Try again in {left}, or now if you change the login in the vault.",
+                    wait_words(wait_after(self.refusals))
+                )),
+            ),
+            ("refusals", Json::Int(self.refusals as i64)),
+            ("retryAt", Json::Int(self.until_ms)),
+        ])
+    }
+}
+
+/// Whether `login` is waiting at `target` after a refusal. A login changed in the vault since
+/// (its entry's version moved on) is not.
+pub async fn login_waiting(
+    tx: &Transaction<'_>,
+    keys: &ReadingKeys,
+    organisation: &str,
+    protocol: Protocol,
+    target: &Target,
+    login: &str,
+) -> Result<Option<Waiting>, VaultError> {
+    let row = tx
+        .query_opt(
+            "SELECT r.refusals, (extract(epoch from r.wait_until) * 1000)::bigint \
+               FROM device_read_refusals r \
+               LEFT JOIN vault.entries e ON e.organisation_id = r.organisation_id AND e.id = r.login \
+              WHERE r.organisation_id = $1 AND r.address_mac = $2 AND r.login = $3 \
+                AND r.wait_until > now() \
+                AND e.version IS NOT DISTINCT FROM r.login_version",
+            &[
+                &organisation,
+                &keys.address_mac(protocol, target.address),
+                &login,
+            ],
+        )
+        .await?;
+    Ok(row.map(|r| Waiting {
+        refusals: r.get(0),
+        until_ms: r.get(1),
+    }))
+}
+
+/// The device refused `login`: count it and set the wait. A run started more than a day ago, or
+/// before the login was last changed, starts again at one.
+pub async fn login_refused(
+    tx: &Transaction<'_>,
+    keys: &ReadingKeys,
+    organisation: &str,
+    protocol: Protocol,
+    target: &Target,
+    login: &str,
+) -> Result<Waiting, VaultError> {
+    let mac = keys.address_mac(protocol, target.address);
+    let version: Option<i64> = tx
+        .query_opt(
+            "SELECT version FROM vault.entries WHERE organisation_id = $1 AND id = $2",
+            &[&organisation, &login],
+        )
+        .await?
+        .map(|r| r.get(0));
+    let before: Option<i32> = tx
+        .query_opt(
+            "SELECT refusals FROM device_read_refusals \
+              WHERE organisation_id = $1 AND address_mac = $2 AND login = $3 \
+                AND login_version IS NOT DISTINCT FROM $4 \
+                AND last_refused_at > now() - make_interval(secs => $5) \
+              FOR UPDATE",
+            &[
+                &organisation,
+                &mac,
+                &login,
+                &version,
+                &(REFUSALS_FORGOTTEN_AFTER_SECS as f64),
+            ],
+        )
+        .await?
+        .map(|r| r.get(0));
+    let refusals = before.unwrap_or(0).saturating_add(1);
+    let row = tx
+        .query_one(
+            "INSERT INTO device_read_refusals \
+                 (organisation_id, address_mac, login, login_version, refusals, wait_until) \
+             VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6)) \
+             ON CONFLICT (organisation_id, address_mac, login) DO UPDATE \
+             SET login_version = EXCLUDED.login_version, refusals = EXCLUDED.refusals, \
+                 last_refused_at = now(), wait_until = EXCLUDED.wait_until \
+             RETURNING (extract(epoch from wait_until) * 1000)::bigint",
+            &[
+                &organisation,
+                &mac,
+                &login,
+                &version,
+                &refusals,
+                &(wait_after(refusals) as f64),
+            ],
+        )
+        .await?;
+    Ok(Waiting {
+        refusals,
+        until_ms: row.get(0),
+    })
+}
+
+/// The device took `login`: any run of refusals is over.
+pub async fn login_accepted(
+    tx: &Transaction<'_>,
+    keys: &ReadingKeys,
+    organisation: &str,
+    protocol: Protocol,
+    target: &Target,
+    login: &str,
+) -> Result<(), VaultError> {
+    tx.execute(
+        "DELETE FROM device_read_refusals \
+          WHERE organisation_id = $1 AND address_mac = $2 AND login = $3",
+        &[
+            &organisation,
+            &keys.address_mac(protocol, target.address),
+            &login,
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // 4. The reader
 // ---------------------------------------------------------------------------
 
@@ -887,6 +1075,16 @@ pub fn ssh_job(target: &Target, platform: &str, host_key: Option<&str>) -> Json 
     ])
 }
 
+/// Whether a login's secret is an OpenSSH private key rather than a password: the vault keeps a
+/// key login as a login whose password is the key file's text (`PROTOCOL.key` in OpenSSH's
+/// source: the armour `-----BEGIN OPENSSH PRIVATE KEY-----`). The reader takes an unencrypted
+/// Ed25519 or ECDSA key and refuses anything else (`helpers/reader/src/ssh.rs`, `Login::key`).
+pub fn is_ssh_key(secret: &str) -> bool {
+    secret
+        .trim_start()
+        .starts_with("-----BEGIN OPENSSH PRIVATE KEY-----")
+}
+
 /// The SSH request, with the login in its own envelope. The caller drops it once it is sent.
 pub fn ssh_request(job: Json, login: Option<&UsedLogin>) -> Json {
     let mut m = BTreeMap::from([
@@ -895,9 +1093,16 @@ pub fn ssh_request(job: Json, login: Option<&UsedLogin>) -> Json {
         ("job".to_string(), job),
     ]);
     if let Some(l) = login {
+        // A key login sends the key to the reader, which signs with it; the device is never
+        // handed a secret (r117, finding 11). Anything else is a password.
+        let secret = if is_ssh_key(&l.password) {
+            "key"
+        } else {
+            "password"
+        };
         m.insert(
             "login".to_string(),
-            obj(vec![("user", s(&l.user)), ("password", s(&l.password))]),
+            obj(vec![("user", s(&l.user)), (secret, s(&l.password))]),
         );
     }
     Json::Obj(m)

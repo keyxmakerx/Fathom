@@ -176,7 +176,7 @@ export function PlacementForm({
   if (environmentDecides && stage.kind === 'form') {
     return (
       <div className="console__form">
-        <div className="console__form-title">Where this console answers</div>
+        <div className="console__form-title">Where Admin answers</div>
         <p className="console__readonly" data-testid="placement-readonly">
           {ENVIRONMENT_DECIDES}
         </p>
@@ -193,7 +193,7 @@ export function PlacementForm({
     });
     return (
       <div className="console__form">
-        <div className="console__form-title">The console has moved</div>
+        <div className="console__form-title">Admin has moved</div>
         <p className="console__countdown" role="status" data-testid="placement-countdown">
           {formatCountdown(remaining)}
         </p>
@@ -226,7 +226,7 @@ export function PlacementForm({
   if (stage.kind === 'warned') {
     return (
       <div className="console__form">
-        <div className="console__form-title">Read this before the console moves</div>
+        <div className="console__form-title">Read this before Admin moves</div>
         <ul className="console__warnlist">
           {placementWarning(draft, currentHost).map((line) => (
             <li key={line}>{line}</li>
@@ -234,7 +234,7 @@ export function PlacementForm({
         </ul>
         <div className="console__row">
           <button type="button" className="console__btn btn-main" disabled={busy} onClick={save}>
-            {busy ? 'Moving…' : `Move the console to ${normalisePlacementHosts(hosts)}`}
+            {busy ? 'Moving…' : `Move Admin to ${normalisePlacementHosts(hosts)}`}
           </button>
           <button
             type="button"
@@ -256,14 +256,14 @@ export function PlacementForm({
 
   return (
     <form className="console__form" onSubmit={review}>
-      <div className="console__form-title">Where this console answers</div>
+      <div className="console__form-title">Where Admin answers</div>
       <p className="console__note">
-        The console can be confined to a host of its own and to the addresses it answers from — so that
-        <code> /admin</code> is a 404 everywhere else, at this server as well as at your proxy. An allowlist at the
-        proxy is worth having too; it is never the only gate, because sign-in with a second factor stands under it.
+        You can limit Admin to one web address, and to certain computers, so that <code>/admin</code> shows "not
+        found" everywhere else. Limiting at your proxy as well is a good idea, but it is not the only protection:
+        signing in needs a second factor too.
       </p>
       <label className="console__label" htmlFor="placement-hosts">
-        Hosts, comma-separated
+        Web addresses (host names), separated by commas
       </label>
       <input
         id="placement-hosts"
@@ -278,7 +278,7 @@ export function PlacementForm({
         required
       />
       <label className="console__label" htmlFor="placement-sources">
-        Source addresses, comma-separated CIDRs
+        Allowed computers, as IP ranges such as 10.0.0.0/8, separated by commas
       </label>
       <input
         id="placement-sources"
@@ -292,8 +292,8 @@ export function PlacementForm({
         disabled={busy}
       />
       <p className="console__note">
-        Leave the sources empty to answer from everywhere: the server stores that as{' '}
-        <code>{normalisePlacementSources('')}</code>, because the column cannot be blank, and the site trail will
+        Leave this empty to allow every computer. The server records that as{' '}
+        <code>{normalisePlacementSources('')}</code> because the field cannot be blank, and the history will
         show exactly that.
       </p>
       <label className="console__label" htmlFor="placement-window">
