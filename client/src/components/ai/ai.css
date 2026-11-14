@@ -561,6 +561,11 @@
   gap: var(--s3);
 }
 
+/* In the side panel, the body sits under the head's own inset; the phone sheet pads itself. */
+.dock-side > .ai-ideas {
+  padding: var(--s3) var(--s4);
+}
+
 .ai-idea {
   border: var(--rule-hair) solid var(--hairline);
   border-left: var(--rule-accent) solid var(--sheath-purple);
