@@ -27,7 +27,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{Compare, Condition, Definition, Field, FieldKind, Job, Scalar};
+use crate::{Compare, Condition, Definition, Field, FieldKind, Job, OverdueAction, Scalar};
 
 /// A team role id (ADR-0081) used for "a lead of that team".
 pub const LEAD: &str = "lead";
@@ -106,6 +106,10 @@ pub enum Action {
     Approve { stage: String },
     /// Closes the whole order unfinished.
     CancelOrder { reason: String },
+    /// The engine carries out a job's overdue rule (decision 11): `rule` is its
+    /// place in the job's `overdue` list. Only the engine takes it, once per
+    /// rule, in order, once the rule's time has come.
+    Overdue { job: String, rule: usize },
 }
 
 /// One action as the history keeps it.
@@ -183,6 +187,8 @@ pub enum JobStatus {
     Ready,
     Done,
     Cancelled,
+    /// Moved on by an overdue rule (`move_on`, only on an optional job).
+    Skipped,
 }
 
 impl JobStatus {
@@ -190,7 +196,7 @@ impl JobStatus {
     pub fn finished(self) -> bool {
         matches!(
             self,
-            JobStatus::Done | JobStatus::Cancelled | JobStatus::LeftOut
+            JobStatus::Done | JobStatus::Cancelled | JobStatus::LeftOut | JobStatus::Skipped
         )
     }
 }
@@ -208,6 +214,12 @@ pub struct JobState {
     pub note: Option<String>,
     /// The plan a `makes: plan` job opened: (design, plan).
     pub plan: Option<(String, String)>,
+    /// The overdue rules already carried out, by their place in the list.
+    pub fired: BTreeSet<usize>,
+    /// The team it was handed to by `reassign: <team>`; else its own.
+    pub team: Option<String>,
+    /// The role it was put in front of by `escalate` (`lead`, `overseer`).
+    pub escalated: Option<String>,
 }
 
 impl JobState {
@@ -221,6 +233,9 @@ impl JobState {
             finished_by: None,
             note: None,
             plan: None,
+            fired: BTreeSet::new(),
+            team: None,
+            escalated: None,
         }
     }
 }
@@ -390,6 +405,56 @@ impl Order {
             .collect()
     }
 
+    /// The team a job is with now: its own, or the one an overdue rule
+    /// handed it to.
+    pub fn team_of<'a>(&'a self, job: &'a Job) -> &'a str {
+        self.jobs
+            .get(&job.id)
+            .and_then(|s| s.team.as_deref())
+            .unwrap_or(&job.team)
+    }
+
+    /// When a job's `due` passes: the moment it became ready plus its `due`.
+    /// None for a job with no `due` or that isn't ready.
+    pub fn due_at(&self, job: &Job) -> Option<u64> {
+        let st = self.jobs.get(&job.id)?;
+        if st.status != JobStatus::Ready {
+            return None;
+        }
+        Some(st.ready_at? + job.due?.minutes * 60)
+    }
+
+    /// The overdue rules whose time has come by `now` and that haven't been
+    /// carried out, as (job, rule, when it fell due), earliest first. The
+    /// server applies them in this order (decision 11: a server that was down
+    /// catches up, firing each rule once, in order). Only the first unfired
+    /// rule of each job is listed; the next one is listed once it has fired.
+    pub fn overdue_due(&self, now: u64) -> Vec<(String, usize, u64)> {
+        if self.status != OrderStatus::Open {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for job in self.def.jobs() {
+            let Some(due) = self.due_at(job) else {
+                continue;
+            };
+            let st = &self.jobs[&job.id];
+            if let Some((i, rule)) = job
+                .overdue
+                .iter()
+                .enumerate()
+                .find(|(i, _)| !st.fired.contains(i))
+            {
+                let when = due + rule.after.minutes * 60;
+                if when <= now {
+                    out.push((job.id.clone(), i, when));
+                }
+            }
+        }
+        out.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.0.cmp(&b.0)));
+        out
+    }
+
     /// What this order holds right now (decision 18): each `holds` field of a
     /// job that has become ready, while the order is open. Sorted.
     pub fn holds(&self) -> Vec<Hold> {
@@ -458,7 +523,7 @@ impl Order {
             }
             Action::PickUp { job } => {
                 let who = person.ok_or_else(|| no("only a person picks up a job"))?;
-                let team = self.job_def(job)?.team.clone();
+                let team = self.team_of(self.job_def(job)?).to_owned();
                 self.must_be_ready(job)?;
                 if !people.on_team(who, &team) {
                     return Err(no("only someone on the job's team can pick it up"));
@@ -561,8 +626,9 @@ impl Order {
                 if !matches!(st.status, JobStatus::Waiting | JobStatus::Ready) {
                     return Err(no(format!("`{}` isn't open", def.name)));
                 }
-                let lead = people.has_role(who, &def.team, LEAD) || people.is_steward(who);
-                if !(lead || (def.optional && people.on_team(who, &def.team))) {
+                let team = self.team_of(&def).to_owned();
+                let lead = people.has_role(who, &team, LEAD) || people.is_steward(who);
+                if !(lead || (def.optional && people.on_team(who, &team))) {
                     return Err(no(
                         "only a lead of the job's team or a Steward cancels a job that isn't optional",
                     ));
@@ -583,7 +649,7 @@ impl Order {
             }
             Action::CancelOrder { reason } => {
                 let who = person.ok_or_else(|| no("the engine never cancels an order"))?;
-                let teams: BTreeSet<&str> = self.def.jobs().map(|j| j.team.as_str()).collect();
+                let teams: BTreeSet<&str> = self.def.jobs().map(|j| self.team_of(j)).collect();
                 let lead = teams.iter().any(|t| people.has_role(who, t, LEAD));
                 if !(lead || people.is_steward(who)) {
                     return Err(no(
@@ -596,7 +662,57 @@ impl Order {
                 self.status = OrderStatus::Cancelled;
                 Ok(())
             }
+            Action::Overdue { job, rule } => {
+                if person.is_some() {
+                    return Err(no("only the engine carries out an overdue rule"));
+                }
+                self.overdue(job, *rule, at)
+            }
         }
+    }
+
+    fn overdue(&mut self, job: &str, rule: usize, at: u64) -> Result<(), Refusal> {
+        let def = self.job_def(job)?.clone();
+        self.must_be_ready(job)?;
+        let Some(r) = def.overdue.get(rule) else {
+            return Err(no(format!(
+                "`{}` has no overdue rule {}",
+                def.name,
+                rule + 1
+            )));
+        };
+        let st = &self.jobs[job];
+        if st.fired.contains(&rule) {
+            return Err(no("that overdue rule has already been carried out"));
+        }
+        if (0..rule).any(|i| !st.fired.contains(&i)) {
+            return Err(no("overdue rules are carried out in order"));
+        }
+        let due = self
+            .due_at(&def)
+            .ok_or_else(|| no(format!("`{}` has no due time", def.name)))?;
+        if at < due + r.after.minutes * 60 {
+            return Err(no("that overdue rule's time hasn't come"));
+        }
+        let st = self.jobs.get_mut(job).expect("checked");
+        st.fired.insert(rule);
+        match &r.action {
+            OverdueAction::Escalate(role) => st.escalated = Some(role.clone()),
+            OverdueAction::ReassignToQueue => st.picked_by = None,
+            OverdueAction::ReassignTo(team) => {
+                st.team = Some(team.clone());
+                st.picked_by = None;
+            }
+            OverdueAction::MoveOn => {
+                if !def.optional {
+                    return Err(no("`move_on` only moves an optional job on"));
+                }
+                st.status = JobStatus::Skipped;
+                st.finished_at = Some(at);
+                st.finished_by = Some(Actor::Engine);
+            }
+        }
+        Ok(())
     }
 
     fn approve(&mut self, who: &str, stage: &str, people: &dyn People) -> Result<(), Refusal> {
@@ -626,8 +742,10 @@ impl Order {
                 return Err(no("nobody signs off a stage they worked on"));
             }
         }
-        let allowed =
-            people.is_steward(who) || jobs.iter().any(|j| people.has_power(who, &j.team, &power));
+        let allowed = people.is_steward(who)
+            || jobs
+                .iter()
+                .any(|j| people.has_power(who, self.team_of(j), &power));
         if !allowed {
             return Err(no(format!(
                 "signing this off needs `{power}` on the job's team, or a Steward"
@@ -677,10 +795,12 @@ impl Order {
         let open_owner = owners.iter().any(|j| !self.jobs[&j.id].status.finished());
         let at_open = !self.def.jobs().any(|j| j.asks.contains(&field.key));
         let may_freely = open_owner
-            && (owners.iter().any(|j| people.on_team(who, &j.team))
+            && (owners.iter().any(|j| people.on_team(who, self.team_of(j)))
                 || (at_open && who == self.opened_by));
         if !may_freely {
-            let lead = owners.iter().any(|j| people.has_role(who, &j.team, LEAD))
+            let lead = owners
+                .iter()
+                .any(|j| people.has_role(who, self.team_of(j), LEAD))
                 || people.is_steward(who);
             if !lead {
                 return Err(no(format!(
@@ -859,7 +979,7 @@ impl Order {
     }
 
     fn must_work_on(&self, who: &str, job: &Job, people: &dyn People) -> Result<(), Refusal> {
-        if people.on_team(who, &job.team) || people.is_steward(who) {
+        if people.on_team(who, self.team_of(job)) || people.is_steward(who) {
             Ok(())
         } else {
             Err(no(format!(

@@ -38,7 +38,7 @@ const CLASH_STAGE: Record<string, string> = { planned: 'planned', doing: 'under 
 /** One clash as a line: what it is, where, when and whose, with a shared port in bold (sign-off r105 "what" A), and
  * Let them know, which leaves the other work a note offering a time (r105, from the owner's note). */
 function ClashLine({ clash, onOpen, onOffer }: { clash: WorkClash; onOpen: ((c: WorkClash) => void) | null; onOffer: ((c: WorkClash) => void) | null }) {
-  const what = clash.kind === 'issue' ? `It's down: ${clash.title}` : clash.title;
+  const what = clash.kind === 'issue' ? `It's down: ${clash.title}` : clash.kind === 'order' ? `Order ${clash.title}` : clash.title;
   const when = clash.kind === 'plan' ? windowWords(clash.window) : '';
   return (
     <li className="plans-clash" data-kind={clash.kind} data-testid="plans-clash">
@@ -51,7 +51,7 @@ function ClashLine({ clash, onOpen, onOffer }: { clash: WorkClash; onOpen: ((c: 
       )}
       <span className="plans-note">
         {' · '}
-        {clash.devices.map((d) => d.name).join(', ')} · {CLASH_STAGE[clash.stage] ?? clash.stage}
+        {clash.devices.map((d) => d.name).join(', ')} · {clash.kind === 'order' ? 'held while the order is open, on the Work tab' : (CLASH_STAGE[clash.stage] ?? clash.stage)}
         {when !== '' && ` · ${when}`}
         {clash.author !== '' && ` · by ${clash.author}`}
       </span>
@@ -86,7 +86,7 @@ export function PlanClashes({ controller }: { controller: PlansController }) {
     if (c.kind === 'plan') controller.openPlan(c.id);
     else controller.openIssue?.(c.id);
   };
-  const canOpen = (c: WorkClash): boolean => c.kind === 'plan' || controller.openIssue != null;
+  const canOpen = (c: WorkClash): boolean => c.kind === 'plan' || (c.kind === 'issue' && controller.openIssue != null);
   const offer = (c: WorkClash): void => {
     void controller.offer(c).then((ok) => ok && setTold((t) => new Set(t).add(c.id)));
   };
@@ -96,7 +96,7 @@ export function PlanClashes({ controller }: { controller: PlansController }) {
       <h3 className="plans-label">Also on these devices</h3>
       <ul className="plans-clashes__list">
         {clashes.map((c) => (
-          <ClashLine key={c.id} clash={c} onOpen={canOpen(c) ? open : null} onOffer={controller.canEdit && !told.has(c.id) ? offer : null} />
+          <ClashLine key={c.id} clash={c} onOpen={canOpen(c) ? open : null} onOffer={controller.canEdit && c.kind !== 'order' && !told.has(c.id) ? offer : null} />
         ))}
       </ul>
       {told.size > 0 && (

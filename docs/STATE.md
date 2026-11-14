@@ -274,8 +274,10 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   there at the top. The engine decides all of it: `fathom_inventory::work` (`plan_clashes`, `running_on`), asked
   through `OP_WORK_CLASHES` (faces 39 to 42), so the server's part 2 reads the same answer;
   `components/plans/clashes.ts` only words it. Not built: across designs, one person on two things, work you can't
-  open (part 2, the server's work index), and orders (with ADR-0084 piece 2; r105 v2 picked orders B, so an
-  order type may name, as an optional key, the devices or ports a job holds while open). For part 2: `work.rs` compares
+  open (part 2, the server's work index). What open orders hold (ADR-0084 decision 18) is in: the plan panel asks
+  `GET /organisations/{o}/orders/holds` when a plan opens and passes this design's holds to `OP_WORK_CLASHES` mode 2,
+  which answers an `order` row for each on the plan's devices (no window: like an open issue it meets any); the
+  line names the order and job and offers no note, since an order is not in the design. For part 2: `work.rs` compares
   windows as wall time, so across sites compare them in each site's time zone; and an HA pair drawn as two devices is
   missed by device-level matching. Later, per-folder opt-ins: a Steward's hard stop on a clash, and a change freeze.
 - **Order types, read and checked (ADR-0084 piece 1 and decisions 14 to 17, sign-offs r103,
@@ -305,7 +307,38 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   engine on every read. Who may act is the engine's answer from the caller's membership, roles and
   powers on the order's teams (`teams::order_people`). Every text in a type, answer or reason goes
   through the redaction gate's bare check. Routes under `/organisations/{o}/order-types` and
-  `/organisations/{o}/orders`. Not yet: the overdue clock, the screens, and `holds` in the clash check.
+  `/organisations/{o}/orders`. The overdue clock (migration 0080, the `overdue` action) runs when an
+  order is read or acted on, not in the background: a `TenantContext` comes only from an
+  authenticated request (`docs/PHASE-2-STORAGE-DESIGN.md` §4), so the server can't open a sealed
+  order on its own. Each rule that has fallen due is carried out then, in order and once each,
+  recorded by the engine at the time it fell due; the Work tab rereads open orders every few seconds
+  while it is open, so a rule fires at the latest when someone next looks at orders.
+- **Orders on screen (ADR-0084 pieces 4 and 5 in part; 2026-11-14, draft).** Steward › Order types
+  (`components/orders/OrderTypesPage.tsx`) lists the types, starts one from a starter in
+  `corpus/orders/`, a blank one or a brought-in `.yaml`, and shows it three ways from the same file:
+  the board (lanes as rows, stages as columns, job cards with team, steps, due, sign-off, waits-for
+  and send-back), the File tab (line numbers; the server checks it as it is typed through
+  `POST /organisations/{o}/order-types/check` and marks each problem's line) and Asks for. Each
+  slug is matched to a standing team before Save; saving makes a new version; Download file gives
+  the `.yaml`. The board is dragged too (r142, `boardEdit.ts`): a job to another stage or place, a
+  stage along its lane, + Job and + Stage, or Alt and the arrow keys; each move rewrites only the
+  lines that move, keeping comments and how each item is written, and the board redraws from the
+  check. A move the text can't make alone (an item on a one-line stage, the last job of a stage) is
+  refused with words saying why. `needs` and `send_back` show on the cards and are changed in the
+  file, as are names and steps. The Work tab lists
+  open orders above the rest of the work, each with where it is per lane and the job that is yours,
+  opens a new one from its type's questions (a `device` or `port` field picked from the estate
+  index), and opens an order's page: the track per lane, a sign-off box offered only to someone the
+  engine would let sign, each job with its steps, its questions, Pick it up, Done (said why not
+  before it is pressed), send back with a reason, cancel, a `makes: plan` job's plan linked from the
+  plans the person can see, the answers (changed with a reason once their stage is done), what the
+  order holds, its history, and cancelling the order. The order's JSON now carries its definition,
+  the caller's standing on its teams (`you`) and the names of its people and teams, so the page
+  offers only what the engine would take; the engine still decides each act. A `makes: plan` job is
+  finished by the engine, as a sealed event, once the estate index shows its plan recorded, when the
+  order is next read or acted on. A job past its `due` is marked Overdue with its type's rules, each
+  ticked "done by Fathom" once the clock has carried it out: shown to the lead, handed back to the
+  team's queue, handed to another team, or (an optional job) moved on. `scripts/drive-orders.mjs` walks it against the real server.
 - **The IP plan store, server half (ADR-0083 decisions 1, 3, 4 and 5; schema 0.36, field keys
   562-636; migration 0065; 2026-11-02).** A fourth schema layer, `plan`, declares eleven kinds
   (`IpamVrf`, `IpamRouteTarget`, `IpamAggregate`, `IpamPrefix`, `IpamRange`, `IpamAddress`,

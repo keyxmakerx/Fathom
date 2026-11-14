@@ -625,3 +625,194 @@ fn ready_jobs_are_each_teams_queue() {
     let ids: BTreeSet<&str> = r.order.ready_jobs().iter().map(|j| j.id.as_str()).collect();
     assert_eq!(ids, BTreeSet::from(["check"]));
 }
+
+// ---- The overdue clock (decision 11, piece 3) ---------------------------------------------
+
+const DAY: u64 = 86_400;
+
+fn overdue(job: &str, rule: usize) -> Action {
+    Action::Overdue {
+        job: job.into(),
+        rule,
+    }
+}
+
+impl Run {
+    /// Sets the clock to `at` and carries out every overdue rule due by then, as the server does.
+    fn clock(&mut self, at: u64) -> Vec<(String, usize)> {
+        let mut fired = Vec::new();
+        self.at = self.at.max(at);
+        while let Some((job, rule, when)) = self.order.overdue_due(self.at).into_iter().next() {
+            let last = self.order.events().last().map_or(0, |e| e.at);
+            self.order
+                .apply(
+                    Event {
+                        at: when.max(last),
+                        by: Actor::Engine,
+                        action: overdue(&job, rule),
+                    },
+                    &Org,
+                )
+                .unwrap_or_else(|r| panic!("{job} rule {rule}: {}", r.0));
+            fired.push((job, rule));
+        }
+        fired
+    }
+}
+
+#[test]
+fn an_overdue_job_is_escalated_then_handed_back_to_its_team() {
+    let mut run = Run::new(starter("dia.yaml"), "opener@sales", dia_answers("10G"));
+    // Check the order is ready from 1000 and due a day later.
+    let check = run
+        .order
+        .definition()
+        .jobs()
+        .find(|j| j.id == "check")
+        .unwrap()
+        .clone();
+    assert_eq!(run.order.due_at(&check), Some(1000 + DAY));
+    run.act(
+        "ann@order-desk",
+        Action::PickUp {
+            job: "check".into(),
+        },
+    );
+
+    // Before it's due, nothing is listed, and the engine can't jump the gun.
+    assert!(run.order.overdue_due(1000 + DAY - 1).is_empty());
+    assert!(run
+        .refused("engine", overdue("check", 0))
+        .contains("hasn't come"));
+
+    // A person never carries out a rule.
+    run.at = 1000 + DAY;
+    assert!(run
+        .refused("lead@order-desk", overdue("check", 0))
+        .contains("only the engine"));
+
+    // Due passes: `after: 0d, escalate: lead`. Ann keeps it.
+    assert_eq!(run.clock(1000 + DAY), vec![("check".to_owned(), 0)]);
+    let st = run.order.job("check").unwrap();
+    assert_eq!(st.escalated.as_deref(), Some("lead"));
+    assert_eq!(st.picked_by.as_deref(), Some("ann@order-desk"));
+
+    // Two days later: `reassign: team` takes it off Ann and back to the queue.
+    assert_eq!(run.clock(1000 + 3 * DAY), vec![("check".to_owned(), 1)]);
+    let st = run.order.job("check").unwrap();
+    assert_eq!(st.picked_by, None);
+    assert_eq!(run.status("check"), JobStatus::Ready);
+    // Every rule fires once.
+    assert!(run.clock(1000 + 30 * DAY).is_empty());
+    assert!(run
+        .refused("engine", overdue("check", 1))
+        .contains("already"));
+
+    // The moves are the engine's in the history, at the time each fell due.
+    let moves: Vec<(u64, &Actor)> = run
+        .order
+        .events()
+        .iter()
+        .filter(|e| matches!(e.action, Action::Overdue { .. }))
+        .map(|e| (e.at, &e.by))
+        .collect();
+    assert_eq!(
+        moves,
+        vec![
+            (1000 + DAY, &Actor::Engine),
+            (1000 + 3 * DAY, &Actor::Engine)
+        ]
+    );
+
+    // And a history with them replays to the same order.
+    let again = Order::replay(run.order.definition().clone(), run.order.events()).unwrap();
+    assert_eq!(again.job("check"), run.order.job("check"));
+}
+
+#[test]
+fn a_server_that_was_down_fires_each_rule_once_in_order() {
+    let mut run = Run::new(starter("dia.yaml"), "opener@sales", dia_answers("10G"));
+    // Nobody looked for a week: both rules fire, the earlier first.
+    assert_eq!(
+        run.clock(1000 + 7 * DAY),
+        vec![("check".to_owned(), 0), ("check".to_owned(), 1)]
+    );
+    // Rules go in order: the second is refused while the first hasn't fired.
+    let mut fresh = Run::new(starter("dia.yaml"), "opener@sales", dia_answers("10G"));
+    fresh.at = 1000 + 7 * DAY;
+    assert!(fresh
+        .refused("engine", overdue("check", 1))
+        .contains("in order"));
+}
+
+#[test]
+fn a_finished_job_is_never_overdue() {
+    let mut run = Run::new(starter("dia.yaml"), "opener@sales", dia_answers("1G"));
+    run.finish("ann@order-desk", "check");
+    assert!(
+        run.clock(1000 + 30 * DAY).is_empty(),
+        "a done job is never overdue"
+    );
+}
+
+#[test]
+fn move_on_skips_an_optional_job_and_its_stage_carries_on() {
+    let mut run = Run::new(
+        starter("service-removal.yaml"),
+        "opener@sales",
+        vec![
+            ("customer".into(), text("Harbour Clinic")),
+            ("contact_name".into(), text("J. Okafor")),
+            ("site".into(), text("site:harbour")),
+            ("circuit".into(), text("C-1")),
+            ("last_day".into(), Value::Date("2026-12-01".into())),
+            ("kit_back".into(), Value::Bool(true)),
+        ],
+    );
+    run.finish("ann@order-desk", "confirm");
+    run.plan_recorded("pat@provisioning", "unconfigure");
+    run.finish("ian@ip-design", "release");
+    run.act(
+        "lead@provisioning",
+        Action::Approve {
+            stage: "deprovision".into(),
+        },
+    );
+    assert_eq!(run.status("collect"), JobStatus::Ready);
+    let ready = run.order.job("collect").unwrap().ready_at.unwrap();
+
+    // Due in 10 days: escalated then, moved on five days after.
+    assert_eq!(run.clock(ready + 10 * DAY), vec![("collect".to_owned(), 0)]);
+    assert_eq!(run.clock(ready + 15 * DAY), vec![("collect".to_owned(), 1)]);
+    assert_eq!(run.status("collect"), JobStatus::Skipped);
+    assert_eq!(
+        run.order.job("collect").unwrap().finished_by,
+        Some(Actor::Engine)
+    );
+    // The last stage had only that job, so the order is done. The engine never closes an order
+    // any other way: it can't cancel one.
+    assert_eq!(run.order.status(), OrderStatus::Done);
+}
+
+#[test]
+fn reassign_to_another_team_moves_who_may_work_on_it() {
+    let src = "fathom: order-definition/1\nid: t\nname: T\nnumber: T\nfields:\n  - { key: what, label: What, kind: text }\nstages:\n  - id: s\n    name: S\n    jobs:\n      - id: j\n        name: J\n        team: alpha\n        steps: [One]\n        due: 1h\n        overdue:\n          - { after: 30m, reassign: beta }\n";
+    let def = read_definition(src, &[]).expect("reads");
+    let map: BTreeMap<String, String> = def
+        .team_slugs()
+        .into_iter()
+        .map(|s| (s.to_owned(), format!("team:{s}")))
+        .collect();
+    let mut run = Run::new(def.installed(&map).unwrap(), "opener@sales", vec![]);
+    run.act("amy@alpha", Action::PickUp { job: "j".into() });
+    assert_eq!(run.clock(1000 + 3600 + 1800), vec![("j".to_owned(), 0)]);
+    let job = run.order.definition().jobs().next().unwrap().clone();
+    assert_eq!(run.order.team_of(&job), "team:beta");
+    assert_eq!(run.order.job("j").unwrap().picked_by, None);
+    assert!(run
+        .refused("amy@alpha", Action::PickUp { job: "j".into() })
+        .contains("team"));
+    run.act("bob@beta", Action::PickUp { job: "j".into() });
+    run.finish("bob@beta", "j");
+    assert_eq!(run.order.status(), OrderStatus::Done);
+}

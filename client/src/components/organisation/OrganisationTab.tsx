@@ -31,6 +31,9 @@ import { initialPageLink, showPageLink } from '../home/pageLink';
 import { FirmwareSettingsPage } from './FirmwareSettingsPage';
 import { DeviceReadingPage } from './DeviceReadingPage';
 import { shownRail } from './stewardRail';
+import { NotFinishedMark, NotFinishedPage } from '../ui/NotFinished';
+import { IP_PLAN_MISSING, IP_PLAN_WORKS, MAIL_MISSING, MAIL_WORKS } from './notFinishedText';
+import { OrderTypesPage } from '../orders/OrderTypesPage';
 import { TeamsPage, ThroughTeams } from '../teams/TeamsPage';
 import './organisation.css';
 
@@ -49,6 +52,7 @@ type Page =
   | { kind: 'teams' }
   | { kind: 'device-reading' }
   | { kind: 'order-types' }
+  | { kind: 'ip-plan' }
   | { kind: 'mail' };
 
 export interface OrganisationTabProps {
@@ -195,6 +199,10 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   function content() {
     if (page.kind === 'firmware') return <FirmwareSettingsPage organisationId={org} />;
     if (page.kind === 'device-reading') return <DeviceReadingPage organisationId={org} />;
+    if (page.kind === 'order-types') return <OrderTypesPage organisationId={org} />;
+    if (page.kind === 'ip-plan') return <NotFinishedPage title="IP plan" works={IP_PLAN_WORKS} missing={IP_PLAN_MISSING} />;
+    if (page.kind === 'mail')
+      return <NotFinishedPage title="Mail" works={MAIL_WORKS} missing={MAIL_MISSING} />;
     if (page.kind === 'teams') return <TeamsPage organisation={org} where="steward" scopes={scopes.status === 'ready' ? scopes.value : []} grantable={folders} />;
     if (page.kind === 'passwords') {
       return <PasswordsPage organisation={org} organisationName={organisation.displayName} mode="admin" />;
@@ -390,6 +398,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
                 onClick={() => go({ kind: entry.page })}
               >
                 {entry.page === 'waiting' && needs > 0 ? `${entry.label} (${needs})` : entry.label}
+                {entry.notFinished && <NotFinishedMark />}
               </button>
             ))}
           </div>

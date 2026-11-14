@@ -50,7 +50,8 @@ import type { Comparison } from './checkSeen';
 import type { Mirror } from '../../engine/mirror';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
 import { buildCanon, CHECKS_DEBOUNCE_MS, isTypingTarget, standingDelay, type Canon } from '../checks/checksModel';
-import { NO_CLASHES, offerNote, type PlanClashes, type WindowText, type WorkClash } from './clashes';
+import { heldOn, NO_CLASHES, offerNote, withOrders, type PlanClashes, type WindowText, type WorkClash } from './clashes';
+import type { OrderHold } from '../../api/orders';
 import { buildMarks, buildStep, changedMarks, EMPTY_FORM, focusKeys, planEscTarget, prefillFor, asksKind, stepCheck, titleFor, type StepForm } from './plansModel';
 import { createPlansStore, type PlansStore } from './plansStore';
 
@@ -238,6 +239,10 @@ interface Inputs {
   /** Opens It's down (the page's troubleshoot controller). Left out, Troubleshoot is not offered. */
   onTroubleshoot?: (from: TroubleFrom) => void;
   onOpenIssue?: (issueId: string) => void;
+  /** What open orders hold (ADR-0084 decision 18), asked each time a plan opens; left out, orders are not shown. */
+  loadHolds?: () => Promise<readonly OrderHold[]>;
+  /** The design this page shows: a hold on another design is not this plan's. */
+  designId?: string;
 }
 
 export function usePlansController({
@@ -254,6 +259,8 @@ export function usePlansController({
   findings = null,
   onTroubleshoot,
   onOpenIssue,
+  loadHolds,
+  designId = '',
 }: Inputs): PlansController {
   const [store] = useState(createPlansStore);
   const [openId, setOpenId] = useState<string | null>(initialOpen);
@@ -262,6 +269,7 @@ export function usePlansController({
   const [prefs, setPrefs] = useState<PlanPanelPrefs>(() => loadPanelPrefs());
   const [preview, setPreview] = useState<PlanStepPreview[] | null>(null);
   const [work, setWork] = useState<PlanClashes>(NO_CLASHES);
+  const [holds, setHolds] = useState<readonly OrderHold[]>([]);
   const [unavailable, setUnavailable] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [refused, setRefused] = useState<{ stepId: string; finding: CheckFinding } | null>(null);
@@ -370,7 +378,8 @@ export function usePlansController({
           const mirror = latest.current.mirrorNow();
           if (mirror == null) return;
           setPreview(mirror.planPreview(planId));
-          setWork(stage === 'planned' || stage === 'doing' ? mirror.workClashes(planId) : NO_CLASHES);
+          const held = heldOn(holds, designId);
+          setWork(stage === 'planned' || stage === 'doing' ? withOrders(mirror.workClashes(planId, held.things), held.holds) : NO_CLASHES);
           setUnavailable(false);
         })
         .catch(() => {
@@ -382,7 +391,23 @@ export function usePlansController({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [doc, planId, stage]);
+  }, [doc, planId, stage, holds, designId]);
+
+  // What open orders hold, asked again each time a plan opens or changes stage: an order is not in the document.
+  const holdsLoader = useRef(loadHolds);
+  holdsLoader.current = loadHolds;
+  useEffect(() => {
+    const load = holdsLoader.current;
+    if (load == null || planId == null || !(stage === 'planned' || stage === 'doing')) return undefined;
+    let live = true;
+    load().then(
+      (h) => live && setHolds(h),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [planId, stage]);
 
   const update = useCallback((patch: Partial<PlanPanelPrefs>) => {
     setPrefs((p) => {
