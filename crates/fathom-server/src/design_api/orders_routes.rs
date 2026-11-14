@@ -18,6 +18,9 @@
 //! - `GET  /organisations/{o}/orders` (open) and `.../orders/finished`: `{"orders": [{id, number,
 //!   type, type_version, opened_by, opened_at, status, updated_at}], "people": {id: name}}`,
 //!   newest first.
+//! - `GET  /organisations/{o}/orders/holds`: `{"holds": [{order, number, code, name, job,
+//!   job_name, team, field, design, device, port}]}`, what the open orders
+//!   hold (decision 18), for the work-clash check beside a plan.
 //! - `POST /organisations/{o}/orders`: body `{"type", "answers"}`, answers keyed by field.
 //!   Answers the order as `GET` below does.
 //! - `GET  /organisations/{o}/orders/{id}`: the order as it stands: answers, lanes with their
@@ -66,6 +69,10 @@ pub(super) fn routes() -> Router<DesignApiState> {
         .route(
             "/organisations/{organisation}/orders/finished",
             get(finished_orders_handler),
+        )
+        .route(
+            "/organisations/{organisation}/orders/holds",
+            get(holds_handler),
         )
         .route(
             "/organisations/{organisation}/orders/{id}",
@@ -388,6 +395,40 @@ async fn finished_orders_handler(
     signed: Signed,
 ) -> Result<Response, RouteError> {
     list(state, organisation, signed, true).await
+}
+
+async fn holds_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let held = in_org!(state, signed, organisation, |tx, auth| orders::held(
+        &tx, &auth
+    )
+    .await);
+    let opt = |v: Option<String>| v.map_or(Json::Null, Json::Str);
+    Ok(json_response(obj(vec![(
+        "holds",
+        Json::Arr(
+            held.into_iter()
+                .map(|h| {
+                    obj(vec![
+                        ("order", Json::Str(h.order)),
+                        ("number", Json::Int(h.number)),
+                        ("code", opt(h.code)),
+                        ("name", Json::Str(h.name)),
+                        ("job", Json::Str(h.job)),
+                        ("job_name", Json::Str(h.job_name)),
+                        ("team", Json::Str(h.team)),
+                        ("field", Json::Str(h.field)),
+                        ("design", Json::Str(h.design)),
+                        ("device", Json::Str(h.device)),
+                        ("port", opt(h.port)),
+                    ])
+                })
+                .collect(),
+        ),
+    )])))
 }
 
 async fn open_order_handler(

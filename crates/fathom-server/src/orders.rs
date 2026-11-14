@@ -1323,6 +1323,55 @@ pub async fn list_orders(
         .collect())
 }
 
+/// One device or port an open order holds (decision 18), with what the clash check names it by.
+pub struct HeldBy {
+    pub order: String,
+    pub number: i64,
+    pub code: Option<String>,
+    pub name: String,
+    pub job: String,
+    pub job_name: String,
+    pub team: String,
+    pub field: String,
+    pub design: String,
+    pub device: String,
+    pub port: Option<String>,
+}
+
+/// How many open orders the holds list opens. Each is a replay of its sealed history.
+const HOLDS_ORDERS: i64 = 200;
+
+/// What the open orders hold, on every design. Any member may read: the work-clash
+/// check (r105) shows it beside a plan's other work. Each order is read as last acted on; an overdue
+/// rule that has fallen due since is carried out when that order is next opened or acted on.
+pub async fn held(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<Vec<HeldBy>, OrderError> {
+    let lines = list_orders(tx, auth, false, HOLDS_ORDERS).await?;
+    let mut out = Vec::new();
+    for line in lines {
+        let view = load(tx, auth, &line.id, false).await?;
+        let def = view.order.definition();
+        for h in view.order.holds() {
+            let Some(job) = def.jobs().find(|j| j.id == h.job) else {
+                continue;
+            };
+            out.push(HeldBy {
+                order: view.id.clone(),
+                number: view.number,
+                code: def.number.clone(),
+                name: def.name.clone(),
+                job: h.job.clone(),
+                job_name: job.name.clone(),
+                team: view.order.team_of(job).to_owned(),
+                field: h.field,
+                design: h.what.design,
+                device: h.what.device,
+                port: h.what.port,
+            });
+        }
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // The order as JSON
 // ---------------------------------------------------------------------------

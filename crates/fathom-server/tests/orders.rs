@@ -733,6 +733,16 @@ async fn an_order_moves_by_who_stands_on_its_teams_and_replays_from_its_sealed_h
     assert!(text.contains("\"status\":\"open\""), "{text}");
     assert_eq!(view.order.holds().len(), 1);
     assert_eq!(view.order.holds()[0].what.port.as_deref(), Some("Et49"));
+    // The work-clash check's list: any member reads what open orders hold, named by order and job.
+    let held = as_who!(&pool, &ring, org, outsider.account, |tx, auth| {
+        orders::held(&tx, &auth).await
+    })
+    .expect("lists what is held");
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].order, order);
+    assert_eq!(held[0].port.as_deref(), Some("Et49"));
+    assert_eq!(held[0].job, view.order.holds()[0].job);
+    assert!(!held[0].job_name.is_empty() && !held[0].team.is_empty());
     assert_eq!(
         view.order.job("configure").unwrap().status,
         fathom_orders::engine::JobStatus::Ready
@@ -771,6 +781,12 @@ async fn an_order_moves_by_who_stands_on_its_teams_and_replays_from_its_sealed_h
         done.order.holds().is_empty(),
         "a closed order holds nothing"
     );
+    let held = as_who!(&pool, &ring, org, steward, |tx, auth| orders::held(
+        &tx, &auth
+    )
+    .await)
+    .expect("lists what is held");
+    assert!(held.is_empty(), "nor does the work-clash check see it");
     let closed = as_who!(&pool, &ring, org, steward, |tx, auth| orders::list_orders(
         &tx, &auth, true, 50
     )

@@ -509,6 +509,47 @@ export async function fetchOrder(organisation: string, id: string): Promise<Orde
   return parseOrder(json(await signedFetch('GET', `${base(organisation)}/orders/${encodeURIComponent(id)}`)));
 }
 
+/** A device or port an open order holds through a job's `holds` (ADR-0084 decision 18): what the
+ * work-clash check beside a plan shows as other work on the same devices. */
+export interface OrderHold {
+  order: string;
+  number: number;
+  code: string | null;
+  name: string;
+  job: string;
+  jobName: string;
+  /** The job's team as it stands (a server id). */
+  team: string;
+  field: string;
+  design: string;
+  device: string;
+  port: string | null;
+}
+
+export function parseHolds(v: unknown): OrderHold[] {
+  return arr(rec(v).holds).map((h) => {
+    const x = rec(h);
+    return {
+      order: s(x.order),
+      number: n(x.number),
+      code: os(x.code),
+      name: s(x.name),
+      job: s(x.job),
+      jobName: s(x.job_name),
+      team: s(x.team),
+      field: s(x.field),
+      design: s(x.design),
+      device: s(x.device),
+      port: os(x.port),
+    };
+  });
+}
+
+/** What the open orders hold, on every design. */
+export async function fetchOrderHolds(organisation: string): Promise<OrderHold[]> {
+  return parseHolds(json(await signedFetch('GET', `${base(organisation)}/orders/holds`)));
+}
+
 export async function openOrder(organisation: string, type: string, answers: Record<string, AnswerValue>): Promise<Order> {
   return parseOrder(json(await signedFetch('POST', `${base(organisation)}/orders`, body({ type, answers }))));
 }

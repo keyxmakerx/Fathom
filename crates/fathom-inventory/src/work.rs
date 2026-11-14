@@ -585,6 +585,57 @@ fn free_from(mine: Span, others: &[Span], bare: bool) -> Option<Span> {
     None
 }
 
+/// One thing an open order holds (ADR-0084 decision 18): a device, or a port on it, by display id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Held {
+    pub device: String,
+    pub port: Option<String>,
+}
+
+/// Where a held thing meets a plan: which hold (its index in what was asked), the devices both
+/// touch and the ports both touch, display id and name in name order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeldClash {
+    pub index: usize,
+    pub devices: Vec<(String, String)>,
+    pub ports: Vec<(String, String)>,
+}
+
+/// The holds of open orders that land on the devices `plan` could touch. An order has no window:
+/// while it holds a thing it holds it now, so like an open issue it meets any window. A plan that
+/// is over meets nothing, and a hold naming nothing in this design is passed over.
+pub fn held_clashes(g: &Graph, plan: NodeId, held: &[Held]) -> Vec<HeldClash> {
+    let Some(mine) = open_plan(g, plan) else {
+        return Vec::new();
+    };
+    let my_devices = devices_of(g, &mine.ids);
+    if my_devices.is_empty() {
+        return Vec::new();
+    }
+    let my_ports = ports_of(g, &mine.ids);
+    held.iter()
+        .enumerate()
+        .filter_map(|(index, h)| {
+            let ids: Vec<String> = std::iter::once(h.device.clone())
+                .chain(h.port.clone())
+                .collect();
+            let shared: Vec<NodeId> = devices_of(g, &ids)
+                .intersection(&my_devices)
+                .copied()
+                .collect();
+            if shared.is_empty() {
+                return None;
+            }
+            let ports: Vec<NodeId> = ports_of(g, &ids).intersection(&my_ports).copied().collect();
+            Some(HeldClash {
+                index,
+                devices: named(g, shared),
+                ports: named(g, ports),
+            })
+        })
+        .collect()
+}
+
 /// A plan under way on a device, for It's down (r105 "trouble" A).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Running {
