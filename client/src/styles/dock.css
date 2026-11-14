@@ -276,6 +276,11 @@
   /* !important only to beat the inline offset a dragged card was left at. */
   transform: none !important;
 }
+/* A panel whose head sits straight in the slot (AI ideas) keeps the head its own height: the rule above would
+   otherwise let it take a share of the spare height, so a short list pushed it down the panel. */
+.dock-panel > .dock-side > .panel-head {
+  flex: none;
+}
 .dock-panel .dock-side .checks-panel__head,
 .dock-panel .dock-side .plans-panel__head {
   cursor: default;

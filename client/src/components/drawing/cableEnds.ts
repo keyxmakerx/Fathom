@@ -34,12 +34,15 @@ export function leadsFor(
   b: PortPoint | null,
   fallbackA: { x: number; y: number },
   fallbackB: { x: number; y: number },
+  /** False: every plug faces the other end, whatever row its port is in (a hanging cable, which
+   * would otherwise leave a bottom-row port downward and curl back up to a device above). */
+  byRows = true,
 ): Leads {
   const ay = a != null ? a.y + a.h / 2 : fallbackA.y;
   const by = b != null ? b.y + b.h / 2 : fallbackB.y;
   const down = by - ay > 1;
   const up = ay - by > 1;
-  const byRow = (box: PortPoint | null): 1 | -1 | null => (box?.row === 0 ? -1 : box?.row === 1 ? 1 : null);
+  const byRow = (box: PortPoint | null): 1 | -1 | null => (!byRows ? null : box?.row === 0 ? -1 : box?.row === 1 ? 1 : null);
   const da: 1 | -1 = byRow(a) ?? (up ? -1 : 1);
   const db: 1 | -1 = byRow(b) ?? (down ? -1 : 1);
   const point = (box: PortPoint | null, fb: { x: number; y: number }, dir: 1 | -1): Lead =>

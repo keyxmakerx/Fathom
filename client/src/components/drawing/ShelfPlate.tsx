@@ -352,12 +352,15 @@ export function fitCompactOccupants(shelfLabel: string, names: readonly string[]
   return names.length;
 }
 
+/** One handle per port, each covering the whole name chip it sits in: the cable reads the chip's box
+ * off it (`shelfChipBox`, `CableEdge.tsx`) and leaves from the chip's bottom or top edge, toward its
+ * other end. Bottom is only React Flow's own point, for a line drawn without that box. */
 function compactHandles(ports: readonly PortView[]) {
   return ports.map((port) => (
     <Handle
       key={port.id}
       type="source"
-      position={Position.Left}
+      position={Position.Bottom}
       id={port.id}
       isConnectable={port.cable == null}
       className="drawing-shelf__compact-port-handle"

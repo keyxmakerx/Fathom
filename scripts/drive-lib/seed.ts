@@ -636,6 +636,34 @@ export function seedShelfRoomScene(catalogue: CatalogueModel[], me: string): Doc
   return working;
 }
 
+/** The wonky shelf cable: a full shelf ("+N") above a two-row switch, one cable from a thing
+ * folded into "+N" to a bottom-row port and one from a thing named on the shelf to a top-row port. */
+export function seedShelfCableScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me, 12);
+  const sw = catalogue.find((c) => c.model === 'USW-24-PoE');
+  if (!sw) throw new Error('the drive catalogue fixture has no USW-24-PoE');
+  let working = place(doc, catalogue, rackId, sw, 6, 'access-sw', me);
+  const before = working;
+  working = createShelf(working, rackId, { positionU: 9, label: 'shelf', actor: me });
+  const shelfId = newestNode(before, working, 'PassiveNode');
+  working = resizeShelf(working, shelfId, { slots: 5 }, { actor: me, catalogue });
+  for (const [name, slot] of [['padparadscha', 1], ['morganite', 2], ['tanzanite', 3], ['kunzite', 4], ['spinel', 5]] as const) {
+    const t = newSketchDevice(working, name, me);
+    working = placeOnShelf(t.doc, t.chassisId, shelfId, slot, { actor: me });
+    working = addSketchPort(working, t.chassisId, { label: 'eth0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  }
+  const rack = viewOf(working, catalogue).racks.find((r) => r.id === rackId)!;
+  const swRj = rack.chassis
+    .find((c) => c.hostname === 'access-sw')!
+    .ports.filter((p) => p.face === 'front' && p.connector.toLowerCase() === 'rj45')
+    .sort((x, y) => naturalLabelCompare(x.label, y.label));
+  const things = rack.shelves.find((x) => x.id === shelfId)!.occupants;
+  const by = (name: string) => things.find((o) => o.label === name)!;
+  working = connectPorts(working, by('spinel').ports[0]!.id, swRj[19]!.id, { sheath: 'blue' as Sheath }, { actor: me });
+  working = connectPorts(working, by('padparadscha').ports[0]!.id, swRj[2]!.id, { sheath: 'yellow' as Sheath }, { actor: me });
+  return working;
+}
+
 /** Three catalogued devices in one rack, a bundle of three cables between the
  * two switches, an SFP+ link and one to the firewall: the canvas-looks-right scene. */
 export function seedCanvasScene(catalogue: CatalogueModel[], me: string): Document {
