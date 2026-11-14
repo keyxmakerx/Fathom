@@ -211,7 +211,8 @@ pub trait Net: Send + Sync {
 /// What the server reaches outside vaults with, and where it may reach them.
 pub struct Outside {
     pub net: Box<dyn Net>,
-    /// `FATHOM_OUTSIDE_VAULT_HOSTS`: when set, the only hosts a person may connect to.
+    /// `FATHOM_OUTSIDE_VAULT_HOSTS`: when set, the only hosts a person may connect to, and the
+    /// only ones reached at a private address ([`https::choose`]).
     pub allowed_hosts: Option<Vec<String>>,
     /// `FATHOM_PASSBOLT_HELPER`: the Passbolt helper, when the operator runs one.
     pub pgp: Option<Box<dyn passbolt::Pgp>>,

@@ -742,18 +742,36 @@ async fn forgot_my_password_answers_the_same_for_an_address_that_belongs_to_nobo
     assert_eq!(real.0, "200", "and it is a 200 either way: {real:?}");
 
     // And the act is not vacuous: a token was really written for the address
-    // that exists, and none for the one that does not.
-    let tokens: i64 = superuser()
-        .await
-        .query_one(
-            "SELECT count(*) FROM password_reset_tokens WHERE account_id = $1",
-            &[&person.account.to_string()],
-        )
-        .await
-        .expect("count")
-        .get(0);
-    assert_eq!(tokens, 1, "the real address gets a token");
+    // that exists, and none for the one that does not. It is written after the
+    // answer has left, so it is waited for.
+    assert_eq!(
+        reset_tokens_of(&person, 1).await,
+        1,
+        "the real address gets a token"
+    );
     assert!(site_entries_of("reset_requested").await >= 1);
+}
+
+/// How many reset tokens an account has, waiting up to five seconds for at least
+/// `want`: the route issues a token after it has answered.
+async fn reset_tokens_of(person: &Person, want: i64) -> i64 {
+    let db = superuser().await;
+    let mut tokens = 0;
+    for _ in 0..100 {
+        tokens = db
+            .query_one(
+                "SELECT count(*) FROM password_reset_tokens WHERE account_id = $1",
+                &[&person.account.to_string()],
+            )
+            .await
+            .expect("count")
+            .get(0);
+        if tokens >= want {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokens
 }
 
 /// **The system account (`0074`) signs in to nothing and resets nothing.** Its
@@ -1707,43 +1725,75 @@ async fn a_common_password_padded_to_the_length_floor_is_refused() {
 // "Forgot my password" — decision 7's "the same answer AND TIMING"
 // ---------------------------------------------------------------------------
 
-/// **An address that belongs to nobody takes about as long as one that does.**
+/// **The forgot-password route takes as long for an address that has an account as
+/// for one that has none** (ADR-0055 decision 7; OWASP ASVS 5.0.0 6.3.8, *"no
+/// account enumeration through messages, codes or timing"*).
 ///
-/// Decision 7 asks for *"the same answer and timing for every address"* and
-/// OWASP ASVS 5.0.0 6.3.8 forbids enumeration *"through messages, codes or
-/// timing"*. The answer was already identical and this file asserted it; the
-/// TIMING was not, and nothing measured it: ten probes over HTTP on 2026-09-21
-/// gave 9.8 ms for an address that exists against 6.2 ms for one that does
-/// not, about sixty per cent.
-///
-/// **What this test can and cannot say.** It measures the store, not the
-/// socket, so it sees the branch and not the noise around it; and it compares
-/// MEDIANS over many interleaved probes, because one sample of a database call
-/// measures the scheduler. The bound is deliberately loose — the branch that
-/// finds an account still appends an entry and inserts a row, which
-/// `issue_reset_token` explains it cannot mirror without writing rows for an
-/// address that belongs to nobody. What it catches is the shape of the
-/// failure: one side of a branch doing far less work than the other.
+/// Measured over the route, which is what a caller can time. The work that
+/// differs (the found branch appends a sealed entry and inserts a row, behind
+/// the site chain's lock) is done after the answer has left, so neither probe
+/// waits for it. Before that it was waited for, and the gap grew with load:
+/// 1.7 ms at rest, 4.1 ms beside one other writer and 11.7 ms beside four
+/// (2026-11-12, forty interleaved probes each).
 #[tokio::test]
 async fn forgot_my_password_takes_about_as_long_for_an_address_that_belongs_to_nobody() {
     let _serial = SERIAL.lock().await;
     let pool = deployment().await;
     let ring = ring();
-    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    // Budgets wide enough that no probe is turned away: a probe over budget does
+    // nothing, and this measures the ones that do something.
+    let client = pool.get().await.expect("connection");
+    let deployment_id = chains::deployment_id(&**client)
+        .await
+        .expect("this deployment is stamped at startup");
+    drop(client);
+    let sessions = Arc::new(SessionStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment_id,
+        SignInLimits {
+            max_per_account: 100_000,
+            max_per_source: 100_000,
+            ..SignInLimits::defaults()
+        },
+    ));
     let person = an_account(&pool, "timed").await;
     let nobody = unique("nobody-at-all");
+    // Counted under a source of its own, so these probes spend nobody else's budget.
+    let addr = serve(api::credential_router(CredentialApiState {
+        sessions,
+        credentials: Arc::new(credential_store(&pool, Arc::clone(&ring)).await),
+        operators: Arc::new(operator_store(&pool, Arc::clone(&ring)).await),
+        setup_secret: None,
+        client_address: ClientAddress::header("x-test-source"),
+        watch: Arc::new(EpochWatch::new()),
+    }))
+    .await;
+    let source = a_source_of_its_own();
+
+    let ask = |address: &str| {
+        let mut body = Vec::new();
+        lp(&mut body, address.as_bytes());
+        let source = source.clone();
+        async move {
+            let at = std::time::Instant::now();
+            let (status, _, _) = raw_post(
+                addr,
+                "/credentials/reset",
+                &body,
+                &[("x-test-source", &source)],
+            )
+            .await;
+            assert_eq!(status, "200");
+            at.elapsed().as_micros() as u64
+        }
+    };
 
     // Warm the pool and the plan cache, so the first call's connection setup
     // is not counted as a property of the branch it happened to be in.
     for _ in 0..3 {
-        creds
-            .request_reset(&person.address, "198.51.100.7")
-            .await
-            .expect("warm");
-        creds
-            .request_reset(&nobody, "198.51.100.7")
-            .await
-            .expect("warm");
+        ask(&person.address).await;
+        ask(&nobody).await;
     }
 
     const PROBES: usize = 20;
@@ -1752,19 +1802,8 @@ async fn forgot_my_password_takes_about_as_long_for_an_address_that_belongs_to_n
     for _ in 0..PROBES {
         // Interleaved, so a machine that gets busy halfway through spoils both
         // samples equally rather than one of them.
-        let at = std::time::Instant::now();
-        creds
-            .request_reset(&person.address, "198.51.100.7")
-            .await
-            .expect("known");
-        known.push(at.elapsed().as_micros() as u64);
-
-        let at = std::time::Instant::now();
-        creds
-            .request_reset(&nobody, "198.51.100.7")
-            .await
-            .expect("unknown");
-        unknown.push(at.elapsed().as_micros() as u64);
+        known.push(ask(&person.address).await);
+        unknown.push(ask(&nobody).await);
     }
     known.sort_unstable();
     unknown.sort_unstable();
@@ -1776,26 +1815,19 @@ async fn forgot_my_password_takes_about_as_long_for_an_address_that_belongs_to_n
         "an address that exists must not be tellable from one that does not by the clock: \
          known median {known_median} µs, unknown median {unknown_median} µs"
     );
+    // The answers did not skip the work: every request for the real address
+    // left a token behind.
+    let want = (PROBES + 3) as i64;
+    assert_eq!(reset_tokens_of(&person, want).await, want);
 }
 
-/// How much longer the branch that finds an account may take than the one that
-/// does not, before this suite calls it an enumeration channel.
+/// How much longer the route may take for an address that has an account than
+/// for one that has none, before this suite calls it an enumeration channel.
 ///
-/// **Read off runs rather than chosen.** Measured here on 2026-09-21, twenty
-/// interleaved probes each, medians in microseconds:
-///
-/// | | address exists | address does not | ratio |
-/// |---|---|---|---|
-/// | before the fix | 4414 | 1972 | **2.24** |
-/// | after it | 4545 / 5064 / 4723 | 2803 / 3148 / 2905 | **1.62 / 1.61 / 1.63** |
-///
-/// The three repeats are there because a bound between two numbers is only
-/// worth having if the numbers are steady. `1.9` sits fifteen per cent above
-/// what the fix achieves and eighteen per cent below what it replaced, so it
-/// fails on the regression and not on a busy machine. The residue is the two
-/// INSERTs and the chain's advisory lock, which `issue_reset_token` explains
-/// it will not mirror.
-const TIMING_RATIO_MAX: f64 = 1.9;
+/// Both do the same work before the answer, so the ratio sits at 1; the room is
+/// for a busy machine. Waiting for the token put it at 1.6 at rest and 4.0
+/// under load, which this fails.
+const TIMING_RATIO_MAX: f64 = 1.4;
 
 // ---------------------------------------------------------------------------
 // A reset ends the OPERATOR's sessions too — decision 7's "every other

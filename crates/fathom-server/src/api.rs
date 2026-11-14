@@ -862,6 +862,9 @@ async fn confirm_totp_handler(
 /// left a distributed caller unbounded per victim, so the per-address bucket
 /// (`0018` §D: `reset:` over `sessions::claimed_address_key`) is counted too. Over
 /// it, the route does nothing and answers as if it had.
+///
+/// **Timing.** The route answers before the token is issued, so the answer's time does not
+/// depend on whether the address has an account (`tests/credentials.rs`).
 async fn request_reset_handler(
     State(state): State<CredentialApiState>,
     request: Request,
@@ -886,13 +889,27 @@ async fn request_reset_handler(
     if !state.sessions.check_reset_budget(&address).await? {
         return Ok(empty_response());
     }
-    state
-        .credentials
-        .request_reset(&address, &source)
-        .await
-        .map_err(CredentialRefusal)?;
+    // The token is issued after the answer has left. Whether the address has an account decides
+    // how much work that is (a chain entry and a row, behind the site chain's lock), and waited
+    // for here it showed in the clock: 1.7 ms at rest and 11.7 ms beside four other writers,
+    // measured 2026-11-12. A failure is logged; the answer is the same 200 either way.
+    let Ok(permit) = RESETS_IN_FLIGHT.try_acquire() else {
+        tracing::warn!("a forgotten-password request was dropped: too many are being issued");
+        return Ok(empty_response());
+    };
+    let credentials = Arc::clone(&state.credentials);
+    tokio::spawn(async move {
+        if let Err(e) = credentials.request_reset(&address, &source).await {
+            tracing::warn!(error = ?e, "a forgotten-password request could not be issued");
+        }
+        drop(permit);
+    });
     Ok(empty_response())
 }
+
+/// How many forgotten-password requests may be issuing at once. The route's budgets bound one
+/// source and one address; this bounds the work all of them together leave behind the answer.
+static RESETS_IN_FLIGHT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(32);
 
 /// `POST /credentials/reset/redeem`: spend a reset token, set a password.
 ///

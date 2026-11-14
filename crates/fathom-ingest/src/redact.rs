@@ -112,7 +112,8 @@ impl DetectorSet {
     /// #104: destroyed because broken or unclosed quoting next to a destroyed secret
     /// leaves the secret's extent unknown, not because the text itself tripped anything.
     pub const QUOTE_WRAP: u8 = 64;
-    /// A token that starts with a vendor's own key prefix ([`vendor_key_prefix`]).
+    /// A token whose own shape says it carries a secret: a vendor's key prefix
+    /// ([`vendor_key_prefix`]) or a URL with a password in it ([`url_password`]).
     pub const KEY_PREFIX: u8 = 128;
 }
 
@@ -618,7 +619,7 @@ fn gate_statement(
         if crypt_prefix(text) {
             detectors |= DetectorSet::CRYPT_PREFIX;
         }
-        if pieces(text).any(vendor_key_prefix) {
+        if pieces(text).any(vendor_key_prefix) || url_password(text) {
             detectors |= DetectorSet::KEY_PREFIX;
         }
         if long_hex(text) {
@@ -895,6 +896,9 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
         // on `=`, `:` and `,` — see `pieces`. A whole-token test is a Junos
         // assumption: Junos writes `… ascii-text $9$abc`, with a space, so the
         // secret is its own token. Almost nothing else does.
+        if url_password(text) {
+            detectors |= DetectorSet::KEY_PREFIX;
+        }
         for piece in pieces(text) {
             if crypt_prefix(piece) {
                 detectors |= DetectorSet::CRYPT_PREFIX;
@@ -1106,6 +1110,9 @@ pub fn looks_like_credential(text: &str) -> bool {
         return false;
     }
     for token in text.split_whitespace() {
+        if url_password(token) {
+            return true;
+        }
         for piece in pieces(token) {
             if crypt_prefix(piece)
                 || vendor_key_prefix(piece)
@@ -1320,6 +1327,25 @@ fn vendor_key_prefix(text: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty())
 }
 
+/// A URL that carries its own password: `scheme://user:password@host`. RFC 3986 §3.2.1 names
+/// the form (and deprecates it), and devices store it as typed: Junos takes
+/// `ftp://username<:password>@host` as an archive site ("Back Up Configurations to an Archive
+/// Site", Junos OS CLI User Guide, juniper.net, read 2026-11-12), and `| display set` prints
+/// it back. Anywhere in the token, so quotes around the URL do not hide it. A `:` inside an
+/// IPv6 literal or after the first `/` is not a password.
+fn url_password(text: &str) -> bool {
+    text.match_indices("://").any(|(at, _)| {
+        let Some(rest) = text.get(at + 3..) else {
+            return false;
+        };
+        rest.rsplit_once('@')
+            .and_then(|(userinfo, _)| userinfo.split_once(':'))
+            .is_some_and(|(user, password)| {
+                !user.is_empty() && !password.is_empty() && !user.contains(['/', '[', '@'])
+            })
+    })
+}
+
 /// `^[0-9a-fA-F]{32,}$` — 32 hex characters is 128 bits.
 fn long_hex(text: &str) -> bool {
     text.chars().count() >= 32 && text.chars().all(|c| c.is_ascii_hexdigit())
@@ -1421,6 +1447,32 @@ mod tests {
         assert!(!crypt_prefix("$$abc"));
         assert!(!crypt_prefix("aes-256-cbc"));
         assert!(!crypt_prefix("$abcd$x"));
+    }
+
+    /// CLAUDE.md rule 2: the shapes a device stores. Junos documents the archive-site form;
+    /// the passwords are ordinary ones, short, with no shape of their own.
+    #[test]
+    fn url_password_detector() {
+        for url in [
+            "ftp://backup:B4ckup!@10.1.1.20/configs",
+            "\"scp://netops:Summer24@[2001:db8::20]/configs\"",
+            "ftp://u:p@h",
+            "http://user:pa/ss@198.51.100.4:8080/x",
+        ] {
+            assert!(url_password(url), "{url}");
+            assert!(looks_like_credential(url), "{url}");
+        }
+        for clean in [
+            "scp://backup@10.1.1.20/configs",
+            "https://vault.example.org:8443/path",
+            "http://[2001:db8::1]:8080/a@b",
+            "ftp://10.1.1.20/dir/a:b@c",
+            "ftp://user:@10.1.1.20/",
+            "admin@example.org",
+            "10.0.0.1:22",
+        ] {
+            assert!(!url_password(clean), "{clean}");
+        }
     }
 
     #[test]

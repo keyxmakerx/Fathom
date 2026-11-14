@@ -25,6 +25,12 @@ measurement on both counts. Two duplicates remain under ring (`getrandom` 0.2 an
 only, `windows-sys` 0.52) and one at build time (`syn` 2 under three proc macros); each is
 skipped by name and version in `deny.toml`, with its reason.
 
+**12 Nov 2026: `russh` `0.65.1`**, the security release of 3 Nov (GHSA-9264-jvgf-6w2f, the
+`kex_done` callback ran before the host key check, and GHSA-736f-c93q-9fwx, in the agent; the
+reader uses neither the callback nor an agent, so neither reached it, but the advisory gates
+name 0.65.0). Nine days old, outside the cooldown. It drops two packages (`generic-array`
+0.14.9 and `version_check`): 181 in the lockfile, and 24 with a build script.
+
 Held back for the seven-day cooldown, 3 Nov 2026: `cc` at `1.10.0` (1.11.0 published 2 Nov),
 `log` at `0.4.34` (0.4.35, 30 Oct), and `js-sys`, `wasm-bindgen` and its macro, macro-support and
 shared crates at `0.3.104`/`0.2.127`, with `wasm-bindgen-futures` at `0.4.77` (published 30 Oct),
@@ -100,7 +106,6 @@ over this lock in `scripts/gate-reader.sh` and CI's `reader` job.
 | `futures-sink` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:07 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-task` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:08 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-util` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:20 GMT | https://github.com/rust-lang/futures-rs |
-| `generic-array` | `0.14.9` | MIT | transitive | yes | no | Sun, 28 Jun 2026 18:24:34 GMT | https://github.com/fizyk20/generic-array.git |
 | `generic-array` | `1.4.5` | MIT | transitive | no | no | Thu, 13 Aug 2026 23:24:50 GMT | https://github.com/fizyk20/generic-array.git |
 | `getrandom` | `0.2.17` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 18:10:42 GMT | https://github.com/rust-random/getrandom |
 | `getrandom` | `0.4.3` | MIT OR Apache-2.0 | DIRECT | yes | no | Sun, 28 Jun 2026 18:10:53 GMT | https://github.com/rust-random/getrandom |
@@ -154,7 +159,7 @@ over this lock in `scripts/gate-reader.sh` and CI's `reader` job.
 | `rfc6979` | `0.6.0` | Apache-2.0 OR MIT | transitive | no | no | Tue, 30 Jun 2026 02:21:46 GMT | https://github.com/RustCrypto/signatures |
 | `ring` | `0.17.14` | Apache-2.0 AND ISC | transitive | yes | no | Sun, 28 Jun 2026 16:42:11 GMT | https://github.com/briansmith/ring |
 | `rsa` | `0.10.0-rc.18` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 18:12:15 GMT | https://github.com/RustCrypto/RSA |
-| `russh` | `0.65.0` | Apache-2.0 | DIRECT | no | no | Sun, 25 Oct 2026 16:41:16 GMT | https://github.com/warp-tech/russh |
+| `russh` | `0.65.1` | Apache-2.0 | DIRECT | no | no | Tue, 03 Nov 2026 16:33:13 GMT | https://github.com/warp-tech/russh |
 | `russh-cryptovec` | `0.62.0` | Apache-2.0 | transitive | no | no | Thu, 02 Jul 2026 18:15:12 GMT | https://github.com/warp-tech/russh |
 | `russh-util` | `0.52.0` | Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:41:25 GMT | https://github.com/warp-tech/russh |
 | `rustc_version` | `0.4.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:19:16 GMT | https://github.com/djc/rustc-version-rs |
@@ -192,7 +197,6 @@ over this lock in `scripts/gate-reader.sh` and CI's `reader` job.
 | `unicode-ident` | `1.0.27` | (MIT OR Apache-2.0) AND Unicode-3.0 | transitive | no | no | Mon, 12 Oct 2026 04:20:29 GMT | https://github.com/dtolnay/unicode-ident |
 | `universal-hash` | `0.6.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 14:50:03 GMT | https://github.com/RustCrypto/traits |
 | `untrusted` | `0.9.0` | ISC | transitive | no | no | Sun, 28 Jun 2026 15:31:56 GMT | https://github.com/briansmith/untrusted |
-| `version_check` | `0.9.5` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:22:07 GMT | https://github.com/SergioBenitez/version_check |
 | `wasi` | `0.11.1+wasi-snapshot-preview1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:14:11 GMT | https://github.com/bytecodealliance/wasi |
 | `wasm-bindgen` | `0.2.127` | MIT OR Apache-2.0 | transitive | yes | no | Sat, 08 Aug 2026 00:57:00 GMT | https://github.com/wasm-bindgen/wasm-bindgen |
 | `wasm-bindgen-futures` | `0.4.77` | MIT OR Apache-2.0 | transitive | no | no | Sat, 08 Aug 2026 00:57:08 GMT | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/futures |
@@ -225,7 +229,7 @@ over this lock in `scripts/gate-reader.sh` and CI's `reader` job.
 | `zeroize` | `1.9.1` | Apache-2.0 OR MIT | transitive | no | no | Tue, 06 Oct 2026 17:49:22 GMT | https://github.com/RustCrypto/utils |
 | `zmij` | `1.0.23` | MIT | transitive | yes | no | Mon, 13 Jul 2026 12:58:54 GMT | https://github.com/dtolnay/zmij |
 
-**183 external crates**, of which **10 direct**. **25 carry a `build.rs`** and **11 are proc-macros** — 36 of 183 run code at compile time, which is the number the August 2026 attack was about. Against `35` §5.1: **≤ 30 direct (10)**, **≤ 200 in the closure (183)**.
+**181 external crates**, of which **10 direct**. **24 carry a `build.rs`** and **11 are proc-macros** — 35 of 181 run code at compile time, which is the number the August 2026 attack was about. Against `35` §5.1: **≤ 30 direct (10)**, **≤ 200 in the closure (181)**.
 
 <!-- gate-zero:end -->
 
