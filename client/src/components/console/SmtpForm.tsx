@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 
 import { requestSmtpSetting, sendTestMessage, type PendingChange, type SmtpTlsMode } from '../../api/console';
+import { NotFinishedMark } from '../ui/NotFinished';
 import { describeConsoleError } from './describeConsoleError';
 import '../../styles/console.css';
 
@@ -93,7 +94,9 @@ export function SmtpForm({ actingOperatorId }: SmtpFormProps) {
 
   return (
     <form className="console__form" onSubmit={submit}>
-      <div className="console__form-title">Outgoing mail (SMTP)</div>
+      <div className="console__form-title">
+        Outgoing mail (SMTP) <NotFinishedMark />
+      </div>
       <p className="console__note">
         The mail server Fathom sends from. What you save is stored encrypted and never shown again, so to change
         one field, fill in the whole form again.
