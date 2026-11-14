@@ -94,7 +94,7 @@ interface Inputs {
   mirrorNow: (load?: boolean) => Mirror | null;
   /** How long the last sync of the module took, ms; null before there has been a measurable one. */
   loadCostMs: () => number | null;
-  /** Findings the engine cannot make because they need another design: links between sites. */
+  /** Findings the engine cannot make because they need another design or the server: links between sites, the IP plan. */
   extra?: readonly CheckFinding[];
   /** Until the person chooses, the panel stays folded rather than opening for refusals and warnings: Inventory and
    * Sheet, where it would cover the list or the page. */

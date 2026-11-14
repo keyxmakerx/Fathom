@@ -414,6 +414,46 @@ async function runProof(browser, ctxA, seed) {
   check('M1. at phone width the page does not scroll sideways', overflow <= 1, `overflow ${overflow}px`);
   await A.setViewportSize(VIEWPORT);
 
+  // The difference checks (decision 2): a plan for the sample home lab's space, then the sample's Checks.
+  await A.getByRole('button', { name: 'Add aggregate' }).click();
+  await field('Prefix').fill('192.168.0.0/16');
+  await field('Where it came from').fill('RFC 1918');
+  await A.getByTestId('ip-plan-save').click();
+  await panel().getByText('Aggregate added').waitFor({ timeout: 10000 });
+  await A.getByRole('button', { name: 'Add prefix' }).click();
+  await field('Prefix').fill('192.168.30.0/25');
+  await field('Role').fill('Cameras');
+  await A.getByTestId('ip-plan-save').click();
+  await panel().getByText('Prefix added').waitFor({ timeout: 10000 });
+  for (const [address, meant] of [['192.168.10.1/24', 'router-1 LAN'], ['192.168.20.1/24', 'router-1 guest']]) {
+    await A.getByRole('button', { name: 'Add address' }).click();
+    await field('Address with its length').fill(address);
+    await field('Meant for').fill(meant);
+    await A.getByTestId('ip-plan-save').click();
+    await panel().getByText('Address added').waitFor({ timeout: 10000 });
+  }
+  await A.getByRole('tab', { name: 'Designs' }).click();
+  await A.getByRole('button', { name: 'Open sample' }).click();
+  await A.locator('.drawing').waitFor({ timeout: 30000 });
+  if ((await A.locator('[data-testid=checks-panel]').count()) === 0) await A.locator('[data-testid=dock-checks]').click();
+  const checksPanel = A.locator('[data-testid=checks-panel]');
+  await checksPanel.locator('[data-rule="ip-plan.not-drawn"]').waitFor({ timeout: 30000 });
+  const ruleCount = (rule) => checksPanel.locator(`[data-rule="${rule}"]`).count();
+  const panelText = await checksPanel.innerText();
+  check('D1. three cameras drawn as /24 where the plan says /25 are each a different length', (await ruleCount('ip-plan.different-length')) === 3 && /192\.168\.30\.21\/24, but the plan says 192\.168\.30\.0\/25/.test(panelText), panelText);
+  check('D2. the LAN nothing plans is one finding, under the aggregate', (await ruleCount('ip-plan.not-planned')) === 1 && /192\.168\.10\.0\/24 is drawn here but is not in the IP plan/.test(panelText), panelText);
+  check('D3. the guest address planned for router-1 and not drawn on it is found', /192\.168\.20\.1\/24 is planned for router-1 but is not drawn on it/.test(panelText), panelText);
+  check('D4. the planned router-1 LAN address matches, so it is not found', !/192\.168\.10\.1\/24/.test(panelText), panelText);
+  await shot('ip14-checks');
+  await checksPanel.locator('[data-rule="ip-plan.not-planned"]').getByRole('button', { name: 'Why?' }).click();
+  await A.getByTestId('checks-why').waitFor({ timeout: 10000 });
+  check('D5. Why? says where to add it', /Add 192\.168\.10\.0\/24 under 192\.168\.0\.0\/16 in Steward › IP plan/.test(await A.getByTestId('checks-why').innerText()), await A.getByTestId('checks-why').innerText());
+  await shot('ip15-checks-why');
+  await A.emulateMedia({ colorScheme: 'dark' });
+  await A.waitForTimeout(800);
+  await shot('ip16-checks-dark');
+  await A.emulateMedia({ colorScheme: 'light' });
+
   check('F1. no page errors', errors.length === 0, errors.join(' | '));
 }
 

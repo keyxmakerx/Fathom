@@ -328,8 +328,15 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   stretches as prefixes; VLAN groups, ASN ranges, VRFs and route targets; add, change, delete or
   release each, with the store's refusal shown as it is; next free and Reserve under a key; and
   **NetBox files out**, one CSV per import page in NetBox 4.7.5's columns. Proved against the real
-  server by `scripts/drive-ip-plan.mjs`. Not yet: the difference checks against designs (order step
-  4), NetBox files in (step 6), and the canvas mark for a planned address.
+  server by `scripts/drive-ip-plan.mjs`. **The difference checks** (decision 2, order step 4;
+  `checks/ipPlanChecks.ts`): Checks on the canvas, Inventory and Sheet reads the plan and adds
+  *configured differently* (length, or VRF), *configured but not planned* (one per drawn network,
+  naming the block it would go under), *planned but not configured* (an active planned address whose
+  Meant for names a device in this design), a VRF the plan does not have, and a BGP AS number in a
+  planned range the plan does not hold. A reservation holding an address is In use, not a difference;
+  an organisation with no plan gets none. Not yet: *in use twice* across designs (the engine still
+  finds it inside one), Adopt and Ignore on a finding, reservations tied to finished work, NetBox
+  files in (step 6), and the canvas mark for a planned address.
 - **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
   request writes an `access` line with the client's address and the proxy it came through
   (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).

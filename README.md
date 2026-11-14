@@ -27,8 +27,10 @@ clicks into a dead end without being told:
 | **Mail** | Steward, Work, Mail; the operator console's Mail form; the forgotten-password page | An operator can save mail settings, sealed | Nothing is sent: no reset or notice by mail, and invitations are handed over by the Steward |
 
 The **IP plan** (Steward, Work, IP plan) is finished for the alpha: the address tree with each block's use
-and free space, VLANs, AS numbers and VRFs, next free and reservations, and NetBox import files. It does
-not yet compare a design with the plan, or read NetBox files in.
+and free space, VLANs, AS numbers and VRFs, next free and reservations, and NetBox import files. Checks
+compares each design with it: an address drawn with another length or in another VRF than planned, a
+network nothing plans, and an address planned for a device but not drawn on it. It does not yet read
+NetBox files in.
 
 Also not in the alpha: sending mail, passkeys, signed equipment packs, and the scale and high-availability
 design. `docs/STATE.md` has the full list. Use the images tagged for the alpha, not `latest`, once a release

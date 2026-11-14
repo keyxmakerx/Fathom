@@ -116,7 +116,7 @@ export function parseRangeBig(text: string): Span | undefined {
 }
 
 export const spanSize = (s: Span): bigint => s.hi - s.lo + 1n;
-const contains = (outer: Span, inner: Span) => outer.v6 === inner.v6 && outer.lo <= inner.lo && inner.hi <= outer.hi;
+export const spanContains = (outer: Span, inner: Span): boolean => outer.v6 === inner.v6 && outer.lo <= inner.lo && inner.hi <= outer.hi;
 
 /** The fewest prefixes that exactly cover `lo..hi`, at most `limit` of them; `more` says some were left out. */
 export function spanToCidrs(v6: boolean, lo: bigint, hi: bigint, limit: number): { cidrs: string[]; more: boolean } {
@@ -247,7 +247,7 @@ export function addressTree(records: readonly PlanRecord[], vrf: string): TreeRo
   const order: TreeRow[] = [];
   const stack: { r: PlanRecord; s: Span }[] = [];
   for (const item of readable) {
-    while (stack.length > 0 && !contains(stack[stack.length - 1].s, item.s)) stack.pop();
+    while (stack.length > 0 && !spanContains(stack[stack.length - 1].s, item.s)) stack.pop();
     const parent = stack.length > 0 ? stack[stack.length - 1].r.id : null;
     const row: TreeRow = { record: item.r, span: item.s, depth: stack.length, parent, children: [], used: 0n, size: spanSize(item.s), percent: 0, free: [], freeMore: false };
     rows.set(item.r.id, row);

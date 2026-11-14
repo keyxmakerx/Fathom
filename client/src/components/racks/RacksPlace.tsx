@@ -165,6 +165,7 @@ import { levelsFor } from './jumpTree';
 import { EMPTY_HINT, autoOpenEquipment } from './emptyHints';
 import { cameraStopAt } from '../drawing/geometry';
 import { siteLinkTouching } from '../../document/siteLinks';
+import { useIpPlanFindings } from '../checks/ipPlanChecks';
 import { useSiteLinkFindings } from '../checks/siteLinkChecks';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
@@ -541,8 +542,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   const designEngine = engine ?? ownEngine;
   const { mirrorRef, engineRef, mirrorLoadedDocRef, discardTrapped, ensureMirror, loadInto, loadCostMs } = designEngine;
   const { withMirror, mirrorNow } = useMirrorFor(designEngine, doc);
-  const siteLinkFindings = useSiteLinkFindings(doc, session.organisationId, session.designId);
-  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs, extra: siteLinkFindings });
+  const linkFindings = useSiteLinkFindings(doc, session.organisationId, session.designId);
+  const planFindings = useIpPlanFindings(doc, session.organisationId);
+  const extraFindings = useMemo(() => [...linkFindings, ...planFindings], [linkFindings, planFindings]);
+  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs, extra: extraFindings });
   // Maintenance plans (ADR-0061 round 7): the same engine and mirror; every command goes through applyDocChange.
   const redact = useCallback(() => {
     const engine = engineRef.current;
