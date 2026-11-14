@@ -45,6 +45,7 @@ import {
   seedPrintScene,
   seedShelfScene,
   seedShelfRoomScene,
+  seedShelfCableScene,
   seedSweetchScene,
   seedSweetchCrossScene,
   seedBulkEstate,
@@ -209,6 +210,7 @@ async function main() {
   else if (scene === 'node-identity') doc = seedManyDevicesScene(catalogue, ME);
   else if (scene === 'shelf') doc = seedShelfScene(catalogue, ME);
   else if (scene === 'shelf-room') doc = seedShelfRoomScene(catalogue, ME);
+  else if (scene === 'shelf-cable') doc = seedShelfCableScene(catalogue, ME);
   else if (scene === 'sweetch') doc = seedSweetchScene(catalogue, ME);
   else if (scene === 'sweetch-cross') doc = seedSweetchCrossScene(catalogue, ME);
   else if (scene === 'trace') doc = await seedTraceScene(catalogue);

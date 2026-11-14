@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { EdgeLabelRenderer, useReactFlow, type Edge, type EdgeProps } from '@xyflow/react';
+import { EdgeLabelRenderer, useInternalNode, useReactFlow, type Edge, type EdgeProps, type InternalNode } from '@xyflow/react';
 
 import { CableCheckBadge } from '../checks/CheckBadge';
 import type { PlacedLabel, PortPoint } from './cableEnds';
@@ -90,7 +90,20 @@ const STROKE_WIDTH_VAR = (kind: CableView['kind']) => scaled(BASE_WIDTH[kind]);
  * them out into individual `CableEdge`-shaped paths on hover, without
  * changing anything about how a single cable draws below.
  */
-export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<CableEdgeType>) {
+/** A cable ending on a thing on a compact shelf (named, or folded into "+N") has no port box: its
+ * handle covers the thing's whole name chip instead (`ShelfPlate`'s `compactHandles`). That chip
+ * stands in for the port, so the cable leaves from the chip's bottom or top edge, toward its other
+ * end, rather than out of the middle of the name. Null for any other handle. */
+export function shelfChipBox(node: InternalNode | undefined, handleId: string | null | undefined): PortPoint | null {
+  if (node == null || node.type !== 'shelf' || handleId == null) return null;
+  const bounds = node.internals.handleBounds;
+  const h = bounds?.source?.find((b) => b.id === handleId) ?? bounds?.target?.find((b) => b.id === handleId);
+  if (h == null || h.width < 4 || h.height < 4) return null;
+  const at = node.internals.positionAbsolute;
+  return { x: at.x + h.x, y: at.y + h.y, w: h.width, h: h.height };
+}
+
+export function CableEdge({ source, target, sourceHandleId, targetHandleId, sourceX, sourceY, targetX, targetY, data }: EdgeProps<CableEdgeType>) {
   // Read straight from `liveStore.ts`, so a hover never rebuilds every
   // cable's edge — ahead of the `!data` guard below so these hooks always run.
   const litCableId = useLive((s) => s.litCableId);
@@ -111,8 +124,14 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const [playing, setPlaying] = useState(
     () => data != null && !prefersReducedMotion() && isFreshCable(cableId, data.cable.ends.flatMap((e) => ('portId' in e ? [e.portId] : []))),
   );
-  const leadA = data?.ends?.[0];
-  const leadB = data?.ends?.[1];
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+  const chipA = data?.ends?.[0] == null ? shelfChipBox(sourceNode, sourceHandleId) : null;
+  const chipB = data?.ends?.[1] == null ? shelfChipBox(targetNode, targetHandleId) : null;
+  const ends: [PortPoint | null, PortPoint | null] | undefined =
+    chipA != null || chipB != null ? [data?.ends?.[0] ?? chipA, data?.ends?.[1] ?? chipB] : data?.ends;
+  const leadA = ends?.[0];
+  const leadB = ends?.[1];
   const sway = useCableSway(
     cableId,
     style === 'physics' && data != null,
@@ -123,7 +142,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   );
   const shape =
     data != null
-      ? cableShape({ style, id: cableId, kind: data.cable.kind, ends: data.ends, source: { x: sourceX, y: sourceY }, target: { x: targetX, y: targetY }, tied: data.tied, waypoints: data.waypoints, sway })
+      ? cableShape({ style, id: cableId, kind: data.cable.kind, ends, source: { x: sourceX, y: sourceY }, target: { x: targetX, y: targetY }, tied: data.tied, waypoints: data.waypoints, sway })
       : null;
   // Register this line so the pointer can pick the nearest of several crossing cables (`cableHover.ts`).
   const drawnWhole = data != null && data.stub == null;

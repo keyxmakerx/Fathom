@@ -402,12 +402,18 @@
    compact-mode occupant's port still has a real `Handle` this drawing's own
    `resolveEnd` (`Drawing.tsx`) can reach, instead of the edge being dropped
    for want of one. */
+/* The whole chip, so the cable can read the chip's box off its handle (`shelfChipBox`). */
 .drawing-shelf__compact-port-handle {
   position: absolute !important;
-  left: 50%;
-  top: 50%;
-  width: 1px;
-  height: 1px;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  transform: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: none !important;
   opacity: 0;
   pointer-events: none;
 }

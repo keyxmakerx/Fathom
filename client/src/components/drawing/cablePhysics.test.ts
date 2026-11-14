@@ -6,11 +6,14 @@ import {
   CableSwings,
   catenaryPoints,
   hangCable,
+  plugsFace,
   SWAY_REMOUNT_MS,
   type Pt,
 } from './cablePhysics';
 import { cableShape } from './cableShape';
 import { SWAY_SETTLE_MS } from './cableRoute';
+import { shelfChipBox } from './CableEdge';
+import type { PortPoint } from './cableEnds';
 
 const length = (ps: readonly Pt[]) => ps.slice(1).reduce((n, p, i) => n + Math.hypot(p.x - ps[i]!.x, p.y - ps[i]!.y), 0);
 const lowest = (ps: readonly Pt[]) => Math.max(...ps.map((p) => p.y));
@@ -163,5 +166,64 @@ describe('the swing after a device moves', () => {
     s.see('c', at(0), 0, false);
     s.see('c', at(300), 10, false);
     expect(s.swinging('c', 20)).toBe(false);
+  });
+});
+
+// r132, the wonky shelf cable: a cable from a shelf down into a bottom-row switch port sagged below
+// the port and hooked back up into it, over the switch's other ports.
+describe('a cable dropping from one port into another below it', () => {
+  // Two ports in one rack: a shelf's "+3" chip above, a switch's bottom-row port 40 px below and 30 across.
+  const chip: PortPoint = { x: 100, y: 10, w: 20, h: 12 };
+  const bottomRow: PortPoint = { x: 126, y: 58, w: 8, h: 6, row: 1 };
+  const shape = (style: 'physics' | 'square') =>
+    cableShape({ style, id: 'c1', kind: 'copper', ends: [chip, bottomRow], source: { x: 0, y: 0 }, target: { x: 0, y: 0 } });
+
+  it('leaves the chip from its bottom edge, not the middle of its name', () => {
+    const { points } = shape('physics');
+    expect(points[0]).toEqual({ x: 110, y: 22 });
+    expect(points[1]!.y).toBeGreaterThan(22);
+  });
+
+  it('comes down into the bottom-row port from above and never sags below it', () => {
+    const { points } = shape('physics');
+    const end = points[points.length - 1]!;
+    expect(end).toEqual({ x: 130, y: 58 });
+    expect(lowest(points)).toBeLessThanOrEqual(58);
+    // Falls the whole way: no hook back up anywhere along it.
+    for (let i = 1; i < points.length; i++) expect(points[i]!.y).toBeGreaterThanOrEqual(points[i - 1]!.y - 1e-9);
+  });
+
+  it('keeps the row rule in the square style, and for a run between places', () => {
+    const square = shape('square');
+    expect(square.leads?.b.dir).toBe(1);
+    const far: PortPoint = { ...bottomRow, x: 900 };
+    const hung = cableShape({ style: 'physics', id: 'c1', kind: 'copper', ends: [chip, far], source: { x: 0, y: 0 }, target: { x: 0, y: 0 } });
+    expect(hung.leads?.b.dir).toBe(1);
+  });
+
+  it('only when the plugs point at each other', () => {
+    expect(plugsFace({ x: 0, y: 0, dir: 1 }, { x: 10, y: 50, dir: -1 })).toBe(true);
+    expect(plugsFace({ x: 0, y: 0, dir: 1 }, { x: 10, y: 50, dir: 1 })).toBe(false);
+    expect(plugsFace({ x: 0, y: 50, dir: -1 }, { x: 10, y: 0, dir: 1 })).toBe(true);
+    expect(plugsFace({ x: 0, y: 0, dir: 1 }, { x: 10, y: 0, dir: -1 })).toBe(false);
+  });
+});
+
+describe('shelfChipBox', () => {
+  const node = (type: string, w: number, h: number) =>
+    ({
+      type,
+      internals: { positionAbsolute: { x: 200, y: 300 }, handleBounds: { source: [{ id: 'p1', x: 40, y: 4, width: w, height: h }], target: null } },
+    }) as unknown as Parameters<typeof shelfChipBox>[0];
+
+  it('reads a compact shelf chip off the handle that covers it', () => {
+    expect(shelfChipBox(node('shelf', 30, 12), 'p1')).toEqual({ x: 240, y: 304, w: 30, h: 12 });
+  });
+
+  it('is null for any other node, a missing handle, or a pin-sized handle', () => {
+    expect(shelfChipBox(node('chassis', 30, 12), 'p1')).toBeNull();
+    expect(shelfChipBox(node('shelf', 30, 12), 'p2')).toBeNull();
+    expect(shelfChipBox(node('shelf', 1, 1), 'p1')).toBeNull();
+    expect(shelfChipBox(undefined, 'p1')).toBeNull();
   });
 });
