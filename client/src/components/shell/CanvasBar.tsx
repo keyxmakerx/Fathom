@@ -7,8 +7,11 @@ import type { ReactNode } from 'react';
 import { DIAGRAM_STYLES, DIAGRAM_STYLE_LABEL } from '../drawing/diagramStyle';
 import { CABLE_COLOURS, CABLE_COLOUR_LABEL, CABLE_STYLES, CABLE_STYLE_HINT, CABLE_STYLE_LABEL } from '../drawing/cableStyle';
 import { LAYERS } from '../drawing/layers';
+import { hint } from './hints';
+import { LENS_HINT, LENS_HINT_INVENTORY, TOOL_HINT, ZOOM_HINT } from './hintWords';
 import { LENSES_IN, LENS_LABEL, type Lens } from './lens';
-import { Popover } from './Popover';
+import { Popover, usePopoverClose } from './Popover';
+import { shortcutText } from './shortcuts';
 import type { Place, ShellProps } from './types';
 
 export interface LensGroupProps {
@@ -21,6 +24,7 @@ export interface LensGroupProps {
 
 /** The lenses as a row of buttons; the lit Cables lens opens its list of groups. */
 export function LensGroup({ place, lens, onLensChange, cablesGroupsPopover, cablesGroupsSummary }: LensGroupProps) {
+  const words = place === 'inventory' ? LENS_HINT_INVENTORY : LENS_HINT;
   return (
     <div className="shell-bar__lenses">
       {LENSES_IN[place].map((candidate) =>
@@ -36,6 +40,7 @@ export function LensGroup({ place, lens, onLensChange, cablesGroupsPopover, cabl
                 aria-haspopup={triggerProps['aria-haspopup']}
                 aria-expanded={candidate === lens ? triggerProps['aria-expanded'] : false}
                 aria-controls={triggerProps['aria-controls']}
+                {...hint(LENS_LABEL[candidate], words[candidate])}
                 onClick={(event) => {
                   triggerRef.current = event.currentTarget;
                   // Clicking the Cables lens while it is lit opens
@@ -69,6 +74,7 @@ export function LensGroup({ place, lens, onLensChange, cablesGroupsPopover, cabl
             type="button"
             aria-pressed={candidate === lens}
             className={candidate === lens ? 'shell-lens shell-lens--on' : 'shell-lens'}
+            {...hint(LENS_LABEL[candidate], words[candidate])}
             onClick={() => onLensChange(candidate)}
           >
             {LENS_LABEL[candidate]}
@@ -106,7 +112,7 @@ export function LayersPanel({ layers, look }: LayersMenuProps) {
         {layers.aids?.items.map((a) => (
           <TickRow key={a.id} id={a.id} label={a.label} on={a.on} note={a.note} onToggle={() => layers.aids!.onToggle(a.id)} />
         ))}
-        {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}
+        {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram view.</p>}
         <p className="shell-show__hint">Each layer adds words in ink, placed so they never overlap. Yours, per browser.</p>
       </div>
   );
@@ -125,6 +131,7 @@ export function LayersMenu({ layers, look }: LayersMenuProps) {
             triggerRef.current = el;
           }}
           {...triggerProps}
+          {...hint('Layers', TOOL_HINT.layers)}
         >
           Layers ▾
         </button>
@@ -144,7 +151,7 @@ export interface LookMenuProps {
 /** What Look holds: device style, cable style, cable colour and the colour key. */
 export function LookPanel({ layers, extra }: LookMenuProps) {
   return (
-      <div className="shell-show" role="group" aria-label="Look of the drawing">
+      <div className="shell-show shell-show--look" role="group" aria-label="Look of the drawing">
         {layers.style != null && (
           <div className="shell-show__style" role="group" aria-label="Device style">
             <span className="shell-show__head">Device style</span>
@@ -166,7 +173,7 @@ export function LookPanel({ layers, extra }: LookMenuProps) {
           </div>
         )}
         {layers.cables != null && (
-          <div className="shell-show__style" role="group" aria-label="Cable style">
+          <div className="shell-show__style shell-show__style--cables" role="group" aria-label="Cable style">
             <span className="shell-show__head">Cable style</span>
             <span className="btn-group">
             {CABLE_STYLES.map((st) => (
@@ -226,6 +233,7 @@ export function LookMenu({ layers, extra }: LookMenuProps) {
             triggerRef.current = el;
           }}
           {...triggerProps}
+          {...hint('Look', TOOL_HINT.look)}
         >
           Look ▾
         </button>
@@ -285,7 +293,7 @@ export function BottomPill({ zoom }: BottomPillProps) {
     <div className="shell-pill" role="toolbar" aria-label="Zoom" data-print-omit="" data-testid="shell-pill">
       {zoom != null && (
         <>
-          <button type="button" className="shell-pill__btn" aria-label="Zoom out" title="Zoom out" onClick={zoom.onOut}>
+          <button type="button" className="shell-pill__btn" aria-label="Zoom out" {...hint('Zoom out', ZOOM_HINT.out, shortcutText('zoom-out'))} title="Zoom out" onClick={zoom.onOut}>
             &minus;
           </button>
           {stops != null ? (
@@ -295,6 +303,7 @@ export function BottomPill({ zoom }: BottomPillProps) {
                 <button
                   type="button"
                   className={open ? 'shell-pill__value shell-pill__value--on' : 'shell-pill__value'}
+                  {...hint('Zoom stops', ZOOM_HINT.stops)}
                   title="Zoom stops"
                   ref={(el) => {
                     triggerRef.current = el;
@@ -305,31 +314,48 @@ export function BottomPill({ zoom }: BottomPillProps) {
                 </button>
               )}
             >
-              <div className="shell-pill__stops" role="group" aria-label="Zoom stops">
-                {stops.stops.map((s) => (
-                  <button key={s.id} type="button" className="shell-pill__stop" aria-pressed={s.id === stops.current} onClick={() => stops.onGo(s.id)}>
-                    <span className="shell-pill__stop-dot" aria-hidden="true" />
-                    {s.label}
-                  </button>
-                ))}
-              </div>
+              <ZoomStops stops={stops} />
             </Popover>
           ) : (
             <span className="shell-pill__value">{zoom.value}%</span>
           )}
-          <button type="button" className="shell-pill__btn" aria-label="Zoom in" title="Zoom in" onClick={zoom.onIn}>
+          <button type="button" className="shell-pill__btn" aria-label="Zoom in" {...hint('Zoom in', ZOOM_HINT.in, shortcutText('zoom-in'))} title="Zoom in" onClick={zoom.onIn}>
             +
           </button>
           {zoom.onFit && (
             <>
               <span className="shell-pill__rule" aria-hidden="true" />
-              <button type="button" className="shell-pill__btn" aria-label="Fit to view" title="Fit to view" onClick={zoom.onFit}>
+              <button type="button" className="shell-pill__btn" aria-label="Fit to view" {...hint('Fit to view', ZOOM_HINT.fit, shortcutText('zoom-fit'))} title="Fit to view" onClick={zoom.onFit}>
                 <svg {...PILL_ICON}><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" /></svg>
               </button>
             </>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** The stops in the pill's menu. Picking one goes there and closes the menu, so the drawing is in view as it moves. */
+function ZoomStops({ stops }: { stops: NonNullable<ShellProps['zoomStops']> }) {
+  const close = usePopoverClose();
+  return (
+    <div className="shell-pill__stops" role="group" aria-label="Zoom stops">
+      {stops.stops.map((s) => (
+        <button
+          key={s.id}
+          type="button"
+          className="shell-pill__stop"
+          aria-pressed={s.id === stops.current}
+          onClick={() => {
+            close();
+            stops.onGo(s.id);
+          }}
+        >
+          <span className="shell-pill__stop-dot" aria-hidden="true" />
+          {s.label}
+        </button>
+      ))}
     </div>
   );
 }

@@ -107,7 +107,7 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus,
         </div>
         <p className="signin__subtitle">
           {purpose === 'app-code'
-            ? 'This account holds the operator custody, so it needs an authenticator app before anything else.'
+            ? 'This account is a server admin, so it needs an authenticator app before anything else.'
             : `Your credentials, ${address}.`}
         </p>
 
@@ -763,8 +763,8 @@ export function AuthenticatorEnrolment({
     <div className="signin__section">
       {heading === 'own' && <h2 className="signin__heading">Authenticator app</h2>}
       <p className="signin__body">
-        A six-digit verification code from an authenticator app, beside your password. It is required for an account
-        that holds the operator custody.
+        A six-digit verification code from an authenticator app, beside your password. A server admin&apos;s account
+        must have one.
         {requiresReauth &&
           ' This account already has one: replacing it needs the current password and a current code from it.'}
       </p>

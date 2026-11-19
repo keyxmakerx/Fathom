@@ -352,6 +352,13 @@ the top of its menu (Enter or leaving the field saves, Esc cancels). The bar sho
 **+N** that lists the rest; each name selects what that person has selected. Fathom's button, field and
 focus styles stay inside the app, so a password manager's own controls keep their look.
 
+**Hints and leaving** (sign-off r147). A control in the bar, the tool row, the zoom pill or the dock shows a
+card on hover or keyboard focus: its name, one plain sentence, its key (`shell/hints.ts`, `Hints.tsx`; the
+words in `hintWords.ts`). A closed menu, right-click menu or quick card leaves a still copy that fades out
+the way it came (`shell/ghost.ts`): the real thing is gone at once, and the copy has no words, names, roles
+or test ids in the page. Back opens the tool row for itself instead of pushing the tools along, the zoom
+menu rises from its button, and Home's tabs have one line that slides between them.
+
 **Sign-in and the console**
 - **Enrolment and sign-in, both planes.** A token's prefix names its door (`op_` operator, `inv_`
   invitation). Enrolment makes a non-extractable keypair before the request goes out. First run (ADR-0056)
@@ -368,12 +375,14 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   verbs (no assertion by the enrolled key yet), the site trail, an account list. ADR-0068's Admin rework
   (Health first, a left-hand section list, Engines) is decided, not built.
 - **First Home for the person who set the server up** (ADR-0069; sign-off r123): with no organisation yet, two
-  cards side by side. Open practice lab makes the practice space and opens the home lab. **Start your own
+  cards side by side, under Home's tabs. **Open sample** makes the practice space and opens the sample home lab
+  (r147: the card says what it opens; "practice lab" names only the sample with mistakes). **Start your own
   network** takes a name (filled in as Home network), shows the new organisation's recovery key once in the
   card, and on Start drawing makes the organisation by Admin's own two acts (shell, then claim from the
   account), a site of the same name and an empty design, and opens it. A failure part way keeps what was made
-  and the next press carries on. No server change; `components/home/ownNetwork.ts`,
-  `scripts/drive-own-network.mjs`.
+  and the next press carries on. Once the practice space exists the welcome is gone, so the rail keeps
+  Start your own network on offer until the account has an organisation of its own (r147). No server change;
+  `components/home/ownNetwork.ts`, `scripts/drive-own-network.mjs`.
 - **Home** has tabs (ADR-0060 decision 7): Designs, Passwords, Steward (called Organisation until
   2026-10-27; admins and folder stewards; a rail of People, Waiting for you (N), Folders, Passwords, AI
   and AI rules), AI (someone named to connect AI apps who stewards nothing: the AI page alone), and
@@ -445,7 +454,8 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves
   it as the person's own design. A model the catalogue lacks is drawn as a sketch with the same port labels.
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
-  cables do not count. Hidden, it lives under Help. Not built: tracing from a device on
+  cables do not count. A step not yet done says how when pressed, and the next one says it unasked; a step
+  done since the last visit ticks itself on Home, once (r147). Hidden, it lives under Help. Not built: tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
 - **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
   `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
@@ -508,7 +518,9 @@ focus styles stay inside the app, so a password manager's own controls keep thei
 **The canvas** (one canvas, detail by degrees; ADR-0060)
 - **Racks and devices.** Opening a design reads the plain face (ADR-0049) and draws racks with rails,
   U numbers, hatched free runs, device boxes and ports that fade in toward the faceplate. Four camera
-  stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. Ctrl+wheel or pinch zooms (max 400%), the
+  stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. A stop picked from the zoom menu lands on what
+  is selected, or on the nearest thing when the middle of the view is empty (`racks/zoomAim.ts`; r147), and
+  the menu closes. Ctrl+wheel or pinch zooms (max 400%), the
   wheel pans. Placing snaps to a unit and refuses an overlap with a shake. Every change saves: one in
   flight, the latest queued, a refusal shown and never rolled back. A rack's height is 42U, 24U, 12U or
   typed, refused below what is mounted.

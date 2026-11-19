@@ -1,12 +1,16 @@
 // The one Back, first in the tool row: "← BACK", with a small ▾ beside it that unfolds a tree of where you are
 // inside the design (design, rack, device, port...). Where it goes is in its tooltip. It stays out of the way:
-// nothing shows until there is somewhere to go back to. There is no Forward button; Alt+Right and the mouse's
-// forward button still go forward (`useJumpBack.ts`).
+// nothing shows until there is somewhere to go back to. Then the row opens to make room for it, and closes up
+// behind it when it goes, so the tools beside it slide along and never jump (sign-off r147). There is no Forward
+// button; Alt+Right and the mouse's forward button still go forward (`useJumpBack.ts`).
 
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 
 import '../../styles/canvas-aids.css';
 
+import { useGhostRef } from '../shell/ghost';
+import { hint } from '../shell/hints';
+import { TOOL_HINT } from '../shell/hintWords';
 import { shortcutText } from '../shell/shortcuts';
 import { canGoBack, type Trail } from './jumpBack';
 import { KEEP_TOP, foldTrail, kindWord, nextFocus, type Level } from './jumpTree';
@@ -56,6 +60,8 @@ export function JumpTrail({ trail, backLabel, onBack, levels, onGo, defaultOpen 
   const [open, setOpen] = useState(defaultOpen);
   const [expanded, setExpanded] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
+  // Gone, it leaves a still copy that the row closes up behind (`ghost.ts`).
+  const navRef = useGhostRef(rootRef);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
   const listId = useId();
@@ -112,10 +118,10 @@ export function JumpTrail({ trail, backLabel, onBack, levels, onGo, defaultOpen 
   };
 
   return (
-    <nav className="jump-trail" aria-label="Back and where you are" data-print-omit="" ref={rootRef}>
+    <nav className="jump-trail" aria-label="Back and where you are" data-print-omit="" ref={navRef}>
       <div className="jump-trail__bar">
         {canBack && (
-          <button type="button" className="jump-trail__nav" onClick={onBack} title={`Back to ${backLabel} (${shortcutText('go-back')})`} data-testid="jump-back">
+          <button type="button" className="jump-trail__nav" onClick={onBack} {...hint('Back', `Go back to ${backLabel}.`, shortcutText('go-back'))} title={`Back to ${backLabel} (${shortcutText('go-back')})`} data-testid="jump-back">
             <span aria-hidden="true">←</span> Back
           </button>
         )}
@@ -127,6 +133,7 @@ export function JumpTrail({ trail, backLabel, onBack, levels, onGo, defaultOpen 
             aria-expanded={shown}
             aria-controls={shown ? listId : undefined}
             aria-label="Where you are in this design"
+            {...hint('Where you are', TOOL_HINT.where)}
             title="Where you are in this design"
             onClick={() => (shown ? close(false) : setOpen(true))}
             data-testid="jump-tree-toggle"

@@ -80,16 +80,16 @@ export function progressLine(step: number): string {
  * DOM. */
 export function passwordStepIntro(address: string): string {
   return (
-    `That setup secret belongs to ${address}. That is the address this server was started with, ` +
-    'and it is the account this password is for — there is nothing to type and nothing to get wrong.'
+    `What you typed belongs to ${address}. That is the address this server was started with, ` +
+    'and it is the account this password is for, so there is nothing to type and nothing to get wrong.'
   );
 }
 
 /** Step 3's opening sentence, above the enrolment component. */
 export function authenticatorStepIntro(address: string): string {
   return (
-    `Password set for ${address}. This account holds the operator custody, so it needs a second ` +
-    'factor before it can do anything else. Your recovery codes come after this, and then one last sign-in.'
+    `Password set for ${address}. This account is a server admin, so it needs a second factor, a code ` +
+    'from an authenticator app, before it can do anything else. Your recovery codes come after this, and then one last sign-in.'
   );
 }
 
@@ -98,9 +98,8 @@ export function authenticatorStepIntro(address: string): string {
 export function finalSignInStepIntro(address: string): string {
   return (
     `Your authenticator app is set up and your recovery codes are saved. Sign in once more as ` +
-    `${address} with a code from the app: the session that set all this up was made before the ` +
-    'app existed, so it has never proved the second factor, and the operator console does not ' +
-    'take a session that has not.'
+    `${address} with a code from the app. The sign-in that set all this up was made before the ` +
+    'app existed, so it has never proved the second factor, and Admin does not open for one that has not.'
   );
 }
 
@@ -695,7 +694,7 @@ export function TokenStage({
         )}
 
         <p className="signin__note">
-          Nothing is spent by this step: it is only checked, and the next screen says which
+          This step uses nothing up. What you typed is only checked, and the next screen says which
           address it belongs to before you choose anything.
         </p>
       </form>
@@ -809,8 +808,8 @@ export function PasswordStage({
         )}
 
         <p className="signin__note">
-          The setup secret is spent when this password is set. After that you sign in with the
-          address, the password and a verification code.
+          Setting this password uses up what you typed on the first screen: it will not work a second
+          time. After that you sign in with the address, the password and a verification code.
         </p>
       </form>
     </div>

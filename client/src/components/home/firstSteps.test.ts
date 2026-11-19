@@ -7,7 +7,7 @@ import { addSketchPort, createSketchDevice } from '../../document/commands';
 import { emptyDocument, parseNodeId, type Document } from '../../document/model';
 import { buildSample, sample } from './sampleNetwork';
 import { GettingStarted } from './GettingStarted';
-import { loadFirstSteps, recordFirstSteps, rememberSample, sampleOfDesign, setFirstStepsHidden, stepsIn } from './firstSteps';
+import { FIRST_STEPS, freshSteps, loadFirstSteps, markStepsSeen, nextStep, recordFirstSteps, rememberSample, sampleOfDesign, setFirstStepsHidden, stepsIn } from './firstSteps';
 
 function fakeStorage(): Storage {
   const m = new Map<string, string>();
@@ -67,7 +67,7 @@ describe('the five first steps', () => {
     expect(loadFirstSteps('a1').hidden).toBe(true);
     expect(setFirstStepsHidden('a1', false).hidden).toBe(false);
     vi.stubGlobal('localStorage', undefined);
-    expect(loadFirstSteps('a1')).toEqual({ done: [], hidden: false, samples: [], sampleOf: {} });
+    expect(loadFirstSteps('a1')).toEqual({ done: [], hidden: false, samples: [], sampleOf: {}, seen: [] });
     expect(() => recordFirstSteps('a1', 'd', emptyDocument(), true)).not.toThrow();
   });
 
@@ -86,5 +86,47 @@ describe('the five first steps', () => {
     expect(html.match(/first-steps__step--done/g)).toHaveLength(2);
     expect(html).toContain('credentials never kept');
     expect(html).toContain('lives under Help');
+  });
+
+  it('say how: the next step without being asked, the others when pressed', () => {
+    expect(nextStep([])).toBe('device');
+    expect(nextStep(['device', 'place', 'cable'])).toBe('paste');
+    expect(nextStep(FIRST_STEPS.map((s) => s.id))).toBeNull();
+    const html = renderToStaticMarkup(createElement(GettingStarted, { done: ['device', 'place'], onHide: () => {} }));
+    // Three steps are left, each a button that opens its how; only the next one (paste) starts open.
+    expect(html.match(/first-steps__row--ask/g)).toHaveLength(3);
+    expect(html.match(/aria-expanded="true"/g)).toHaveLength(1);
+    expect(html.match(/first-steps__how--open/g)).toHaveLength(1);
+    expect(html).toMatch(/first-steps__step--next[^>]*>.*?Paste its config/);
+    // A ticked step is not a button and has no how.
+    expect(html).not.toContain(FIRST_STEPS[0]!.how);
+    for (const step of FIRST_STEPS) {
+      expect(step.how).toMatch(/^[A-Z].*\.$/);
+      expect(step.how.length).toBeLessThanOrEqual(110);
+    }
+  });
+
+  it('tick themselves once: a step done since Home last drew the list is fresh until it has been seen', () => {
+    vi.stubGlobal('localStorage', fakeStorage());
+    const built = buildSample(sample('home-lab'), new Map()).doc;
+    recordFirstSteps('a1', 'own-design', built, false);
+    expect(freshSteps(loadFirstSteps('a1'))).toEqual(['device', 'place', 'cable']);
+    markStepsSeen('a1');
+    expect(freshSteps(loadFirstSteps('a1'))).toEqual([]);
+    recordFirstSteps('a1', 'own-design', built, true);
+    expect(freshSteps(loadFirstSteps('a1'))).toEqual(['trace']);
+    // What was kept before ticks were tracked counts as seen: nothing replays.
+    localStorage.setItem('fathom.firstSteps.a3', JSON.stringify({ done: ['device', 'cable'], hidden: false, samples: [] }));
+    expect(freshSteps(loadFirstSteps('a3'))).toEqual([]);
+  });
+
+  it('draw a fresh tick from where the bar stood', () => {
+    const html = renderToStaticMarkup(createElement(GettingStarted, { done: ['device', 'place', 'cable'], fresh: ['cable'], onHide: () => {} }));
+    expect(html.match(/first-steps__step--fresh/g)).toHaveLength(1);
+    expect(html).toContain('first-steps__fill--grow');
+    expect(html).toMatch(/width:60%;--from:40%/);
+    const still = renderToStaticMarkup(createElement(GettingStarted, { done: ['device', 'place', 'cable'], onHide: () => {} }));
+    expect(still).not.toContain('first-steps__fill--grow');
+    expect(still).not.toContain('first-steps__step--fresh');
   });
 });

@@ -290,6 +290,7 @@
 /* Designs · Organisation · Admin (ADR-0060 decision 7), drawn like the bar's
    own place tabs. */
 .home-tabs {
+  position: relative;
   display: flex;
   gap: var(--s1);
   border-bottom: var(--rule-hair) solid var(--hairline);
@@ -317,6 +318,40 @@
   color: var(--ink);
   font-weight: 700;
   border-bottom-color: var(--ink);
+}
+
+/* Each tab keeps room for its word in bold, so choosing one never nudges the others along. */
+.home-tabs__tab {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+.home-tabs__tab::after {
+  content: attr(data-label);
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 700;
+}
+
+/* The line under the chosen tab is one mark, and it slides to the next tab chosen (as under the bar's views). */
+.home-tabs__mark {
+  position: absolute;
+  bottom: calc(-1 * var(--rule-hair));
+  height: var(--rule-sel);
+  background: var(--ink);
+  transition:
+    left var(--m-layout) var(--m-ease),
+    width var(--m-layout) var(--m-ease);
+  pointer-events: none;
+}
+.home-tabs--marked .home-tabs__tab--on {
+  border-bottom-color: transparent;
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-tabs__mark {
+    transition: none;
+  }
 }
 
 /* r116: Admin sits at the right end of the row, with a rule between it and the organisation's tabs. */
@@ -420,10 +455,19 @@
   background: var(--hairline);
 }
 
-.first-steps__bar span {
+.first-steps__fill {
   display: block;
   height: 100%;
   background: var(--ink);
+}
+
+/* A step was ticked since the list was last drawn: the bar grows to it from where it stood. */
+.first-steps__fill--grow {
+  animation: first-steps-grow var(--m-layout) var(--m-ease) both;
+}
+
+@keyframes first-steps-grow {
+  from { width: var(--from, 0%); }
 }
 
 .first-steps__list {
@@ -433,12 +477,23 @@
 }
 
 .first-steps__step {
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-body);
+}
+
+.first-steps__row {
   display: flex;
   align-items: baseline;
   gap: var(--s2);
+  box-sizing: border-box;
+  width: 100%;
   padding: var(--s2) 0;
-  border-bottom: var(--rule-hair) solid var(--hairline);
-  font-size: var(--t-body);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
 }
 
 .first-steps__n {
@@ -448,6 +503,16 @@
   border: var(--rule-hair) solid var(--hairline);
   color: var(--muted);
   font-size: var(--t-small);
+  transition:
+    border-color var(--m-hover) var(--m-ease),
+    color var(--m-hover) var(--m-ease);
+}
+
+/* The step to do next, and one under the pointer: its number takes the ink. */
+.first-steps__step--next .first-steps__n,
+.first-steps__row--ask:hover .first-steps__n {
+  border-color: var(--ink);
+  color: var(--ink);
 }
 
 .first-steps__step--done .first-steps__n {
@@ -456,18 +521,88 @@
   color: var(--page);
 }
 
-.first-steps__step--done .first-steps__label {
-  color: var(--muted);
-  text-decoration: line-through;
-}
-
 .first-steps__label {
   flex: 1;
+}
+
+/* The line through a ticked step is drawn, so it can draw itself across when the step ticks. */
+.first-steps__step--done .first-steps__text {
+  color: var(--muted);
+  background: linear-gradient(currentColor, currentColor) no-repeat left 56% / 100% 1px;
+}
+
+.first-steps__step--fresh .first-steps__n {
+  animation: first-steps-tick var(--m-layout) var(--m-ease) both;
+  animation-delay: calc(var(--turn, 0) * var(--m-hover));
+}
+
+.first-steps__step--fresh .first-steps__text {
+  animation: first-steps-strike var(--m-layout) var(--m-ease) both;
+  animation-delay: calc(var(--turn, 0) * var(--m-hover) + var(--m-hover));
+}
+
+@keyframes first-steps-tick {
+  from {
+    background: transparent;
+    border-color: var(--hairline);
+    color: var(--muted);
+    transform: scale(0.8);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes first-steps-strike {
+  from {
+    color: var(--ink);
+    background-size: 0% 1px;
+  }
 }
 
 .first-steps__note {
   color: var(--muted);
   font-size: var(--t-micro);
+}
+
+/* How to do a step. It opens under the step by growing, so the list below moves down smoothly. */
+.first-steps__how {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--m-pop) var(--m-ease),
+    visibility 0s linear var(--m-pop);
+}
+
+.first-steps__how--open {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition:
+    grid-template-rows var(--m-pop) var(--m-ease),
+    visibility 0s;
+}
+
+.first-steps__how-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.first-steps__how p {
+  margin: 0;
+  padding: 0 0 var(--s2) calc(1.6em + var(--s2));
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .first-steps__step--fresh .first-steps__n,
+  .first-steps__step--fresh .first-steps__text {
+    animation-delay: 0s;
+  }
 }
 
 .first-steps__foot {
@@ -520,6 +655,19 @@
   max-width: 60ch;
 }
 
+/* Sign-off r147: "Start your own network" in the rail, and its card when asked for. */
+.home__own-ask {
+  margin-top: var(--s2);
+}
+
+.home-own {
+  animation: fathom-pop-in var(--m-pop) var(--m-ease) both;
+}
+
+.home-own .about-link {
+  display: block;
+}
+
 .home__org-note {
   margin: var(--s1) 0 0;
   font-size: var(--t-small);
@@ -564,6 +712,12 @@
   font-family: var(--mono);
   font-size: var(--t-mono);
   letter-spacing: 0.1em;
+}
+
+.admin-code__hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-small);
 }
 
 /* ADR-0074: a folder's kind of place, and its hand-set role. A hub has a double border,

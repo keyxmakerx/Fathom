@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 
 import { CommandPalette } from './CommandPalette';
-import { matches } from './shortcuts';
+import { hint } from './hints';
+import { BAR_HINT } from './hintWords';
+import { matches, shortcutText } from './shortcuts';
 import type { ShellSearch } from './types';
 
 function MagnifierIcon() {
@@ -37,6 +39,7 @@ export function SearchBox({ search, collapsed }: { search: ShellSearch; collapse
         aria-label="Search"
         aria-haspopup="dialog"
         aria-keyshortcuts="Control+K Meta+K"
+        {...hint('Search', BAR_HINT.search, shortcutText('find'))}
         onClick={() => setOpen(true)}
       >
         <MagnifierIcon />

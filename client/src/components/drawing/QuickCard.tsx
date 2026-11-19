@@ -15,6 +15,7 @@ import '../../styles/canvas-aids.css';
 import { copyText } from '../firmware/parts';
 import type { Document } from '../../document/model';
 import { clickAnswer, nextEscape, useDetailsOpen } from '../shell/clickAnswer';
+import { useGhostRef } from '../shell/ghost';
 import { SHOW_DETAILS_EVENT } from '../shell/useRightTab';
 import type { ClosetView } from './contract';
 import { thingOf } from './PortPeek';
@@ -92,6 +93,8 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
     if (detailsOpen) setPinned(null);
   }, [detailsOpen]);
   const cardRef = useRef<HTMLDivElement>(null);
+  // Put away, the card leaves a still copy that fades out (`ghost.ts`).
+  const cardGhostRef = useGhostRef(cardRef);
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -222,7 +225,7 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
         </svg>
       )}
       <div
-        ref={cardRef}
+        ref={cardGhostRef}
         className="quick-card"
         role="dialog"
         aria-label={`${facts.title}, in short`}

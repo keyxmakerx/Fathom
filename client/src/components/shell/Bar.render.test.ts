@@ -80,9 +80,10 @@ describe('Bar — what is present where', () => {
 
   it('the brand is a way Home only when there is somewhere else to be', () => {
     expect(renderToStaticMarkup(createElement(Bar, BASE))).toContain('<span class="shell-bar__brand">Fathom</span>');
-    expect(renderToStaticMarkup(createElement(Bar, { ...BASE, onHome: () => {} }))).toContain(
-      '<button type="button" class="shell-bar__brand">Fathom</button>',
-    );
+    const away = renderToStaticMarkup(createElement(Bar, { ...BASE, onHome: () => {} }));
+    expect(away).toMatch(/<button type="button" class="shell-bar__brand"[^>]*>Fathom<\/button>/);
+    // The way Home says where it goes.
+    expect(away).toContain('data-hint="Home"');
   });
 });
 

@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 import { signOut } from '../../api/auth';
 import { UNTITLED_DESIGN } from '../../api/designs';
 import { useWindowWidth } from './Dock';
+import { hint } from './hints';
+import { BAR_HINT, VIEW_HINT, VIEW_LABEL, VIEWS, WORK_HINT } from './hintWords';
 import { nextFoldLevel } from './layout';
 import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
@@ -153,7 +155,7 @@ export function Bar({
     <div className={task != null ? 'shell-bar shell-bar--task' : 'shell-bar'} data-tone={task?.tone} ref={containerRef}>
       <div className="shell-bar__leading" ref={leadingRef}>
         {onHome ? (
-          <button type="button" className="shell-bar__brand" onClick={onHome}>
+          <button type="button" className="shell-bar__brand" onClick={onHome} {...hint('Home', BAR_HINT.home)}>
             Fathom
           </button>
         ) : (
@@ -260,7 +262,7 @@ export function Bar({
             open design. */}
         {viewOnly === true && (
           <>
-            <span className="shell-chip shell-bar__view-only" aria-label="view only">
+            <span className="shell-chip shell-bar__view-only" aria-label="view only" {...hint('View only', BAR_HINT.viewOnly)}>
               View only
             </span>
             <Sep />
@@ -278,10 +280,10 @@ export function Bar({
         {hasEdits && !editsFolded && (
           <>
             <div className="shell-bar__undoredo">
-              <button type="button" className="shell-chip shell-chip--ink" title={`Undo (${shortcutText('undo')})`} disabled={!canUndo} onClick={onUndo} data-testid="bar-undo">
+              <button type="button" className="shell-chip shell-chip--ink" {...hint('Undo', BAR_HINT.undo, shortcutText('undo'))} title={`Undo (${shortcutText('undo')})`} disabled={!canUndo} onClick={onUndo} data-testid="bar-undo">
                 Undo
               </button>
-              <button type="button" className="shell-chip shell-chip--ink" title={`Redo (${shortcutText('redo')})`} disabled={!canRedo} onClick={onRedo} data-testid="bar-redo">
+              <button type="button" className="shell-chip shell-chip--ink" {...hint('Redo', BAR_HINT.redo, shortcutText('redo'))} title={`Redo (${shortcutText('redo')})`} disabled={!canRedo} onClick={onRedo} data-testid="bar-redo">
                 Redo
               </button>
             </div>
@@ -330,13 +332,13 @@ export function Bar({
         )}
         {!actionsFolded && hasDoing && <DoingMenu items={doing} />}
         {!actionsFolded && onShare && (
-          <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
+          <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share" {...hint('Share', BAR_HINT.share)}>
             Share
           </button>
         )}
         {adminPill && !actionsFolded &&
           (adminPill.onSelect && !adminPill.current ? (
-            <button type="button" className="shell-admin-pill" data-testid="shell-admin-pill" onClick={adminPill.onSelect}>
+            <button type="button" className="shell-admin-pill" data-testid="shell-admin-pill" onClick={adminPill.onSelect} {...hint('Admin', BAR_HINT.admin)}>
               Admin
             </button>
           ) : (
@@ -350,6 +352,7 @@ export function Bar({
             className="shell-shortcuts-btn"
             aria-label="Keyboard shortcuts"
             aria-keyshortcuts="Shift+?"
+            {...hint('Keyboard shortcuts', BAR_HINT.shortcuts, shortcutText('shortcuts'))}
             title={`Keyboard shortcuts (${shortcutText('shortcuts')})`}
             data-testid="shell-shortcuts"
             onClick={onShortcuts}
@@ -368,6 +371,7 @@ export function Bar({
                 triggerRef.current = node;
               }}
               aria-label="Account menu"
+              {...hint('Your account', BAR_HINT.account)}
               title="Account menu"
               aria-haspopup={triggerProps['aria-haspopup']}
               aria-expanded={triggerProps['aria-expanded']}
@@ -551,9 +555,6 @@ function Sep() {
   );
 }
 
-const VIEW_LABEL: Record<MainView, string> = { diagram: 'Diagram', canvas: 'Canvas', inventory: 'Inventory', sheet: 'Sheet' };
-const VIEWS: readonly MainView[] = ['diagram', 'canvas', 'inventory', 'sheet'];
-
 /** r31-bar A: the four views. The ink underline slides to the one you choose (r31-motion). */
 function ViewTabs({
   view,
@@ -652,7 +653,8 @@ function ViewTabs({
           aria-current={v === view ? 'page' : undefined}
           className={v === view ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
           data-testid={`view-${v}`}
-          title={backTo != null ? `Back to ${backTo}, ${VIEW_LABEL[v]}` : undefined}
+          {...hint(VIEW_LABEL[v], backTo != null ? `Opens ${backTo} again in this view.` : VIEW_HINT[v])}
+          title={backTo != null ? `Back to ${backTo}, ${VIEW_LABEL[v]}` : VIEW_HINT[v]}
           onClick={() => onChange(v)}
         >
           {VIEW_LABEL[v]}
@@ -667,7 +669,7 @@ function ViewTabs({
           aria-current={work.on ? 'page' : undefined}
           className={work.on ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
           data-testid="view-work"
-          title="Every site's work: plans, It's down and orders"
+          {...hint('Work', WORK_HINT)}
           onClick={work.onOpen}
         >
           Work
@@ -692,6 +694,7 @@ function DoingMenu({ items }: { items: NonNullable<ShellProps['doing']> }) {
             triggerRef.current = el;
           }}
           {...triggerProps}
+          {...hint('Doing', BAR_HINT.doing)}
         >
           Doing ▾
         </button>

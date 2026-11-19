@@ -180,6 +180,41 @@
   to { opacity: 1; transform: none; }
 }
 
+/* The same for one that opens upward or rises into place: it comes up from just below. */
+@keyframes fathom-pop-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Leaving. A menu, pop-over or card that has just closed leaves a still copy of itself (`shell/ghost.ts`), which goes
+   back the way it came, a little faster than it arrived. Nothing in the copy can be pressed, and its words are drawn
+   here rather than written in the page, so nothing can find or read them. */
+@keyframes fathom-pop-out {
+  to { opacity: 0; transform: translateY(-4px); }
+}
+@keyframes fathom-pop-out-down {
+  to { opacity: 0; transform: translateY(4px); }
+}
+[data-ghost] {
+  animation: fathom-pop-out var(--m-hover) var(--m-ease) both !important;
+  pointer-events: none !important;
+  user-select: none;
+}
+[data-ghost] * {
+  animation: none !important;
+  transition: none !important;
+  pointer-events: none !important;
+}
+[data-ghost-text] {
+  display: contents;
+}
+[data-ghost-text]::before {
+  content: attr(data-ghost-text);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-ghost] { display: none !important; }
+}
+
 /* A panel arriving at the drawing's edge (UI-SPEC Motion 9). */
 @keyframes fathom-from-right {
   from { opacity: 0; transform: translateX(12px); }

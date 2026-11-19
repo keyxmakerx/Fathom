@@ -89,7 +89,7 @@ describe('JumpTrail', () => {
 
   it('does not fold six or fewer levels', () => {
     const six = Array.from({ length: 6 }, (_, i) => level(`L${i}`, 'device', i));
-    expect(html({ trail: twoStops(), backLabel: 'HQ', levels: six, defaultOpen: true })).not.toContain('more');
+    expect(html({ trail: twoStops(), backLabel: 'HQ', levels: six, defaultOpen: true })).not.toContain('jump-tree-fold');
   });
 });
 

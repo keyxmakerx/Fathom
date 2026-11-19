@@ -201,7 +201,7 @@ describe('the first run, step 1', () => {
   it('says the first step spends nothing', () => {
     // `POST /enrolment/operator/setup/check` is a read: no chain entry,
     // nothing spent. A person who mistypes the line loses nothing by it.
-    expect(html).toMatch(/Nothing is spent by this step/);
+    expect(html).toMatch(/This step uses nothing up/);
   });
 
   it('offers no other door', () => {

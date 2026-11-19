@@ -261,6 +261,11 @@
   font-size: var(--t-small);
 }
 
+/* No network in the design at all: the box spans the list. */
+.networks-panel__none {
+  grid-column: 1 / -1;
+}
+
 .networks-panel__footnote {
   padding: var(--s2) var(--s3);
   font-size: var(--t-micro);

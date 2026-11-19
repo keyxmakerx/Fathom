@@ -6,6 +6,7 @@ import { identityOfSlot, PRINCIPAL_KIND_OPERATOR } from './api/constants';
 import { appCodeEnrolmentRequired } from './api/credentials';
 import { ApiRefusal } from './api/errors';
 import { makePracticeSpace } from './components/home/practiceSpace';
+import { FIRST_SAMPLE_WORDS } from './components/home/PracticeWelcome';
 import { describeOwnNetworkFailure, makeOwnNetwork, OwnNetworkFailure, type OwnNetworkProgress, type PreparedOwnNetwork } from './components/home/ownNetwork';
 import {
   beginOperatorBootstrap,
@@ -116,6 +117,9 @@ type OperatorSignInPending =
   | { kind: 'existing'; challenge: SignInChallenge }
   | { kind: 'bootstrap'; accountSession: ActiveSession; bootstrap: OperatorBootstrapChallenge };
 
+/** Under Admin's code field: where the code comes from, and why it is asked for. */
+const ADMIN_CODE_HINT = 'Six digits from your authenticator app. Admin asks for them before it opens.';
+
 /** ADR-0057 decision 2's step-up code prompt, drawn in Home's Admin tab
  * (ADR-0060 decision 7). Outside a popover `usePopoverClose` closes nothing,
  * so it stays put for a retry after a wrong code. */
@@ -152,6 +156,7 @@ function AdminCodePromptForm({
             inputMode="numeric"
             autoComplete="one-time-code"
             spellCheck={false}
+            aria-describedby="console-verification-code-hint"
             value={operatorCode}
             onChange={(event) => onCodeChange(event.target.value)}
             disabled={enteringConsole}
@@ -166,6 +171,10 @@ function AdminCodePromptForm({
           {enteringConsole ? 'Checking…' : 'Continue'}
         </button>
       </div>
+      {/* Says where the code comes from. Outside the input's box, as on the sign-in card. */}
+      <p id="console-verification-code-hint" className="admin-code__hint">
+        {ADMIN_CODE_HINT}
+      </p>
     </form>
   );
 }
@@ -594,7 +603,7 @@ export default function App() {
       if (!getSessionOn(OPERATOR_PLANE)) {
         await enterConsole(() => {});
         if (!getSessionOn(OPERATOR_PLANE)) {
-          setPracticeError('Admin needs your verification code first. Type it above, then press Open practice lab again.');
+          setPracticeError(`Admin needs your verification code first. Type it above, then press ${FIRST_SAMPLE_WORDS.open} again.`);
           return null;
         }
       }

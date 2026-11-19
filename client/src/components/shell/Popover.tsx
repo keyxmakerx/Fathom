@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 
+import { useGhostRef } from './ghost';
+
 export interface PopoverTriggerArgs {
   open: boolean;
   /** Open/close the popover. Call this from whichever element the caller
@@ -53,6 +55,8 @@ export function Popover({ renderTrigger, children, align = 'left', className }: 
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLElement | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  // Closed, the box leaves a still copy that fades out (`ghost.ts`).
+  const boxRef = useGhostRef(popoverRef);
   const id = useId();
 
   useEffect(() => {
@@ -112,7 +116,7 @@ export function Popover({ renderTrigger, children, align = 'left', className }: 
         },
       })}
       {open && (
-        <div className={classes} role="menu" id={id} ref={popoverRef}>
+        <div className={classes} role="menu" id={id} ref={boxRef}>
           <CloseContext.Provider value={() => setOpen(false)}>{children}</CloseContext.Provider>
         </div>
       )}

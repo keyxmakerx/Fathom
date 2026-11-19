@@ -23,7 +23,7 @@ type Loaded = { status: 'loading' } | { status: 'error'; message: string } | { s
 /** The sentence under the table: what was looked in and what is still catching up. */
 export function coverageSentence(answer: Pick<EstateAnswer, 'designs' | 'behind'>): string {
   const sites = answer.designs === 1 ? '1 design' : `${answer.designs.toLocaleString('en-GB')} designs`;
-  const behind = answer.behind > 0 ? ` ${answer.behind.toLocaleString('en-GB')} of them are still being brought up to date, so a recent change may not show yet.` : '';
+  const behind = answer.behind > 0 ? ` ${answer.behind.toLocaleString('en-GB')} of them ${answer.behind === 1 ? 'is' : 'are'} still being brought up to date, so a recent change may not show yet.` : '';
   return `Looked in ${sites} you can open.${behind}`;
 }
 

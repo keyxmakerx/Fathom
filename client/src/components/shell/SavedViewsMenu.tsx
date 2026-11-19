@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react';
 
 import { LAYERS } from '../drawing/layers';
 import { BAR_VIEWS, layersSummary, MAX_NAME, type SavedView } from '../drawing/savedViews';
+import { hint } from './hints';
+import { TOOL_HINT } from './hintWords';
 import { Popover, usePopoverClose } from './Popover';
 import '../../styles/views.css';
 
@@ -55,6 +57,7 @@ export function SavedViewsMenu(props: SavedViewsMenuProps) {
               triggerRef.current = el;
             }}
             {...triggerProps}
+            {...hint('Saved views', TOOL_HINT.views)}
           >
             <svg className="vgroup__eye" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
               <path d="M1 8s2.6-4.5 7-4.5S15 8 15 8s-2.6 4.5-7 4.5S1 8 1 8z" />
@@ -107,7 +110,7 @@ export function SavedViewsMenu(props: SavedViewsMenuProps) {
           )}
         </form>
       ) : (
-        <button type="button" className="vgroup__btn vgroup__btn--plus" aria-label="Save this view" title="Save this view" data-testid="views-add" onClick={() => setAdding(true)}>
+        <button type="button" className="vgroup__btn vgroup__btn--plus" aria-label="Save this view" {...hint('Save this view', TOOL_HINT.saveView)} title="Save this view" data-testid="views-add" onClick={() => setAdding(true)}>
           +
         </button>
       )}
