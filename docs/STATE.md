@@ -548,7 +548,7 @@ menu rises from its button, and Home's tabs have one line that slides between th
   whose model is in the catalogue but whose rack or unit is missing, taken or too small keeps the model
   and its ports ("No rack spot"); every device an import or Inventory adds without a place is pinned on
   the canvas right of the racks (`racks/canvasSpots.ts`), so none is drawn nowhere; a racked device's
-  menu has "Take it out, spot not known"; and a free box's menu offers swap model, firmware, cards and
+  menu has "Take it out, place it later"; and a free box's menu offers swap model, firmware, cards and
   ports like a racked one. Not built: "in this rack, spot unknown" (`MountedIn.position_u` is required).
 - **Look switch** (ADR-0061): Rack (faceplates, dressed cables) or Diagram (plain labelled boxes, square
   lines in sheath colour, view-and-select). Kept per browser, account and design (`drawing/look.ts`). A

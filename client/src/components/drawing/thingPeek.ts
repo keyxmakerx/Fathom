@@ -22,6 +22,8 @@ export type PeekTarget = { kind: 'device' | 'rack' | 'shelf' | 'cable'; id: stri
 const row = (key: string, value: string | null | undefined, none: string): ThingRow =>
   value != null && value.trim() !== '' ? { key, value, empty: false } : { key, value: none, empty: true };
 
+/** What the Model row says of a box with no catalogue model, as its panel does. */
+const NO_MODEL = 'No catalogue model';
 const units = (positionU: number, heightU: number) => (heightU <= 1 ? `U${positionU}` : `U${positionU}–U${positionU + heightU - 1}`);
 
 export function thingPeek(view: ClosetView, target: PeekTarget): ThingPeekCard | null {
@@ -45,7 +47,7 @@ function devicePeek(view: ClosetView, id: string): ThingPeekCard | null {
     return {
       title: chassis.hostname || UNNAMED_HOSTNAME,
       rows: [
-        row('Model', [chassis.vendor, chassis.model].filter(Boolean).join(' '), 'Typed by hand'),
+        row('Model', [chassis.vendor, chassis.model].filter(Boolean).join(' '), NO_MODEL),
         row('Where', racked ? `${racked.rack.label} · ${units(chassis.positionU, chassis.heightU)}` : null, 'Not placed'),
         row('Address', chassis.managementAddress, 'No address'),
         row('Ports', chassis.ports.length > 0 ? `${cabled} of ${chassis.ports.length} cabled` : null, 'No ports'),
@@ -58,7 +60,7 @@ function devicePeek(view: ClosetView, id: string): ThingPeekCard | null {
     return {
       title: occ.occupant.label || UNNAMED_HOSTNAME,
       rows: [
-        row('Model', occ.occupant.model, 'Typed by hand'),
+        row('Model', occ.occupant.model, NO_MODEL),
         row('Where', `${occ.rack.label} · ${occ.shelf.label || 'shelf'}`, 'Not placed'),
         row('Ports', occ.occupant.ports.length > 0 ? `${cabled} of ${occ.occupant.ports.length} cabled` : null, 'No ports'),
       ],
@@ -68,14 +70,14 @@ function devicePeek(view: ClosetView, id: string): ThingPeekCard | null {
   if (fix != null) {
     return {
       title: fix.fixture.label || UNNAMED_HOSTNAME,
-      rows: [row('Model', fix.fixture.model, 'Typed by hand'), row('Where', fix.surface.label, 'Not placed')],
+      rows: [row('Model', fix.fixture.model, NO_MODEL), row('Where', fix.surface.label, 'Not placed')],
     };
   }
   const box = view.free.find((f) => f.id === id);
   if (box != null) {
     return {
       title: box.hostname || UNNAMED_HOSTNAME,
-      rows: [row('Model', box.model, 'Typed by hand'), row('Role', box.role, 'No role'), row('Ports', box.portCount > 0 ? String(box.portCount) : null, 'No ports')],
+      rows: [row('Model', box.model, NO_MODEL), row('Role', box.role, 'No role'), row('Ports', box.portCount > 0 ? String(box.portCount) : null, 'No ports')],
     };
   }
   return null;

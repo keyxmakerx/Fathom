@@ -362,7 +362,7 @@ function PortMacField({ port, actions }: { port: PortView; actions: EditorAction
           onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'port', id: port.id, field: 'mac', value: v }) : undefined}
         />
       </div>
-      <TypedNote shown={(port.mac ?? '').length > 0} />
+      <TypedNote shown={(port.mac ?? '').length > 0} why />
     </>
   );
 }
@@ -583,22 +583,24 @@ function PortCableSection({ view, port, actions }: { view: ClosetView; port: Por
 /** The Inventory board's own mark (`design/proposals/screens/Inventory.dc.html`
  * — "Stored as typed."), shown once a field carries a value: every field
  * this editor writes is `Origin::Hand` (`document/edit.ts`'s `assertHand`),
- * so a present value here is always one a person typed. `extra`, used only
- * for `management_address`, is the board's own ADR-0041 sentence stated
- * once, muted. */
+ * so a present value here is always one a person typed. */
 /** 'each' marks every field (the canvas panel); 'once' leaves it to the page, which says it once (Inventory). */
 export const TypedNoteMode = createContext<'each' | 'once'>('each');
 
-function TypedNote({ shown, extra }: { shown: boolean; extra?: string }) {
+/** `why` adds the reason. The first mark a panel shows gives it, so the two words are never met unexplained. */
+function TypedNote({ shown, why = false }: { shown: boolean; why?: boolean }) {
   const mode = useContext(TypedNoteMode);
   if (!shown || mode === 'once') return null;
   return (
     <div style={TYPED_NOTE_STYLE}>
       <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>Stored as typed.</strong>
-      {extra ? ` ${extra}` : ''}
+      {why ? ` ${TYPED_WHY}` : ''}
     </div>
   );
 }
+
+/** ADR-0041's sentence, as Docs and Plans say it. */
+const TYPED_WHY = 'Fathom does not redact what you type, only what you paste.';
 
 const MANAGEMENT_ADDRESS_NOTE =
   'Fathom does not redact what you type, only what you paste, so it is saved and exported exactly as written.';
@@ -1189,6 +1191,18 @@ function PortsInWords({ chassis }: { chassis: ChassisView }) {
           <li key={line}>{line}</li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** ADR-0051 §1: a box with no catalogue model draws from ports typed by hand and says so, in the words of the
+ * button that gives it one (`DEVICE_WORDS.giveModel`). `lead` is left out where a tag above already says it has
+ * no model. */
+function SketchNote({ lead = true }: { lead?: boolean }) {
+  return (
+    <div style={TYPED_NOTE_STYLE}>
+      {lead ? <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue model. </strong> : null}
+      Its ports are typed by hand.
     </div>
   );
 }
@@ -2109,7 +2123,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'rack', id: rack.id, field: 'row', value: v }) : undefined}
           />
         </div>
-        <TypedNote shown={(rack.row ?? '').length > 0} />
+        <TypedNote shown={(rack.row ?? '').length > 0} why />
 
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Bay</div>
@@ -2120,7 +2134,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'rack', id: rack.id, field: 'bay', value: v }) : undefined}
           />
         </div>
-        <TypedNote shown={rack.bay != null} />
+        <TypedNote shown={rack.bay != null} why={(rack.row ?? '').length === 0} />
 
         {/* ADR-0051 §1 — "a rack's editor gains '+ add a
             shelf'". */}
@@ -2244,7 +2258,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'shelf', id: shelf.id, field: 'label', value: v }) : undefined}
           />
         </div>
-        <TypedNote shown={shelf.label.length > 0} />
+        <TypedNote shown={shelf.label.length > 0} why />
 
         <Field label="Rack" value={`${rack.label} · U${shelf.positionU}`} />
         <NumberField label="Height (U)" value={shelf.heightU} onCommit={actions.onEdit ? (n) => actions.onEdit!({ kind: 'shelf-size', id: shelf.id, heightU: n }) : undefined} />
@@ -2354,12 +2368,12 @@ function panelFor(
           <div className="dev-panel__chips">
             <FirmwareChip deviceId={chassis.deviceId} />
             <ReadingChip deviceId={chassis.deviceId} />
-            {chassisSketch ? <span className="dev-tag">Typed by hand</span> : null}
+            {chassisSketch ? <span className="dev-tag">No catalogue model</span> : null}
           </div>
           <ReadLine deviceId={chassis.deviceId} />
           <ReadDialogHost deviceId={chassis.deviceId} />
           {/* r30-device: said once for the whole panel, not under every field. */}
-          <TypedNote shown={[chassis.hostname, chassis.role, chassis.serial, chassis.managementAddress].some((v) => (v ?? '').length > 0)} />
+          <TypedNote shown={[chassis.hostname, chassis.role, chassis.serial, chassis.managementAddress].some((v) => (v ?? '').length > 0)} why />
         </div>
         <PanelFaceplate chassis={chassis} view={view} />
 
@@ -2375,14 +2389,7 @@ function panelFor(
               body: (
                 <>
                   <div className="drawing-editor__group">Device</div>
-                  {/* ADR-0051 §1 — "a box with no catalogue entry draws
-                      from ports typed by hand and says so." */}
-                  {chassisSketch ? (
-                    <div style={TYPED_NOTE_STYLE}>
-                      <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
-                      hand.
-                    </div>
-                  ) : null}
+                  {chassisSketch ? <SketchNote lead={false} /> : null}
                   <SwapModelControl chassisId={chassis.id} current={chassis.model} catalogue={catalogue} actions={actions} />
                   <div className="drawing-editor__field">
                     <div className="drawing-editor__field-label">Role</div>
@@ -2596,10 +2603,7 @@ function panelFor(
         <Field label="Kind" value={occupant.kind} />
         <Field label="Model" value={occupant.model ?? ABSENT} />
         {occupantSketch ? (
-          <div style={TYPED_NOTE_STYLE}>
-            <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
-            hand.
-          </div>
+          <SketchNote />
         ) : null}
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <Field label="Slot" value={String(occupant.slot)} />
@@ -2659,10 +2663,7 @@ function panelFor(
         <Field label="Model" value={fixture.model ?? ABSENT} />
         {fixture.form ? <Field label="Form" value={fixture.form} /> : null}
         {sketch ? (
-          <div style={TYPED_NOTE_STYLE}>
-            <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
-            hand.
-          </div>
+          <SketchNote />
         ) : null}
         <Field label="Surface" value={surface.label || surface.id} />
         <Field
@@ -2735,7 +2736,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!(setCableFieldChange(cable.id, 'label', v)) : undefined}
           />
         </div>
-        <TypedNote shown={(cable.label ?? '').length > 0} />
+        <TypedNote shown={(cable.label ?? '').length > 0} why />
 
         {/* "its two ends in words (device and port each side, or the
             outside label)". "Go to end A and
@@ -2779,7 +2780,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!(setCableFieldChange(cable.id, 'length_m', v)) : undefined}
           />
         </div>
-        <TypedNote shown={cable.lengthM != null} />
+        <TypedNote shown={cable.lengthM != null} why={(cable.label ?? '').length === 0} />
 
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Ownership</div>
@@ -2791,7 +2792,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!(setCableFieldChange(cable.id, 'ownership', v)) : undefined}
           />
         </div>
-        <TypedNote shown={(cable.ownership ?? '').length > 0} />
+        <TypedNote shown={(cable.ownership ?? '').length > 0} why={(cable.label ?? '').length === 0 && cable.lengthM == null} />
 
         {/* UI-SPEC "Delete/Backspace on a selected cable calls onDisconnect
             — no confirmation dialog" — the panel's own version of the same
