@@ -32,6 +32,8 @@ import type { ShelfView } from '../../document/view';
 
 /** Gap between one rack's portal tray(s) and the next, on the same side. */
 const TRAY_GAP_PX = 12;
+/** Where a wall, desk, ceiling or floor stands in the stack: under every rack (0), and so under what a rack holds. */
+const SURFACE_Z = -1;
 
 export interface DrawingNodeCaches {
   nodeCache: IdCache<Node>;
@@ -283,6 +285,9 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
           position: { x: placementSnapshot.x, y: placementSnapshot.y },
           draggable: false,
           selectable: false,
+          // Behind the racks. A rack moved by hand can stand over a wall, a desk or a ceiling. On one level with
+          // the rack's frame, the panel (made later) hid the frame and left the rack's devices in front of it.
+          zIndex: SURFACE_Z,
           width: placementSnapshot.widthPx,
           height: placementSnapshot.heightPx,
           style: { width: placementSnapshot.widthPx, height: placementSnapshot.heightPx },

@@ -1004,6 +1004,44 @@ try {
     const redone = [await press('Control+Shift+z'), await press('Control+Shift+z')];
     check('and Redo twice comes forward through them', redone.join(' | ') === [dropped[0], dropped[1]].join(' | '), `${redone.join(' | ')}, wanted ${[dropped[0], dropped[1]].join(' | ')}`);
 
+    // A rack over a wall is whole. A rack moved by hand can stand anywhere, and the walls do not move for it. On
+    // one level with the rack's frame, the wall hid the frame and left the rack's devices in front of the wall.
+    // Back where it stood beside the wall first, and the whole lab in view.
+    await press('Control+z');
+    await press('Control+z');
+    await page.getByRole('button', { name: 'Fit to view' }).click();
+    await page.waitForTimeout(1200);
+    const onTop = () =>
+      page.evaluate(() => {
+        const rack = document.querySelector('.react-flow__node-rack');
+        const wall = [...document.querySelectorAll('.react-flow__node-surface')].find((n) => n.textContent.includes('Outside wall'));
+        const frame = rack.querySelector('.drawing-rack__frame').getBoundingClientRect();
+        const w = wall.getBoundingClientRect();
+        const seen = { rack: 0, held: 0, wall: 0 };
+        for (let x = Math.max(frame.x, w.x) + 3; x < Math.min(frame.right, w.right) - 3; x += 5) {
+          for (let y = Math.max(frame.y, w.y) + 3; y < Math.min(frame.bottom, w.bottom) - 3; y += 5) {
+            const top = document.elementFromPoint(x, y);
+            if (top == null) continue;
+            if (rack.contains(top)) seen.rack += 1;
+            else if (top.closest('.react-flow__node-chassis, .react-flow__node-shelf') != null) seen.held += 1;
+            else if (wall.contains(top)) seen.wall += 1;
+          }
+        }
+        return { ...seen, shared: Math.round(Math.min(frame.right, w.right) - Math.max(frame.x, w.x)) };
+      });
+    const before = await place();
+    const boxes = await page.evaluate(() => {
+      const box = (el) => { const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, bottom: b.bottom }; };
+      return { rack: box(document.querySelector('.react-flow__node-rack')), wall: box([...document.querySelectorAll('.react-flow__node-surface')].find((n) => n.textContent.includes('Outside wall'))) };
+    });
+    await dragBy(boxes.wall.x - boxes.rack.x - boxes.rack.width / 2, 20);
+    const over = await onTop();
+    await shot(page, 'SN-14-rack-let-go-on-a-wall');
+    check('a rack let go half over a wall stands there', over.shared > 20 && (await place()) !== before, `${over.shared}px of its frame over the wall`);
+    check('whole: its frame and what it holds in front of the wall, none of the wall in front of it', over.wall === 0 && over.rack > 0 && over.held > 0, JSON.stringify(over));
+    await press('Control+z');
+    check('and Undo takes it back off the wall', (await place()) === before, `${await place()}, wanted ${before}`);
+
     check('no uncaught page errors (the Rack stop)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
