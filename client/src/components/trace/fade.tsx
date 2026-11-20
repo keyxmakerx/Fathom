@@ -1,12 +1,13 @@
 // The path on the canvas: everything the trace does not touch takes the phantom fade (as Checks' Show does), the
 // path's cables draw heavier, and each hop gets a numbered ink circle. No colour.
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { ViewportPortal, useNodes, useReactFlow } from '@xyflow/react';
+import { ViewportPortal, useNodes, useReactFlow, useStoreApi } from '@xyflow/react';
 import type { Edge, Node } from '@xyflow/react';
 
 import { matchShown, type Canon } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
+import { restyle, type Restyled } from '../drawing/restyledNodes';
 import { pathKeys } from './traceModel';
 import { revealedResult } from './tracePlayback';
 import { useTraceRevealed, useTraceResult } from './traceStore';
@@ -25,7 +26,14 @@ export function useTraceFade(nodes: Node[], edges: Edge[]): { nodes: Node[]; edg
   const result = useTraceResult();
   const revealed = useTraceRevealed();
   const checks = useChecksApi();
+  const flow = useStoreApi();
+  // The copy each node was last given. A node handed to React Flow as a new object is measured again and its
+  // cables leave the page until it has been, which starts a lit cable drawing itself again at every hop.
+  const [kept] = useState(() => ({ nodes: new Map<string, Restyled>() }));
   return useMemo(() => {
+    const was = kept.nodes;
+    const now = new Map<string, Restyled>();
+    kept.nodes = now;
     if (result == null) return { nodes, edges };
     const canon = checks?.store.get().canon ?? identity;
     // While the trace plays, only the hops lit so far count; the rest of the canvas stays faded.
@@ -33,11 +41,13 @@ export function useTraceFade(nodes: Node[], edges: Edge[]): { nodes: Node[]; edg
     const playing = revealed != null;
     if (keys.size === 0 && !playing) return { nodes, edges };
     const { nodeIds, edgeIds } = matchShown(nodes, edges, keys, canon);
+    const held = flow.getState().nodeLookup;
+    const dress = (n: Node, cls: string, data?: object) => restyle(was, now, held.get(n.id), n, cls, data);
     return {
-      nodes: nodes.map((n) => (nodeIds.has(n.id) ? (playing ? withClass(n, 'trace-lit') : n) : withClass(n, 'trace-faded', { checksFaded: true }))),
+      nodes: nodes.map((n) => (nodeIds.has(n.id) ? (playing ? dress(n, 'trace-lit') : n) : dress(n, 'trace-faded', { checksFaded: true }))),
       edges: edges.map((e) => (edgeIds.has(e.id) ? withClass(e, playing ? 'trace-path trace-play' : 'trace-path') : withClass(e, 'trace-faded', { checksFaded: true }))),
     };
-  }, [result, revealed, checks, nodes, edges]);
+  }, [result, revealed, checks, nodes, edges, flow, kept]);
 }
 
 interface Spot {
