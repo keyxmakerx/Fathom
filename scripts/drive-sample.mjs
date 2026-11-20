@@ -785,6 +785,14 @@ try {
       };
       requestAnimationFrame(tick);
     });
+    // Where the rack stands on the paper, whatever the camera does.
+    const place = () =>
+      page.evaluate(() => {
+        const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform);
+        const r = document.querySelector('.react-flow__node-rack').getBoundingClientRect();
+        return `${Math.round((r.x - m.e) / m.a)},${Math.round((r.y - m.f) / m.a)}`;
+      });
+    const home = await place();
     const gx = grip.rack.x + 6;
     const gy = grip.rack.bottom - 8;
     await page.mouse.move(gx, gy);
@@ -813,6 +821,33 @@ try {
     check('its cables are still drawn, whole', panned.fewest === panned.cables && panned.mostTags === panned.tags, `${panned.fewest} of ${panned.cables} at the fewest, ${panned.mostTags} cut to a stub`);
     await page.mouse.up();
     await page.waitForTimeout(800);
+
+    // Undo after several drags goes back one drag at a time, and Redo comes forward again. An undo was itself
+    // the next thing Undo took, so the rack went back and forth between its last two places and never further.
+    const dragBy = async (dx, dy) => {
+      const from = (await seen()).rack;
+      const [x, y] = [from.x + 6, from.bottom - 8];
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      for (let i = 1; i <= 8; i += 1) {
+        await page.mouse.move(x + (dx * i) / 8, y + (dy * i) / 8);
+        await page.waitForTimeout(16);
+      }
+      await page.mouse.up();
+      await page.waitForTimeout(700);
+      return place();
+    };
+    const press = async (keys) => {
+      await page.keyboard.press(keys);
+      await page.waitForTimeout(700);
+      return place();
+    };
+    const dropped = [await place(), await dragBy(120, 40), await dragBy(90, -60)];
+    check('the rack is dragged to three places', new Set([home, ...dropped]).size === 4, [home, ...dropped].join(' | '));
+    const undone = [await press('Control+z'), await press('Control+z'), await press('Control+z')];
+    check('Undo three times goes back through them to where it stood', undone.join(' | ') === [dropped[1], dropped[0], home].join(' | '), `${undone.join(' | ')}, wanted ${[dropped[1], dropped[0], home].join(' | ')}`);
+    const redone = [await press('Control+Shift+z'), await press('Control+Shift+z')];
+    check('and Redo twice comes forward through them', redone.join(' | ') === [dropped[0], dropped[1]].join(' | '), `${redone.join(' | ')}, wanted ${[dropped[0], dropped[1]].join(' | ')}`);
 
     check('no uncaught page errors (the Rack stop)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();

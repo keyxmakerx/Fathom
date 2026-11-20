@@ -20,7 +20,7 @@ import { addNote, removeNote } from '../document/notes';
 import { edgesOut, findNode, type Document } from '../document/model';
 import { fitSupply, removeSupply } from '../document/supplies';
 import { listTags, removeTag, renameTag, tagObject, untagObject } from '../document/tags';
-import { redo, undo, undoable } from '../document/undo';
+import { redo, undo, undoSteps } from '../document/undo';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WASM_PATH = path.resolve(__dirname, '../../public/engine/fathom_wasm.wasm');
@@ -127,7 +127,7 @@ describe('Mirror.sync over random command sequences', () => {
         ],
         ['free box', () => { d.doc = createFreeBox(d.doc, { x: 5, y: 5, hostname: `fb${clock}`, ...o() }).doc; }],
         ['disconnect', () => { const c = pick(live(d.doc, 'cable:')); if (c) d.doc = disconnect(d.doc, c, o()); }],
-        ['undo or redo', () => { const b = pick(undoable(d.doc, ACTOR)); if (b) d.doc = (b.reverses !== undefined && R() < 0.5 ? redo : undo)(d.doc, b.id, o()); }],
+        ['undo or redo', () => { const steps = undoSteps(d.doc, ACTOR); const b = pick([...steps.undo, ...steps.redo]); if (b) d.doc = (b.reverses !== undefined && R() < 0.5 ? redo : undo)(d.doc, b.id, o()); }],
         ['comment on an old batch', () => { const i = Math.floor(R() * d.doc.batches.length); d.doc = { ...d.doc, batches: d.doc.batches.map((b, j) => (j === i ? { ...b, comment: `c${clock}` } : b)) }; }],
       ];
       for (let step = 0; step < 40; step += 1) {

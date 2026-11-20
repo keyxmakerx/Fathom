@@ -8,7 +8,7 @@ import { asString, fieldValue, findNode, isNodeOfKind, type Document } from '../
 import { WorkPlaceContext, type WorkPlace } from '../work/WorkFields';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { skippedSentence } from '../../document/liveDoc';
-import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
+import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoSteps } from '../../document/undo';
 import { describeRestore, outlineSelectors } from '../../document/historyDiff';
 import { restoreTo } from '../../document/restore';
 import { viewOf } from '../../document/view';
@@ -52,7 +52,6 @@ import { PasteGateBoundary } from '../paste/PasteGateBoundary';
 import { RacksPlace } from '../racks/RacksPlace';
 import { useDesignEngine } from './useDesignEngine';
 import { Trail } from '../racks/Trail';
-import { redoable } from '../racks/trail';
 import type { PaletteAction } from '../shell/palette';
 import { PaletteRegistryContext, createPaletteRegistry } from '../shell/paletteRegistry';
 import { ShortcutsSheet } from '../shell/ShortcutsSheet';
@@ -146,6 +145,8 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
  * local edit inside that window simply restarts the wait for its own,
  * later snapshot — never marks the earlier one sealed early. */
 const SEAL_SETTLE_MS = 1_500;
+/** Before a design is open, or with nobody signed in: nothing to undo or redo. */
+const NO_STEPS: ReturnType<typeof undoSteps> = { undo: [], redo: [] };
 
 export function DesignPlace(props: DesignPlaceProps) {
   const { organisationId, organisationName = '', designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, scanRequest, onOpenScan, ...shellProps } = props;
@@ -373,13 +374,15 @@ export function DesignPlace(props: DesignPlaceProps) {
   }, [session.doc, session.saveRefusal]);
 
   // ------------------------------------------------------------------
-  // ADR-0053 §1/§3 — undo/redo, live off `undoable`/`trail.ts`'s own
-  // `redoable`, computed here (above where Racks and Inventory are chosen
-  // between) so the bar's Undo/Redo chips work the same in either place —
-  // ADR-0046 §2's "one editor" extended to one undo.
+  // ADR-0053 §1/§3 — undo/redo, live off `undoSteps`, computed here (above
+  // where Racks and Inventory are chosen between) so the bar's Undo/Redo
+  // chips work the same in either place — ADR-0046 §2's "one editor"
+  // extended to one undo. Undo takes the first of its steps and Redo the
+  // first of its own, so each press goes one change further.
   const doc = session.doc;
-  const undoCandidates = doc != null && accountId != null ? undoable(doc, accountId) : [];
-  const redoCandidate = doc != null && accountId != null ? redoable(doc, accountId) : undefined;
+  const steps = useMemo(() => (doc != null && accountId != null ? undoSteps(doc, accountId) : NO_STEPS), [doc, accountId]);
+  const undoCandidates = steps.undo;
+  const redoCandidate = steps.redo[0];
   const [undoRefusal, setUndoRefusal] = useState<string | null>(null);
   // The trail starts folded; a refused undo or redo opens it so the refusal is seen.
   const [trailOpen, setTrailOpen] = useState(() => loadResume(accountId, designId).tab === 'trail');

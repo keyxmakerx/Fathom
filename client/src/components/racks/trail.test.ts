@@ -54,6 +54,28 @@ describe('redoable', () => {
     expect(redoable(redone, ACTOR_A)).toBeUndefined();
   });
 
+  it('takes the later of two undos first, which brings back the older change', () => {
+    const { doc, rackId } = docWithRack(ACTOR_A, NOW);
+    const one = setRackField(doc, rackId, 'row', 'Row A', { actor: ACTOR_A, now: NOW + 1 });
+    const two = setRackField(one, rackId, 'bay', 2, { actor: ACTOR_A, now: NOW + 2 });
+    const undoneTwo = undo(two, two.batches[2].id, { actor: ACTOR_A, now: NOW + 3 });
+    const undoneOne = undo(undoneTwo, two.batches[1].id, { actor: ACTOR_A, now: NOW + 4 });
+    expect(redoable(undoneOne, ACTOR_A)?.label).toBe('undo of set Rack.row');
+    const redone = redo(undoneOne, redoable(undoneOne, ACTOR_A)!.id, { actor: ACTOR_A, now: NOW + 5 });
+    expect(redoable(redone, ACTOR_A)?.label).toBe('undo of set Rack.bay');
+  });
+
+  it('offers nothing once a change has been made since the undo', () => {
+    const { doc, rackId } = docWithRack(ACTOR_A, NOW);
+    const edited = setRackField(doc, rackId, 'row', 'Row A', { actor: ACTOR_A, now: NOW + 1 });
+    const undone = undo(edited, edited.batches[1].id, { actor: ACTOR_A, now: NOW + 2 });
+    const since = setRackField(undone, rackId, 'bay', 2, { actor: ACTOR_A, now: NOW + 3 });
+    expect(redoable(since, ACTOR_A)).toBeUndefined();
+    // A colleague's change is not one of this account's steps, and puts nothing away.
+    const theirs = setRackField(undone, rackId, 'bay', 2, { actor: ACTOR_B, now: NOW + 3 });
+    expect(redoable(theirs, ACTOR_A)?.id).toBe(undone.batches[2].id);
+  });
+
   it('never offers a plain (non-undo) batch, or another account\'s undo', () => {
     const { doc, rackId } = docWithRack(ACTOR_A, NOW);
     expect(redoable(doc, ACTOR_A)).toBeUndefined();

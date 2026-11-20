@@ -81,24 +81,53 @@ export function batchActor(doc: Document, batch: Batch): string | undefined {
   return actor;
 }
 
-/** `accountId`'s own batches, newest first, that no other batch has already
- * reversed. An undo batch is itself an ordinary batch and so is itself
- * undoable (redoable) exactly once more, until something reverses IT in
- * turn. A batch stamped `LOCAL_ACTOR` — or one with no single actor — is
- * never listed, for any `accountId`, `LOCAL_ACTOR` included: nobody is
- * signed in as the sentinel (a batch it stamped is not undoable). */
-export function undoable(doc: Document, accountId: string): Batch[] {
-  const reversed = new Set(doc.batches.map((b) => b.reverses).filter((r): r is string => r !== undefined));
-  const out: Batch[] = [];
-  for (let i = doc.batches.length - 1; i >= 0; i -= 1) {
-    const batch = doc.batches[i];
-    if (reversed.has(batch.id)) continue;
+/** `accountId`'s steps back and forward, each newest first, read off the batches in the order they were made.
+ *
+ * `undo` holds every change of theirs that is in effect, as the batch to reverse to take it back: the change
+ * itself, or the redo that brought it back. `redo` holds every undo of theirs that can still be taken back. An
+ * undo moves its change from the first list to the second and a redo moves it back. A new change empties
+ * `redo`, as in any editor: what was undone before it stays in the trail and is no longer a step forward.
+ *
+ * A batch stamped `LOCAL_ACTOR`, or one with no single actor, is nobody's step, for any `accountId`,
+ * `LOCAL_ACTOR` included: nobody is signed in as the sentinel. A reversal of a batch that is in neither list
+ * (an older client could redo an undo from behind newer changes) counts as a change like any other.
+ */
+export function undoSteps(doc: Document, accountId: string): { undo: Batch[]; redo: Batch[] } {
+  const done: Batch[] = [];
+  const undone: Batch[] = [];
+  // Nearly always the newest, so looked for from that end.
+  const take = (list: Batch[], id: string): boolean => {
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      if (list[i]!.id !== id) continue;
+      list.splice(i, 1);
+      return true;
+    }
+    return false;
+  };
+  for (const batch of doc.batches) {
     const actor = batchActor(doc, batch);
-    if (actor === undefined || actor === LOCAL_ACTOR) continue;
-    if (actor !== accountId) continue;
-    out.push(batch);
+    if (actor === undefined || actor === LOCAL_ACTOR || actor !== accountId) continue;
+    if (batch.reverses !== undefined) {
+      if (take(done, batch.reverses)) {
+        undone.push(batch);
+        continue;
+      }
+      if (take(undone, batch.reverses)) {
+        done.push(batch);
+        continue;
+      }
+    }
+    done.push(batch);
+    undone.length = 0;
   }
-  return out;
+  return { undo: done.reverse(), redo: undone.reverse() };
+}
+
+/** What Undo takes back for `accountId`, the next one first (`undoSteps`). An undo is not in it: the list once
+ * held every batch nothing had reversed, an undo among them, so a second Undo took back the first and the
+ * design went back and forth between its last two states, never further. */
+export function undoable(doc: Document, accountId: string): Batch[] {
+  return undoSteps(doc, accountId).undo;
 }
 
 // ---------------------------------------------------------------------------

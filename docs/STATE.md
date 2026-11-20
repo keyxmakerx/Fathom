@@ -685,7 +685,11 @@ menu rises from its button, and Home's tabs have one line that slides between th
   page. After an edit closes, the keys go back to the grid. `scripts/drive-keep-place.mjs` step 5 drives it.
 - **Notes** are nodes on a device, port or rack: pasted through the gate or stored as typed, and saying so.
 - **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
-  refuses by name. The trail shows sealed and pending, with a comment on the next change.
+  refuses by name. The trail shows sealed and pending, with a comment on the next change. Each Undo goes one
+  change further back and each Redo one forward; a new change leaves nothing to redo (`document/undo.ts`
+  `undoSteps` reads both lists off the batches in order; `drive-sample.mjs` drags a rack to three places and
+  undoes all three). Before r149 an undo was itself the next thing Undo took, so a design went back and forth
+  between its last two states, and Redo could reach behind newer changes for an older undo.
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
   Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.
