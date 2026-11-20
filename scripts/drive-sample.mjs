@@ -659,24 +659,39 @@ try {
     }
 
     // The rule that keeps a card from a pointer at rest leaves the ordinary pause alone: a pointer moved onto a
-    // device shows its card, Esc puts it away, and a nudge that stays on the same part of the device does not
-    // bring it back (onto another part of it, it comes back, as it did before the rule).
+    // device shows its card, and Esc puts it away until the pointer has left the device. A nudge does not bring it
+    // back, and neither does a move onto another part of the device, which once brought it straight back.
     {
       const hover = page.locator('[data-testid=thing-peek], [data-testid=port-peek]');
-      // A spot on a device's row with one part of it, and no port, under the next 8 pixels.
-      const on = await page.evaluate(() => {
+      // A spot on a device's row with one part of it, and no port, under the next 8 pixels; a spot on another
+      // part of the same device; and a spot on the empty canvas.
+      const spots = await page.evaluate(() => {
+        const empty = () => {
+          for (let y = 860; y > 200; y -= 20) {
+            for (let x = 1340; x > 300; x -= 20) if (document.elementFromPoint(x, y)?.classList.contains('react-flow__pane')) return { x, y };
+          }
+          return null;
+        };
         for (const row of document.querySelectorAll('.react-flow__node-chassis')) {
           const b = row.getBoundingClientRect();
           const y = b.y + b.height / 2;
-          for (let x = b.x + 4; x < b.right - 12; x += 4) {
+          const plain = (x) => {
             const el = document.elementFromPoint(x, y);
-            const plain = el != null && row.contains(el) && el.closest('[data-port-id]') == null;
-            if (plain && [2, 4, 6, 8].every((d) => document.elementFromPoint(x + d, y) === el)) return { x, y };
+            return el != null && row.contains(el) && el.closest('[data-port-id]') == null ? el : null;
+          };
+          for (let x = b.x + 4; x < b.right - 12; x += 4) {
+            const el = plain(x);
+            if (el == null || ![2, 4, 6, 8].every((d) => document.elementFromPoint(x + d, y) === el)) continue;
+            for (let far = x + 12; far < b.right - 2; far += 2) {
+              const part = plain(far);
+              if (part != null && part !== el) return { on: { x, y }, other: { x: far, y }, off: empty() };
+            }
           }
         }
         return null;
       });
-      check('a device has a spot clear of its ports to point at', on != null);
+      check('a device has two parts clear of its ports to point at', spots != null && spots.off != null);
+      const { on, other, off } = spots;
       await page.mouse.move(on.x, on.y, { steps: 6 });
       await page.waitForTimeout(900);
       check('a pointer moved onto a device shows its hover card as before', (await hover.count()) === 1, String(await hover.count()));
@@ -684,6 +699,17 @@ try {
       await page.mouse.move(on.x + 8, on.y, { steps: 4 });
       await page.waitForTimeout(900);
       check('Esc puts it away, and a nudge on the same part of the device does not bring it back', (await hover.count()) === 0, String(await hover.count()));
+      await page.mouse.move(other.x, other.y, { steps: 6 });
+      await page.waitForTimeout(900);
+      check('nor does a move onto another part of the same device', (await hover.count()) === 0, String(await hover.count()));
+      await page.mouse.move(off.x, off.y, { steps: 6 });
+      await page.waitForTimeout(300);
+      await page.mouse.move(on.x, on.y, { steps: 6 });
+      await page.waitForTimeout(900);
+      check('pointed at again from somewhere else, it shows', (await hover.count()) === 1, String(await hover.count()));
+      await page.keyboard.press('Escape');
+      await page.mouse.move(off.x, off.y, { steps: 6 });
+      await page.waitForTimeout(300);
     }
 
     // A camera the person has moved since is theirs: closing the trace leaves it alone.

@@ -8,7 +8,9 @@
 // callout a click on a device's name used to draw. A click always opens the panel; a pause says what it is.
 //
 // The pause has to be the person's. After a press, a key or the wheel nothing shows until the pointer has moved:
-// what comes to a pointer at rest (the camera glides, a card over the canvas goes away) was not pointed at.
+// what comes to a pointer at rest (the camera glides, a card over the canvas goes away) was not pointed at. And
+// what the pointer was on is put away until the pointer has left it: another part of the same thing is not
+// pointing at it afresh.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -87,6 +89,24 @@ export function thingOf(target: EventTarget | null): Exclude<Target, { kind: 'po
   return null;
 }
 
+/** One name for a target whichever of its elements the pointer is on: a cable is drawn as more than one. */
+export function keyOf(t: { el: { dataset: DOMStringMap }; kind: Target['kind']; id?: string } | null): string | null {
+  if (t == null) return null;
+  return t.kind === 'port' ? `port:${t.el.dataset.portId ?? t.el.dataset.jotPort ?? ''}` : `${t.kind}:${t.id ?? ''}`;
+}
+
+/** What a press, a key or the wheel put away, and the element it is drawn in. */
+export interface PutAway {
+  key: string;
+  el: Pick<Node, 'contains'>;
+}
+
+/** Whether the pointer is still on what was put away: on the thing itself, or on something drawn inside it (a
+ * port of the device, a device on the shelf). Until it has left, the thing's card stays away. */
+export function stillOn(away: PutAway | null, key: string | null, target: Node | null): boolean {
+  return away != null && (key === away.key || (target != null && away.el.contains(target)));
+}
+
 /** A cable is being drawn or a device dragged: no card now. */
 function busy(): boolean {
   return document.querySelector('.react-flow__connectionline, .react-flow__node.dragging, .jot__wire') != null;
@@ -111,12 +131,12 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
     let timer: ReturnType<typeof setTimeout> | null = null;
     let current: HTMLElement | null = null;
     let savedTitle: string | null = null;
-    // Where the pointer was last seen and what it was on, and both again as they were at the last press, key or
-    // turn of the wheel.
+    // Where the pointer was last seen and what it was on; where it was at the last press, key or turn of the
+    // wheel; and what it was on then, which stays away until the pointer has left it.
     let at: { x: number; y: number } | null = null;
-    let on: HTMLElement | null = null;
+    let on: Target | null = null;
     let rest: { x: number; y: number } | null = null;
-    let restOn: HTMLElement | null = null;
+    let away: PutAway | null = null;
 
     const release = () => {
       if (current != null) {
@@ -172,19 +192,22 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
     const onOver = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
       at = { x: e.clientX, y: e.clientY };
-      on = targetOf(e.target)?.el ?? null;
+      on = targetOf(e.target);
+      // Off what was put away, it can be pointed at afresh. On another part of it, it cannot: every part of a
+      // device the pointer crosses is a new element, and each once brought the card straight back.
+      if (!stillOn(away, keyOf(on), e.target instanceof Node ? e.target : null)) away = null;
       if (pointerAtRest(rest, e.clientX, e.clientY)) return;
       rest = null;
-      point(e);
+      if (away == null || keyOf(on) !== away.key) point(e);
     };
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
       at = { x: e.clientX, y: e.clientY };
       if (rest == null || pointerAtRest(rest, e.clientX, e.clientY)) return;
       // The pointer has stirred: what came under it while it rested is now pointed at. What it was already on
-      // was put away by the press or the key, and stays away until it is pointed at afresh.
+      // was put away by the press or the key, and stays away.
       rest = null;
-      if (targetOf(e.target)?.el !== restOn) point(e);
+      if (away == null || keyOf(targetOf(e.target)) !== away.key) point(e);
     };
     const onOut = (e: PointerEvent) => {
       if (current == null) return;
@@ -204,7 +227,8 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
     };
     const settle = () => {
       rest = at;
-      restOn = on;
+      const key = keyOf(on);
+      away = on != null && key != null ? { key, el: on.el } : null;
     };
     const onAnyAction = (e?: Event) => {
       if (e instanceof MouseEvent) at = { x: e.clientX, y: e.clientY };
