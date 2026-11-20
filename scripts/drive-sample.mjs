@@ -264,6 +264,61 @@ try {
     await page.waitForTimeout(900);
     const hintSays = await page.getByTestId('hint').innerText().catch(() => '');
     check('pointing at Layers shows its hint', /Layers/.test(hintSays), hintSays.slice(0, 80));
+
+    // Search over a device's card. Esc is Search's first and the card's second: it once closed the card hidden
+    // behind Search and left Search open. A press on the sheet's foot once took the focus out of the box, and no
+    // key answered after it.
+    const card = page.getByTestId('quick-card');
+    if ((await card.count()) === 0 && routerBox != null) {
+      await page.mouse.click(routerBox.x + routerBox.width / 2, routerBox.y + routerBox.height / 2);
+      await page.waitForTimeout(600);
+    }
+    check("the router's card is showing before Search opens", (await card.count()) === 1);
+    // Closed, Search leaves the way it came: a still copy of its sheet fades where it hung. The page keeps a note
+    // of every copy as it is made, so nothing here depends on catching one in the 120ms it lasts.
+    await page.evaluate(() => {
+      window.__copies = [];
+      new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (!(node instanceof HTMLElement) || !node.hasAttribute('data-ghost')) continue;
+            const texts = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+            let words = 0;
+            for (let t = texts.nextNode(); t != null; t = texts.nextNode()) if (t.data.trim() !== '') words += 1;
+            const sheet = node.querySelector('.float-sheet');
+            window.__copies.push({
+              kind: node.classList.item(0),
+              inert: node.inert,
+              hidden: node.getAttribute('aria-hidden'),
+              words,
+              named: node.querySelectorAll('[role], [aria-label], [data-testid], [tabindex], :not(svg *)[id]').length,
+              typed: node.querySelector('input')?.value ?? null,
+              sheetLeaves: sheet ? getComputedStyle(sheet).animationName : null,
+            });
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette', { timeout: 5_000 });
+    await page.keyboard.type('switch');
+    await page.waitForTimeout(300);
+    await page.locator('.palette__keys').click();
+    const focusAt = await page.evaluate(() => document.activeElement?.className ?? '');
+    check('a press on the foot of Search leaves the focus in its box', focusAt === 'palette__input', focusAt);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(600);
+    check('one Esc closes Search', (await page.locator('.palette').count()) === 0);
+    check('and leaves the card under it showing', (await card.count()) === 1);
+    const copies = (await page.evaluate(() => window.__copies)).filter((c) => c.kind === 'float-scrim');
+    check('closed, Search leaves one still copy of its sheet', copies.length === 1, JSON.stringify(copies));
+    check('the copy cannot be pressed, read or found', copies.length === 1 && copies[0].inert && copies[0].hidden === 'true' && copies[0].words === 0 && copies[0].named === 0, JSON.stringify(copies));
+    check('it shows what was typed, and its sheet goes back the way it came', copies[0]?.typed === 'switch' && copies[0]?.sheetLeaves === 'float-sheet-out', JSON.stringify(copies));
+    check('the copy is gone a moment later', (await page.locator('.float-scrim').count()) === 0);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    check('a second Esc closes the card', (await card.count()) === 0);
+
     check(`no uncaught page errors (${scheme})`, pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }

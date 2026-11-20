@@ -95,4 +95,32 @@ describe('the copy a closing menu leaves', () => {
   it('is not drawn at all for someone who asked for less motion', () => {
     expect(BASE).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\[data-ghost\]\s*\{\s*display: none/);
   });
+
+  // `[data-ghost] *` matches no ::before or ::after, so a mark drawn in one would arrive again as its menu left.
+  it('holds still what a ::before or ::after draws, as it holds the rest', () => {
+    const rule = /\[data-ghost\]::before,\s*\[data-ghost\]::after,\s*\[data-ghost\] \*::before,\s*\[data-ghost\] \*::after\s*\{([^}]*)\}/.exec(BASE)?.[1] ?? '';
+    expect(rule).toMatch(/animation:\s*none\s*!important/);
+    expect(rule).toMatch(/transition:\s*none\s*!important/);
+  });
+});
+
+describe('the copy a closing sheet leaves', () => {
+  const PALETTE = readFileSync(fileURLToPath(new URL('../../styles/palette.css', import.meta.url)), 'utf8');
+  const frames = (name: string) => new RegExp(`@keyframes ${name}\\s*\\{([\\s\\S]*?\\})\\s*\\}`).exec(PALETTE)?.[1] ?? '';
+  const step = (name: string, at: 'from' | 'to') => new RegExp(`${at}\\s*\\{([^}]*)\\}`).exec(frames(name))?.[1]?.replace(/\s+/g, ' ').trim();
+  const rule = (selector: string) => PALETTE.split(`${selector} {`)[1]?.split('}')[0] ?? '';
+
+  it('goes back the way the sheet came', () => {
+    expect(step('float-sheet-out', 'to')).toBe('opacity: 0; transform: translateY(-8px) scale(0.985);');
+    expect(step('float-sheet-out', 'to')).toBe(step('float-sheet-in', 'from'));
+  });
+
+  it('clears the wash behind it by its colour, so the sheet is not faded twice', () => {
+    expect(step('float-scrim-out', 'to')).toBe('background-color: transparent;');
+  });
+
+  it('goes in the same time as a closing menu', () => {
+    expect(rule('.float-scrim[data-ghost]')).toMatch(/float-scrim-out var\(--m-hover\b[^)]*\)[^;]*!important/);
+    expect(rule('.float-scrim[data-ghost] > .float-sheet')).toMatch(/float-sheet-out var\(--m-hover\b[^)]*\)[^;]*!important/);
+  });
 });

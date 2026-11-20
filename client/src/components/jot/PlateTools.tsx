@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import type { TemplatePort } from '../../document/plate';
 import type { ChassisView } from '../../document/view';
 import { newUlid } from '../../document/ulid';
+import { useGhostRef } from '../shell/ghost';
 import { captureTemplate, useFaceplateTemplates, type FaceplateTemplate, type TemplateOwner } from './faceplateTemplates';
 import './plateTools.css';
 
@@ -55,6 +56,8 @@ function TemplatesButton({ owner, device, empty, onApply }: { owner: TemplateOwn
   const [name, setName] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useGhostRef<HTMLDivElement>();
   const typed = device.ports.filter((p) => p.rowKind === undefined);
 
   useEffect(() => {
@@ -62,8 +65,20 @@ function TemplatesButton({ owner, device, empty, onApply }: { owner: TemplateOwn
     const away = (e: PointerEvent) => {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
     };
+    // The list is the top thing while it is open: Esc closes it wherever the focus is, and nothing under it.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
     window.addEventListener('pointerdown', away, true);
-    return () => window.removeEventListener('pointerdown', away, true);
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', away, true);
+      document.removeEventListener('keydown', onKey, true);
+    };
   }, [open]);
 
   if (typed.length === 0 && !(empty && templates.length > 0)) return null;
@@ -78,21 +93,16 @@ function TemplatesButton({ owner, device, empty, onApply }: { owner: TemplateOwn
 
   return (
     <span className="plate-templates" ref={boxRef}>
-      <button type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}>
+      <button ref={triggerRef} type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}>
         {label}
       </button>
       {open && (
         <div
+          ref={popRef}
           className="plate-templates__pop"
           role="dialog"
           aria-label="Faceplate templates"
           onPointerDown={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              setOpen(false);
-            }
-          }}
         >
           {typed.length > 0 && (
             <form

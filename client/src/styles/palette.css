@@ -317,6 +317,29 @@
   }
 }
 
+/* Closed, the sheet's still copy goes back the way it came while the wash behind it clears (`shell/ghost.ts`).
+   The wash clears by its colour, so the sheet inside fades once, on its own. */
+.float-scrim[data-ghost] {
+  animation: float-scrim-out var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both !important;
+}
+
+.float-scrim[data-ghost] > .float-sheet {
+  animation: float-sheet-out var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both !important;
+}
+
+@keyframes float-scrim-out {
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes float-sheet-out {
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+}
+
 @keyframes float-mark-in {
   from {
     transform: scaleY(0.4);

@@ -205,6 +205,14 @@
   transition: none !important;
   pointer-events: none !important;
 }
+/* A mark drawn in ::before or ::after holds still in the copy as well, rather than arriving again. */
+[data-ghost]::before,
+[data-ghost]::after,
+[data-ghost] *::before,
+[data-ghost] *::after {
+  animation: none !important;
+  transition: none !important;
+}
 [data-ghost-text] {
   display: contents;
 }
