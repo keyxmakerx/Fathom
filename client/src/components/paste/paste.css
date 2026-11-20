@@ -2,11 +2,13 @@
 .paste-card {
   position: absolute;
   left: 50%;
-  top: var(--s5, 24px);
+  /* Under the canvas tools (8px + their 34px + a gap), the line the question card keeps (`trace.css`). Higher up,
+     the tool row lay over the card's top edge. */
+  top: 52px;
   transform: translateX(-50%);
   z-index: calc(var(--z-modal) + 2);
   width: min(32rem, calc(100% - 2 * var(--s4)));
-  max-height: calc(100% - 2 * var(--s5, 24px));
+  max-height: calc(100% - 52px - var(--s5, 24px));
   overflow: auto;
   background: var(--page);
   color: var(--ink);

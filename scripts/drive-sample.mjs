@@ -363,7 +363,10 @@ try {
         const style = getComputedStyle(el);
         const box = el.getBoundingClientRect();
         const pane = document.querySelector('.shell__drawing')?.getBoundingClientRect();
-        return { by: style.animationName, ms: style.animationDuration, opacity: style.opacity, offCentre: pane ? Math.round(box.left + box.width / 2 - (pane.left + pane.width / 2)) : null };
+        // How far its top is below the tool row, where the two share any width: under 0, the row lies over it.
+        const tools = [...document.querySelectorAll('.shell-canvas-bar__group')].map((g) => g.getBoundingClientRect()).filter((g) => g.width > 0 && g.left < box.right && g.right > box.left);
+        const underTools = tools.length > 0 ? Math.round(box.top - Math.max(...tools.map((g) => g.bottom))) : null;
+        return { by: style.animationName, ms: style.animationDuration, opacity: style.opacity, offCentre: pane ? Math.round(box.left + box.width / 2 - (pane.left + pane.width / 2)) : null, underTools };
       }, selector);
     const openLearn = async () => {
       await page.keyboard.press('Control+k');
@@ -397,6 +400,7 @@ try {
     const cardIn = await arriving('[data-testid=paste-card]');
     check('the paste card drops into place', pasted && cardIn?.by === 'paste-card-in' && cardIn.ms === '0.16s', JSON.stringify(cardIn));
     check('and rests in the middle of the canvas, fully drawn', cardIn != null && cardIn.opacity === '1' && Math.abs(cardIn.offCentre ?? 99) <= 1, JSON.stringify(cardIn));
+    check('and opens under the tool row, not behind it', cardIn?.underTools != null && cardIn.underTools >= 0, `${cardIn?.underTools}px below it`);
     await page.keyboard.press('Escape');
     await page.waitForSelector('[data-testid=paste-card]', { state: 'detached', timeout: 5_000 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
