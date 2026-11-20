@@ -357,7 +357,8 @@ card on hover or keyboard focus: its name, one plain sentence, its key (`shell/h
 words in `hintWords.ts`). After a press, a key or the wheel no card shows until the pointer has travelled,
 so a tool that slides under a pointer at rest stays quiet. A closed menu, right-click menu or quick card leaves a still copy that fades out
 the way it came (`shell/ghost.ts`): the real thing is gone at once, and the copy has no words, names, roles
-or test ids in the page. Back opens the tool row for itself instead of pushing the tools along, the zoom
+or test ids in the page. Search, the shortcuts sheet, Share and the faceplate templates list leave the same
+way (r149). Back opens the tool row for itself instead of pushing the tools along, the zoom
 menu rises from its button, and Home's tabs have one line that slides between them.
 
 **Sign-in and the console**
@@ -459,7 +460,8 @@ menu rises from its button, and Home's tabs have one line that slides between th
   names the button that Home has (New design, or Start drawing on first Home); a step
   done since the last visit ticks itself on Home, once (r147). Hidden, it lives under Help. On the canvas the
   sample's "Try a question" card folds on a click on the drawing and has a Hide, and both last the visit:
-  the card stays as it was left when a device or a trace is opened and closed (r147). Not built: tracing from a device on
+  the card stays as it was left when a device or a trace is opened and closed (r147), and is not drawn over
+  the site or building page above the closet (r149). Not built: tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
 - **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
   `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
@@ -525,7 +527,10 @@ menu rises from its button, and Home's tabs have one line that slides between th
   stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. A stop picked from the zoom menu lands on what
   is selected, or on the nearest thing when the middle of the view is empty (`racks/zoomAim.ts`; r147), and
   the menu closes. Ctrl+wheel or pinch zooms (max 400%), the
-  wheel pans. A design reopens where its camera was left (`design/resume.ts`), exactly, however far out; from
+  wheel pans. They go out to 77.5%, or as far out as the camera has been on this visit, so a pinch from a
+  fitted view starts where the drawing is (`geometry.ts` `wheelFloor`; r149). The opening fit and Fit to view
+  keep what they frame, trays included, clear of the tool row, the zoom buttons and a sample's question card
+  (`paddingClearOf`; r149). A design reopens where its camera was left (`design/resume.ts`), exactly, however far out; from
   there the pill's + and − move the drawing (before r147 they changed the number only, for the whole visit;
   `drive-sample.mjs` checks it). Placing snaps to a unit and refuses an overlap with a shake. Every change saves: one in
   flight, the latest queued, a refusal shown and never rolled back. A rack's height is 42U, 24U, 12U or
@@ -535,7 +540,9 @@ menu rises from its button, and Home's tabs have one line that slides between th
   place (its `LayoutPin`, saved as seen from the front, mirrored when the row shows the rear; undo returns it
   to its bay slot; ADR-0074 decision 5, `scripts/drive-rack-place.mjs`). A read-only viewer's drag lasts the session.
 - **Shelves, surfaces, sketches** (ADR-0051): shelves take units and slots; devices fix to a wall, floor,
-  desk, ceiling or board. A device with no model carries ports typed by hand and says so. Outlet boxes and
+  desk, ceiling or board. A closet's walls, desks and ceilings stand in columns beside its racks, tallest
+  first, each at least as tall as the tallest rack there, or 42U with no rack (`drawing/rows.ts`
+  `panelColumns`; r149). A device with no model carries ports typed by hand and says so. Outlet boxes and
   panels get pass-through pairs and a lit path.
 - **Cables.** Bundles fan open on hover; a hovered or selected cable lights its whole path; a cable leaving
   the closet ends in a dashed portal tray. PSU inlets on the rail. Ports sit at catalogue row and column;
@@ -626,7 +633,8 @@ menu rises from its button, and Home's tabs have one line that slides between th
   it says **Back** instead of Open inside. It ends with **Also in**: the plans that touch the device, its
   open checks and AI ideas about it. Details' sections after Device and Location can be hidden and
   reordered (kept in this browser; Management cannot be hidden). Connections lists six and Show all. A
-  design reopens on the place and panel tab it was left on; Esc closes only the top thing. Names of
+  design reopens on the place and panel tab it was left on; Esc closes only the top thing (with Search, a
+  sheet or a dialog over the page the Esc is that thing's, and a device's card behind it stays; r149). Names of
   devices, ports, racks and cables in Plans, Checks, History, It's down and Trace select the thing.
 - **Model suggestion** (`document/guessModel.ts`, `scripts/drive-model-guess.mjs`). A box typed by hand
   is offered one catalogue model when its platform, notes, port names or cable labels name it, or a
@@ -646,7 +654,8 @@ menu rises from its button, and Home's tabs have one line that slides between th
 
 **Inventory, notes, undo** (ADR-0053, 0058, 0059)
 - Two places over one document: Canvas and Inventory. Inventory has a rail of kinds, a device grid
-  grouped per rack, the Gaps section, one page as the editor, and Show on rack. Networks kind: VLANs,
+  grouped per rack, the Gaps section, one page as the editor, and Show on rack. A column is at least as wide
+  as its head needs, sort mark included, so no head is cut (`inventory/headRoom.ts`; r149). Networks kind: VLANs,
   subnets, Docker networks with containers and published ports.
 - **Coming back finds it as left** (owner, 2026-11-02). Leaving Inventory or the Sheet for the canvas and
   returning keeps the list, filter, sort, Where, scroll, the open page and its tab, and Parts' On hand. Only
