@@ -128,12 +128,13 @@ try {
   check('scan: with no camera or reader the sheet says so in words', /can't read barcodes|No camera|not allowed/.test(say), say);
   await shot('phone-02-scan.png');
   await page.getByRole('button', { name: 'Close' }).click();
-  check('scan: Close takes the sheet away', (await page.locator('.phone-scan').count()) === 0);
+  // The sheet itself: closed, it leaves a still copy that fades for a moment (`shell/ghost.ts`).
+  check('scan: Close takes the sheet away', (await page.locator('.phone-scan:not([data-ghost])').count()) === 0);
 
   const origin = new URL(BASE).origin;
   await scanType(`${origin}/scan#design-drive/${cableIds[0]}`);
   await page.waitForSelector('.inv-page', { timeout: 10_000 });
-  check('scan: a label for this design opens its cable page', (await page.locator('.phone-scan').count()) === 0 && /THE RUN|the run/i.test(await page.locator('.inv-page').innerText()));
+  check('scan: a label for this design opens its cable page', (await page.locator('.phone-scan:not([data-ghost])').count()) === 0 && /THE RUN|the run/i.test(await page.locator('.inv-page').innerText()));
   check('scan: the address is the ordinary Inventory address', await page.evaluate((id) => decodeURIComponent(location.hash).includes(`o=cable:${id}`), cableIds[0]));
   check('scan: the cable page lists the corrections waiting, with Accept', /corrections waiting/i.test(await page.locator('.inv-corr').first().innerText()) && (await page.getByRole('button', { name: 'Accept' }).count()) > 0);
   check('scan: nothing scrolls sideways on the cable page', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));

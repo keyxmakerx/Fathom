@@ -144,6 +144,11 @@
     animation: none;
   }
 }
+/* Closed, its still copy fades as it came (`shell/ghost.ts`). With the camera showing it leaves none: a copy of a
+   camera picture is empty. */
+.phone-scan[data-ghost] {
+  animation: fathom-fade-out var(--m-hover) var(--m-ease) both !important;
+}
 .phone-scan__head {
   display: flex;
   align-items: center;

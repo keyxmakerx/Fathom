@@ -8,6 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { copiesMade, watchCopies } from './drive-lib/copies.mjs';
 import { check, fails, waitForServer } from './drive-lib/kit.mjs';
 
 const pw = await import(
@@ -311,29 +312,7 @@ try {
     check('and leaves the card behind it showing', (await card.count()) === 1);
     // Closed, Search leaves the way it came: a still copy of its sheet fades where it hung. The page keeps a note
     // of every copy as it is made, so nothing here depends on catching one in the 120ms it lasts.
-    await page.evaluate(() => {
-      window.__copies = [];
-      new MutationObserver((records) => {
-        for (const record of records) {
-          for (const node of record.addedNodes) {
-            if (!(node instanceof HTMLElement) || !node.hasAttribute('data-ghost')) continue;
-            const texts = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-            let words = 0;
-            for (let t = texts.nextNode(); t != null; t = texts.nextNode()) if (t.data.trim() !== '') words += 1;
-            const sheet = node.querySelector('.float-sheet');
-            window.__copies.push({
-              kind: node.classList.item(0),
-              inert: node.inert,
-              hidden: node.getAttribute('aria-hidden'),
-              words,
-              named: node.querySelectorAll('[role], [aria-label], [data-testid], [tabindex], :not(svg *)[id]').length,
-              typed: node.querySelector('input')?.value ?? null,
-              sheetLeaves: sheet ? getComputedStyle(sheet).animationName : null,
-            });
-          }
-        }
-      }).observe(document.body, { childList: true, subtree: true });
-    });
+    await watchCopies(page);
     await page.keyboard.press('Control+k');
     await page.waitForSelector('.palette', { timeout: 5_000 });
     await page.keyboard.type('switch');
@@ -345,10 +324,10 @@ try {
     await page.waitForTimeout(600);
     check('one Esc closes Search', (await page.locator('.palette').count()) === 0);
     check('and leaves the card under it showing', (await card.count()) === 1);
-    const copies = (await page.evaluate(() => window.__copies)).filter((c) => c.kind === 'float-scrim');
+    const copies = (await copiesMade(page)).filter((c) => c.kind === 'float-scrim');
     check('closed, Search leaves one still copy of its sheet', copies.length === 1, JSON.stringify(copies));
     check('the copy cannot be pressed, read or found', copies.length === 1 && copies[0].inert && copies[0].hidden === 'true' && copies[0].words === 0 && copies[0].named === 0, JSON.stringify(copies));
-    check('it shows what was typed, and its sheet goes back the way it came', copies[0]?.typed === 'switch' && copies[0]?.sheetLeaves === 'float-sheet-out', JSON.stringify(copies));
+    check('it shows what was typed, and its sheet goes back the way it came', copies[0]?.typed === 'switch' && copies[0]?.boxLeaves === 'float-sheet-out', JSON.stringify(copies));
     check('the copy is gone a moment later', (await page.locator('.float-scrim').count()) === 0);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
@@ -394,15 +373,33 @@ try {
     await openLearn();
     const learnIn = await arriving('.learn-overlay');
     check('Learn fades in over the design', learnIn?.by === 'fathom-fade-in' && learnIn.ms === '0.16s' && learnIn.opacity === '1', JSON.stringify(learnIn));
+    // A dialog leaves the way it came: closed, a still copy of it fades where it hung, and is gone a moment later.
+    const still = (c) => c != null && c.inert && c.hidden === 'true' && c.words === 0 && c.named === 0;
+    await copiesMade(page);
     await page.keyboard.press('Escape');
-    await page.waitForSelector('.learn-overlay', { state: 'detached', timeout: 5_000 });
+    await page.waitForSelector('.learn-overlay:not([data-ghost])', { state: 'detached', timeout: 5_000 });
+    await page.waitForTimeout(500);
+    const learnOut = (await copiesMade(page)).filter((c) => c.kind === 'learn-overlay');
+    check('closed, Learn fades out as it came, and nothing in its copy can be pressed, read or found', learnOut.length === 1 && learnOut[0].leaves === 'fathom-fade-out' && still(learnOut[0]), JSON.stringify(learnOut));
+    check('the copy of Learn is gone a moment later', (await page.locator('.learn-overlay').count()) === 0);
     const pasted = await openPasteCard();
     const cardIn = await arriving('[data-testid=paste-card]');
     check('the paste card drops into place', pasted && cardIn?.by === 'paste-card-in' && cardIn.ms === '0.16s', JSON.stringify(cardIn));
     check('and rests in the middle of the canvas, fully drawn', cardIn != null && cardIn.opacity === '1' && Math.abs(cardIn.offCentre ?? 99) <= 1, JSON.stringify(cardIn));
     check('and opens under the tool row, not behind it', cardIn?.underTools != null && cardIn.underTools >= 0, `${cardIn?.underTools}px below it`);
+    const cardAt = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid=paste-card]')?.getBoundingClientRect();
+      return b ? { left: Math.round(b.left), top: Math.round(b.top) } : null;
+    });
+    await copiesMade(page);
     await page.keyboard.press('Escape');
     await page.waitForSelector('[data-testid=paste-card]', { state: 'detached', timeout: 5_000 });
+    await page.waitForTimeout(500);
+    const cardOut = (await copiesMade(page)).filter((c) => c.kind === 'paste-card');
+    check('closed, the paste card goes back the way it came', cardOut.length === 1 && cardOut[0].leaves === 'paste-card-out' && still(cardOut[0]), JSON.stringify(cardOut));
+    // The shared leaving motion would take away the shift that centres the card, and its copy would start half a card to the right.
+    check('and its copy starts where the card hung', cardOut.length === 1 && cardAt != null && Math.abs(cardOut[0].left - cardAt.left) <= 1 && Math.abs(cardOut[0].top - cardAt.top) <= 1, JSON.stringify({ cardAt, cardOut }));
+    check('the copy of the paste card is gone a moment later', (await page.locator('.paste-card').count()) === 0);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await openLearn();
     const learnStill = await arriving('.learn-overlay');
@@ -410,8 +407,11 @@ try {
     await page.waitForSelector('.learn-overlay', { state: 'detached', timeout: 5_000 });
     const pastedStill = await openPasteCard();
     const cardStill = await arriving('[data-testid=paste-card]');
+    await copiesMade(page);
     await page.keyboard.press('Escape');
     await page.waitForSelector('[data-testid=paste-card]', { state: 'detached', timeout: 5_000 });
+    await page.waitForTimeout(300);
+    check('and under reduced motion a closed dialog leaves no copy', (await copiesMade(page)).length === 0);
     await page.emulateMedia({ reducedMotion: null });
     check('under reduced motion neither moves', learnStill?.by === 'none' && pastedStill && cardStill?.by === 'none' && Math.abs(cardStill.offCentre ?? 99) <= 1, JSON.stringify({ learnStill, cardStill }));
 

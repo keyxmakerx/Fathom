@@ -25,6 +25,10 @@
     animation: none;
   }
 }
+/* Closed, its still copy fades as it came, and the design under it does not move (`shell/ghost.ts`). */
+.learn-overlay[data-ghost] {
+  animation: fathom-fade-out var(--m-hover) var(--m-ease) both !important;
+}
 
 .learn-overlay__head {
   display: flex;

@@ -31,6 +31,7 @@ import { readFile } from '../../import/read';
 import type { GatedTable } from '../../import/table';
 import { oneLine } from '../../import/text';
 import './import.css';
+import { useGhostRef } from '../shell/ghost';
 import { useModal } from '../shell/useModal';
 
 export interface ImportSummary {
@@ -111,6 +112,7 @@ export function ImportDialog(props: ImportDialogProps) {
   }, [doc, fieldDefs]);
 
   const dialogRef = useRef<HTMLDivElement>(null);
+  const washRef = useGhostRef(dialogRef);
   useModal(dialogRef, () => {
     if (!busy) onCancel();
   });
@@ -250,7 +252,7 @@ export function ImportDialog(props: ImportDialogProps) {
   const itemsOf = (b: Bucket) => (plan ? plan.items.filter((i) => i.bucket === b) : []);
 
   return (
-    <div className="imp" role="dialog" aria-modal="true" aria-label="Bring a network in" ref={dialogRef}>
+    <div className="imp" role="dialog" aria-modal="true" aria-label="Bring a network in" ref={washRef}>
       <div className="imp__box">
         <ol className="imp__steps" aria-label="Steps">
           {STEPS.map((s) => (

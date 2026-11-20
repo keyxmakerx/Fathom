@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { barAction } from './drive-lib/bar.mjs';
+import { copiesMade, watchCopies } from './drive-lib/copies.mjs';
 import { check, fails, waitForServer } from './drive-lib/kit.mjs';
 
 const pw = await import(
@@ -231,8 +232,23 @@ try {
   await page.getByRole('button', { name: 'Paste rows' }).click();
   await page.getByLabel('Pasted rows').fill('Name\tRole\nedge-fw\trouter\npasted-sw\tswitch');
   await page.waitForFunction(() => document.querySelector('.inv-paste [role=status]')?.textContent?.includes('1 to add, 1 to update'));
+  // Paste rows closes at once and leaves no fading copy: until Apply it holds what was pasted before the gate has
+  // read it. The importer shows only what the gate has passed, and leaves the way it came.
+  await watchCopies(page);
   await page.getByRole('button', { name: 'Apply' }).click();
   await page.waitForTimeout(800);
+  check('Paste rows is closed', (await page.locator('.inv-paste').count()) === 0);
+  check('and left no copy of itself, so nothing pasted stayed on the page', (await copiesMade(page)).length === 0);
+  await page.getByRole('button', { name: 'Import file' }).click();
+  await page.waitForSelector('.imp', { timeout: 5_000 });
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.imp:not([data-ghost])', { state: 'detached', timeout: 5_000 });
+  await page.waitForTimeout(500);
+  const importerOut = (await copiesMade(page)).filter((c) => c.kind === 'imp');
+  check('closed, the importer leaves one still copy that cannot be pressed, read or found', importerOut.length === 1 && importerOut[0].inert && importerOut[0].hidden === 'true' && importerOut[0].words === 0 && importerOut[0].named === 0, JSON.stringify(importerOut));
+  check('its wash clears while its box goes back the way it came', importerOut[0]?.leaves === 'fathom-wash-out' && importerOut[0]?.boxLeaves === 'fathom-pop-out', JSON.stringify(importerOut));
+  check('the copy of the importer is gone a moment later', (await page.locator('.imp').count()) === 0);
   await line.fill('name~pasted-sw');
   check('a pasted row was added', (await page.locator('.inv-table__row').count()) === 1);
   await page.getByLabel('Select all rows').check();
@@ -250,8 +266,13 @@ try {
   await barAction(page, 'print');
   await page.waitForSelector('[data-testid="print-panel"]', { timeout: 10_000 });
   check('the pack offers the Inventory table', await page.locator('[data-testid="print-section-inventory"]').isChecked());
+  const measured = await page.evaluate(() => document.querySelector('.print-panel .print-counter')?.getElementsByTagName('*').length ?? 0);
+  await copiesMade(page);
   await page.locator('[data-testid="print-panel-print"]').click();
   await page.waitForSelector('[data-testid="print-preview"]', { timeout: 10_000 });
+  // The panel holds a hidden pass that lays the pack out to count its pages. Its copy leaves that out.
+  const panelOut = (await copiesMade(page)).filter((c) => c.kind === 'print-panel');
+  check('closed, the Print panel leaves a copy without the pass that counts its pages', measured > 0 && panelOut.length === 1 && panelOut[0].unseen === false && panelOut[0].leaves === 'fathom-pop-out', JSON.stringify({ measured, panelOut }));
   const previewText = await page.locator('[data-testid="print-preview"]').innerText();
   check('the printed table is the filtered list', previewText.includes('Inventory · Devices') && previewText.includes('pasted-sw') && previewText.includes('filtered: tag:lab') && !previewText.includes('edge-fw'));
   await page.keyboard.press('Escape');

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, type JSX } from 'react';
 
 import type { Document } from '../../document/model';
 import { TieRefusal, addPortsFromConfig, tiePlan, tiePorts, type TiePair } from '../../document/portTies';
+import { useGhostRef } from '../shell/ghost';
 import { TieList } from './TieList';
 
 export interface TieCardProps {
@@ -27,6 +28,7 @@ export function tieAttempt(write: () => Document, apply: (next: Document) => voi
 export function TieCard({ doc, deviceId, actor, onApply, onClose }: TieCardProps): JSX.Element {
   const plan = useMemo(() => tiePlan(doc, deviceId), [doc, deviceId]);
   const ref = useRef<HTMLDivElement>(null);
+  const cardRef = useGhostRef(ref);
   // Focus moves into the card and back to where it was; Escape closes the card alone, not the canvas under it.
   useEffect(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -50,7 +52,7 @@ export function TieCard({ doc, deviceId, actor, onApply, onClose }: TieCardProps
   };
 
   return (
-    <div className="paste-card" role="dialog" aria-label="Tie interfaces to ports" data-testid="tie-card" ref={ref}>
+    <div className="paste-card" role="dialog" aria-label="Tie interfaces to ports" data-testid="tie-card" ref={cardRef}>
       {plan === null || plan.rows.length === 0 ? (
         <>
           <p className="paste-card__note">{plan === null ? 'This device is no longer in the design.' : 'Every interface on this device is tied to a port.'}</p>

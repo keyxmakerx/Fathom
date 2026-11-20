@@ -1,7 +1,8 @@
-// When a menu, a pop-over or a card is taken off the page, a still copy of it stays for a moment and fades out, so it
-// leaves the way it came instead of vanishing. The real thing is gone the instant it closes, exactly as before. The
-// copy is a picture in all but name: it takes no pointer and no key, assistive technology does not see it, and its
-// words are drawn by CSS, so none of them is in the page for a search, a screen reader or a test to find.
+// When a menu, a pop-over, a card or a dialog is taken off the page, a still copy of it stays for a moment and fades
+// out, so it leaves the way it came instead of vanishing. The real thing is gone the instant it closes, exactly as
+// before. The copy is a picture in all but name: it takes no pointer and no key, assistive technology does not see
+// it, and its words are drawn by CSS, so none of them is in the page for a search, a screen reader or a test to find.
+// Some things leave no copy and close at once: see `GHOST_NEVER` and `GHOST_MOST`.
 
 import { useCallback } from 'react';
 
@@ -32,6 +33,18 @@ export const GHOST_STRIPPED: readonly string[] = [
  * They say a state and never a name, and nothing reads them: the copy is hidden from assistive technology whole. */
 export const GHOST_KEPT_STATE: readonly string[] = ['aria-checked', 'aria-current', 'aria-disabled', 'aria-expanded', 'aria-pressed', 'aria-selected'];
 
+/** What a thing must not hold if a copy of it is to stay behind. A thing that holds one closes at once. A box that
+ * gates its own paste holds what was pasted before the gate has read it, and a password field holds a secret: a copy
+ * would keep either on the page a moment after its owner closed. A copy of a camera picture or a canvas is empty. */
+export const GHOST_NEVER = '[data-gate="self"], input[type="password"], video, canvas';
+
+/** The most parts a thing may have and still leave a copy. A larger one costs more to copy and lay out than a
+ * tenth of a second of fading is worth, so it closes at once. */
+export const GHOST_MOST = 800;
+
+/** Marks a part the copy leaves out: something the thing holds and does not show, a measuring pass for one. */
+export const GHOST_SKIP = 'data-ghost-skip';
+
 /** Inside a picture an id or a link is part of the drawing (a clip, a marker, a reused shape), so it stays. */
 const DRAWN_IN_A_PICTURE: readonly string[] = ['id', 'href'];
 
@@ -57,6 +70,25 @@ export function ghostLife(duration: string): number {
 
 function reducedMotion(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** A copy of `el` and all inside it, less the parts marked to be left out. `reals` and `copies` are given each
+ * part and its copy, in step. Null as soon as the thing proves too large to copy. */
+function copyOf(el: Element, reals: Element[], copies: Element[]): Element | null {
+  if (reals.length >= GHOST_MOST) return null;
+  const copy = el.cloneNode(false) as Element;
+  reals.push(el);
+  copies.push(copy);
+  for (let child = el.firstChild; child != null; child = child.nextSibling) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      copy.appendChild(child.cloneNode(false));
+    } else if (child instanceof Element && !child.hasAttribute(GHOST_SKIP)) {
+      const part = copyOf(child, reals, copies);
+      if (part == null) return null;
+      copy.appendChild(part);
+    }
+  }
+  return copy;
 }
 
 /** What a clone does not carry over: what was typed or ticked since the thing was drawn. */
@@ -121,10 +153,12 @@ function leaveGhost(el: HTMLElement, parentAtMount: Element | null): void {
   const parent = el.parentElement ?? parentAtMount;
   const kind = el.classList.item(0);
   if (parent == null || kind == null) return;
+  if (el.querySelector(GHOST_NEVER) != null) return;
   const next = el.nextSibling;
-  const ghost = el.cloneNode(true) as HTMLElement;
-  const reals = [el, ...Array.from(el.querySelectorAll('*'))];
-  const copies = [ghost, ...Array.from(ghost.querySelectorAll('*'))];
+  const reals: Element[] = [];
+  const copies: Element[] = [];
+  const ghost = copyOf(el, reals, copies) as HTMLElement | null;
+  if (ghost == null) return;
   carryFields(reals, copies);
   // How far each part had scrolled, to put back once the copy is on the page: off it, nothing scrolls.
   const scrolled: Array<[Element, number, number]> = [];

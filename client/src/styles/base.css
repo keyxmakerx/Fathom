@@ -201,6 +201,14 @@
 @keyframes fathom-pop-out-down {
   to { opacity: 0; transform: translateY(4px); }
 }
+/* A whole page laid over this one leaves as it came: it fades, and nothing moves. */
+@keyframes fathom-fade-out {
+  to { opacity: 0; }
+}
+/* The wash behind a dialog clears by its colour, so the box on it, which leaves by its own motion, fades once. */
+@keyframes fathom-wash-out {
+  to { background-color: transparent; }
+}
 [data-ghost] {
   animation: fathom-pop-out var(--m-hover) var(--m-ease) both !important;
   pointer-events: none !important;
@@ -226,6 +234,10 @@
   content: attr(data-ghost-text);
 }
 @media (prefers-reduced-motion: reduce) {
+  [data-ghost] { display: none !important; }
+}
+/* A copy is never printed: a page printed in the moment after a thing closed shows the page as it stands. */
+@media print {
   [data-ghost] { display: none !important; }
 }
 

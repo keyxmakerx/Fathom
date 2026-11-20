@@ -145,7 +145,7 @@ export function PageCounter({ job, onCounts }: { job: PrintJob; onCounts: (count
     onCounts(counts);
   }, [job]);
   return (
-    <div aria-hidden="true" className="print-counter">
+    <div aria-hidden="true" className="print-counter" data-ghost-skip="">
       <MeasuringPass job={job} containerRef={ref} />
     </div>
   );

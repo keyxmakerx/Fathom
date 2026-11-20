@@ -9,6 +9,7 @@ import { acceptSuggestions, readNeighbours, suggestCables, type CableSuggestion,
 import { looksLikeFacts } from '../../document/facts';
 import { looksLikeMacTable } from '../../document/hosts';
 import { deviceOf } from '../../document/portTies';
+import { useGhostRef } from '../shell/ghost';
 import { FactsCard } from './FactsCard';
 import { HostsCard } from './HostsCard';
 import { SuggestContext } from './suggestStore';
@@ -67,6 +68,7 @@ function CablesCard({ doc, deviceId, text, actor, onApply, onClose, onOther }: S
   const [unticked, setUnticked] = useState<ReadonlySet<string>>(new Set());
   const [refusal, setRefusal] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const cardRef = useGhostRef(ref);
   const headId = useId();
   const store = useContext(SuggestContext);
 
@@ -130,7 +132,7 @@ function CablesCard({ doc, deviceId, text, actor, onApply, onClose, onOther }: S
   const localName = device !== null ? (devices.find((d) => d.id === device)?.name ?? 'This device') : '';
 
   return (
-    <div className="paste-card suggest-card" role="dialog" aria-labelledby={headId} data-testid="suggest-card" ref={ref}>
+    <div className="paste-card suggest-card" role="dialog" aria-labelledby={headId} data-testid="suggest-card" ref={cardRef}>
       <div className="paste-card__head" id={headId}>
         {list === null ? 'Suggest cables' : `Suggested cables · ${shown.length}`}
       </div>

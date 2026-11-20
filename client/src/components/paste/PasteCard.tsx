@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 
 import type { PastePlatform } from '../../engine/frames';
 import { PLATFORM_WORDS, type PastePreview } from './pasteConfig';
+import { useGhostRef } from '../shell/ghost';
 import './paste.css';
 
 export type PasteState =
@@ -33,6 +34,7 @@ export function PasteCard({ state, onText, onPlatform, onChoose, onCancel }: Pas
   const canAttach = preview?.attachDoc != null;
   const [choice, setChoice] = useState<'attach' | 'add'>(canAttach ? 'attach' : 'add');
   const ref = useRef<HTMLDivElement>(null);
+  const cardRef = useGhostRef(ref);
 
   useEffect(() => setChoice(canAttach ? 'attach' : 'add'), [canAttach]);
   useEffect(() => {
@@ -53,7 +55,7 @@ export function PasteCard({ state, onText, onPlatform, onChoose, onCancel }: Pas
   const total = preview?.destroyed.reduce((n, d) => n + d.count, 0) ?? 0;
 
   return (
-    <div className="paste-card" role="dialog" aria-label="Paste a config" ref={ref} data-testid="paste-card">
+    <div className="paste-card" role="dialog" aria-label="Paste a config" ref={cardRef} data-testid="paste-card">
       <div className="paste-card__head">Paste a config</div>
 
       {state.kind === 'ask' && (

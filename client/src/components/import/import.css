@@ -30,6 +30,13 @@
     animation: none;
   }
 }
+/* Closed, the box's still copy goes back the way it came while the wash behind it clears (`shell/ghost.ts`). */
+.imp[data-ghost] {
+  animation: fathom-wash-out var(--m-hover) var(--m-ease) both !important;
+}
+.imp[data-ghost] > .imp__box {
+  animation: fathom-pop-out var(--m-hover) var(--m-ease) both !important;
+}
 
 .imp__steps {
   display: flex;

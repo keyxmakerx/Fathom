@@ -6,6 +6,7 @@ import { useEffect, useId, useMemo, useRef, useState, type JSX } from 'react';
 import { acceptFacts, readFacts, suggestFacts, type FactKey } from '../../document/facts';
 import { asString, fieldValue, parseNodeId, type Document } from '../../document/model';
 import { deviceOf } from '../../document/portTies';
+import { useGhostRef } from '../shell/ghost';
 import { Reasons } from './Reasons';
 import '../paste/paste.css';
 import './suggest.css';
@@ -43,6 +44,7 @@ export function FactsCard({ doc, deviceId, text, actor, onApply, onClose }: Fact
   const ticked = ticks ?? new Set(rows.filter((r) => r.state === 'fill').map((r) => r.key));
   const [refusal, setRefusal] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const cardRef = useGhostRef(ref);
   const headId = useId();
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export function FactsCard({ doc, deviceId, text, actor, onApply, onClose }: Fact
   };
 
   return (
-    <div className="paste-card suggest-card" role="dialog" aria-labelledby={headId} data-testid="facts-card" ref={ref}>
+    <div className="paste-card suggest-card" role="dialog" aria-labelledby={headId} data-testid="facts-card" ref={cardRef}>
       <div className="paste-card__head" id={headId}>
         What the device says
       </div>

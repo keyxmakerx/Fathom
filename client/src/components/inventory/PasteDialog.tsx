@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from 'react';
 
 import type { Column, InvRow } from './kinds';
 import { gatePastedTable, parseTable, planPaste, splitRowNote, withoutUntickedSplitRows, type GatedTable, type PastePlan } from './paste';
+import { useGhostRef } from '../shell/ghost';
 import { useModal } from '../shell/useModal';
 
 /** A kind whose rows are not matched by Name (prefixes, VLANs): it reads the pasted table itself. */
@@ -48,6 +49,9 @@ export function PasteDialog(props: PasteDialogProps) {
   const plan = useMemo(() => planPaste(table, custom ? [] : columns, rows, { canAdd }), [table, columns, rows, canAdd, custom]);
 
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Hung as every dialog's is, and refused: until Apply the box below holds a paste the gate has not read, and
+  // a thing that holds one closes at once (`GHOST_NEVER`).
+  const washRef = useGhostRef(dialogRef);
   useModal(dialogRef, onCancel);
 
   const edit = (v: string) => {
@@ -78,7 +82,7 @@ export function PasteDialog(props: PasteDialogProps) {
 
   const nothing = custom ? table.length === 0 : plan.adds.length + plan.updates.length === 0;
   return (
-    <div className="inv-paste" role="dialog" aria-modal="true" aria-label={`Paste ${kindLabel}`} ref={dialogRef}>
+    <div className="inv-paste" role="dialog" aria-modal="true" aria-label={`Paste ${kindLabel}`} ref={washRef}>
       <div className="inv-paste__box">
         <h2>Paste {kindLabel.toLowerCase()}</h2>
         <p className="inv-paste__muted">

@@ -29,6 +29,13 @@
     animation: none;
   }
 }
+/* Closed, the card's still copy goes back the way it came (`shell/ghost.ts`), keeping the shift that centres it. */
+@keyframes paste-card-out {
+  to { opacity: 0; transform: translate(-50%, -4px); }
+}
+.paste-card[data-ghost] {
+  animation: paste-card-out var(--m-hover) var(--m-ease) both !important;
+}
 .paste-card__head {
   font-size: var(--t-micro);
   font-weight: 700;

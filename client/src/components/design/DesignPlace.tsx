@@ -52,6 +52,7 @@ import { PasteGateBoundary } from '../paste/PasteGateBoundary';
 import { RacksPlace } from '../racks/RacksPlace';
 import { useDesignEngine } from './useDesignEngine';
 import { Trail } from '../racks/Trail';
+import { useGhostRef } from '../shell/ghost';
 import type { PaletteAction } from '../shell/palette';
 import { PaletteRegistryContext, createPaletteRegistry } from '../shell/paletteRegistry';
 import { ShortcutsSheet } from '../shell/ShortcutsSheet';
@@ -205,6 +206,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const history = useHistory(organisationId, designId, historyOpen, session.doc?.batches.length ?? 0);
   const aiIdeas = useAiIdeas(organisationId, designId);
   const [aiIdeasOpen, setAiIdeasOpen] = useState(false);
+  const ideasSheetRef = useGhostRef<HTMLDivElement>();
   // An AI idea's proposed change shown on the canvas before anyone accepts it.
   const aiPreview = useMemo(createAiPreviewStore, []);
   const aiPreviewDoc = useSyncExternalStore(aiPreview.subscribe, () => aiPreview.get().doc, () => aiPreview.get().doc);
@@ -1288,7 +1290,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         />
       )}
       {phone && aiIdeasOpen && (
-        <div className="phone-scan" role="dialog" aria-modal="true" aria-label="AI ideas">
+        <div className="phone-scan" role="dialog" aria-modal="true" aria-label="AI ideas" ref={ideasSheetRef}>
           <div className="phone-scan__head">
             <span className="phone-scan__title">AI ideas</span>
             <button type="button" className="phone-scan__close" onClick={() => setAiIdeasOpen(false)}>

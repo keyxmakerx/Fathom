@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { useGhostRef } from '../components/shell/ghost';
 import { PageCounter } from './PrintPreview';
 import { PRINT_SECTIONS, type CablesOption, type PrintJob, type PrintOptions, type PrintSection, type RackScope } from './printJob';
 import type { PaperSize } from './paper';
@@ -73,6 +74,7 @@ export function PrintPanel({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const hungRef = useGhostRef(panelRef);
   // Focus enters the panel on open and returns to whatever opened it on close.
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
@@ -153,7 +155,7 @@ export function PrintPanel({
   }, [onCancel]);
 
   return (
-    <div className="print-panel" role="dialog" aria-labelledby="print-panel-title" data-testid="print-panel" ref={panelRef}>
+    <div className="print-panel" role="dialog" aria-labelledby="print-panel-title" data-testid="print-panel" ref={hungRef}>
       <PageCounter job={countJob} onCounts={setCounts} />
       <div className="print-panel__head">
         <span id="print-panel-title" className="print-panel__title">Print a pack · {designName}</span>
