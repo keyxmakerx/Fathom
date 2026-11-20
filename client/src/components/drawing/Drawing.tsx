@@ -1719,10 +1719,6 @@ function DrawingInner({
     } satisfies CableOverlayEdgeType);
   }
 
-  // Every drawn cable's id, for the copy above the devices (`CableTopLayer`); the same array while the set is.
-  const topCableKey = edges.flatMap((e) => (e.type === 'cable' ? [e.id] : [])).join('|');
-  const topCableIds = useMemo(() => (topCableKey === '' ? [] : topCableKey.split('|')), [topCableKey]);
-
   const handleNodeClick: NodeMouseHandler = useCallback(
     (event, node) => {
       if (free.onNodeClick(event, node)) return;
@@ -2163,6 +2159,16 @@ function DrawingInner({
   const troubled = useTroubleFade(planned.nodes, suggestedEdges);
   const faded = useChecksFade(troubled.nodes, troubled.edges);
   const shown = useTraceFade(faded.nodes, faded.edges);
+  // Every drawn cable's id, for the copy above the devices (`CableTopLayer`); the ones a Show, a plan or a
+  // trace has faded, which get no copy; and the ones "It's down" is checking, which a selected cable does not
+  // dim. The same array and sets while what is in them is the same.
+  const topCableKey = edges.flatMap((e) => (e.type === 'cable' ? [e.id] : [])).join('|');
+  const topCableIds = useMemo(() => (topCableKey === '' ? [] : topCableKey.split('|')), [topCableKey]);
+  const cablesMarked = (mark: 'checksFaded' | 'troubleLit') => shown.edges.flatMap((e) => (e.type === 'cable' && (e.data as { checksFaded?: boolean; troubleLit?: boolean } | undefined)?.[mark] === true ? [e.id] : [])).join('|');
+  const fadedCableKey = cablesMarked('checksFaded');
+  const fadedCableIds = useMemo(() => new Set(fadedCableKey === '' ? [] : fadedCableKey.split('|')), [fadedCableKey]);
+  const keptCableKey = cablesMarked('troubleLit');
+  const keptCableIds = useMemo(() => new Set(keptCableKey === '' ? [] : keptCableKey.split('|')), [keptCableKey]);
   // A name on the canvas edits in place only for someone who may edit.
   const nameEdit = useMemo<NameEditApi | null>(() => (canDraw && onRename ? { rename: onRename } : null), [canDraw, onRename]);
   // A tie on a run slides along it, or comes off when dragged clear (`CableRunMarks.tsx`).
@@ -2266,7 +2272,7 @@ function DrawingInner({
             ))}
           </ViewportPortal>
         )}
-        <CableTopLayer cableIds={topCableIds} />
+        <CableTopLayer cableIds={topCableIds} faded={fadedCableIds} kept={keptCableIds} />
       </ReactFlow>
       {free.overlay}
       <InSideSlot id="canvas-tools">

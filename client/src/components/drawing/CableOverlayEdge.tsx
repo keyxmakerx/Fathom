@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useMemo, type RefObject } from 'react';
 import { ViewportPortal, type Edge } from '@xyflow/react';
 
 import { cycle } from './cableHover';
@@ -26,14 +26,26 @@ export function CableOverlayEdge() {
  * every box between its ends (Key Maker's note on the cables card, 2026-10-27); now they all do, so a
  * patch lead never slips behind the switch it plugs into (Key Maker, 31 October). The
  * pointed-at one comes last, on top of the rest. It takes no pointer events, so a press on a port
- * under a cable still starts a new cable, and hover and click reach what is underneath. */
-export function CableTopLayer({ cableIds }: { cableIds: readonly string[] }) {
+ * under a cable still starts a new cable, and hover and click reach what is underneath.
+ *
+ * Only a cable at full strength is drawn again. One that is dimmed (another cable is selected, its colour
+ * is off in the key) or faded (`faded`: a Show, a plan, a trace) has its dimming on the drawing underneath,
+ * and a copy up here would put it back at full strength. `kept` are the cables "It's down" is checking,
+ * which a selected cable does not dim. */
+export function CableTopLayer({ cableIds, faded, kept }: { cableIds: readonly string[]; faded?: ReadonlySet<string>; kept?: ReadonlySet<string> }) {
   const top = useLive((s) => s.hoveredCableId ?? s.litCableId);
+  // As `CableEdge` dims itself; one string, so the layer draws again only when the set changes.
+  const dimKey = useLive((s) =>
+    cableIds
+      .filter((id) => (s.litCableId != null && !s.litCableIdSet.has(id) && s.hoveredCableId !== id && kept?.has(id) !== true) || (s.keyCableIds != null && !s.keyCableIds.has(id)))
+      .join('|'),
+  );
+  const dim = useMemo(() => new Set(dimKey === '' ? [] : dimKey.split('|')), [dimKey]);
   if (cableIds.length === 0 && top == null) return null;
   return (
     <ViewportPortal>
       <svg className="drawing-cable-top" width={1} height={1} aria-hidden="true" data-testid="cable-top">
-        {cableIds.map((id) => (id === top ? null : <use key={id} href={`#${visualGroupId(id)}`} />))}
+        {cableIds.map((id) => (id === top || dim.has(id) || faded?.has(id) === true ? null : <use key={id} href={`#${visualGroupId(id)}`} />))}
         {top != null && <use key={`top:${top}`} href={`#${visualGroupId(top)}`} data-testid="cable-top-lit" />}
       </svg>
     </ViewportPortal>
