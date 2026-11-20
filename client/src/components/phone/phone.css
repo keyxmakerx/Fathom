@@ -136,6 +136,13 @@
   background: var(--page);
   color: var(--ink);
   overflow-y: auto;
+  /* A whole page laid over the one behind: it fades in, and that one has not moved. */
+  animation: fathom-fade-in var(--m-pop) var(--m-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .phone-scan {
+    animation: none;
+  }
 }
 .phone-scan__head {
   display: flex;

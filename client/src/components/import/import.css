@@ -7,6 +7,8 @@
   background: color-mix(in srgb, var(--page) 72%, transparent);
   display: grid;
   place-items: center;
+  /* The wash fades in over the page and the box drops into place on it, as a menu does. */
+  animation: fathom-fade-in var(--m-pop) var(--m-ease);
 }
 
 .imp__box {
@@ -19,6 +21,14 @@
   display: flex;
   flex-direction: column;
   gap: var(--s3);
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .imp,
+  .imp__box {
+    animation: none;
+  }
 }
 
 .imp__steps {

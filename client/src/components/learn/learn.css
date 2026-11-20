@@ -12,10 +12,18 @@
   border-top: var(--rule-mast) solid var(--ink);
   font-size: var(--t-body);
   overflow: hidden;
+  /* A whole page laid over the design: it fades in, and the design under it has not moved. */
+  animation: fathom-fade-in var(--m-pop) var(--m-ease);
 }
 
 .learn-overlay:focus-visible {
   outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .learn-overlay {
+    animation: none;
+  }
 }
 
 .learn-overlay__head {

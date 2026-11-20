@@ -234,7 +234,8 @@ Panels and buttons cast none, and the drawing stays flat (`--radius: 0`, `--shad
 
 Motion for controls is two more tokens beside Motion above: `--m-hover` (120 ms) for a change under
 the pointer and `--m-pop` (160 ms) for a pop-over fading and dropping 4px into place; side panels
-slide in by `--m-pane`. **A thing that closes leaves the way it came, in `--m-hover`** (sign-off r147):
+slide in by `--m-pane`. A dialog arrives as a pop-over does (sign-off r149): its sheet or card fades and
+drops the same 4px, and the wash behind it, or a whole page laid over the design, fades in. **A thing that closes leaves the way it came, in `--m-hover`** (sign-off r147):
 a menu, a right-click menu or the quick card is gone the instant it closes, and a still copy of it
 fades back (`shell/ghost.ts`; the copy cannot be pressed, read or found). Back opens the tool row for
 itself and the row closes up behind it, and the line under Home's tabs slides to the chosen tab as the

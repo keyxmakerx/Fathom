@@ -390,6 +390,8 @@ div.vault-row {
   padding: 10vh var(--s4) var(--s4);
   background: color-mix(in srgb, var(--page) 72%, transparent);
   overflow: auto;
+  /* The wash fades in over the page and the sheet drops into place on it, as a menu does. */
+  animation: fathom-fade-in var(--m-pop) var(--m-ease);
 }
 
 .vault-sheet {
@@ -402,6 +404,14 @@ div.vault-row {
   background: var(--page);
   color: var(--ink);
   border: var(--rule-hair) solid var(--ink);
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vault-scrim,
+  .vault-sheet {
+    animation: none;
+  }
 }
 
 .vault-sheet--wide {

@@ -55,6 +55,13 @@
   background: var(--surface);
   color: var(--ink);
   overflow: auto;
+  /* A whole page laid over the one behind: it fades in, and that one has not moved. */
+  animation: fathom-fade-in var(--m-pop) var(--m-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .labels-preview {
+    animation: none;
+  }
 }
 .labels-preview__bar {
   position: sticky;
@@ -226,6 +233,7 @@
     display: block;
     overflow: visible;
     background: none;
+    animation: none;
   }
   body.labels-open .labels-preview__bar,
   body.labels-open .labels-preview__help {

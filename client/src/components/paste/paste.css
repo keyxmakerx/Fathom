@@ -14,6 +14,18 @@
   padding: var(--s3) var(--s4);
   font-family: var(--sans);
   font-size: var(--t-small);
+  animation: paste-card-in var(--m-pop) var(--m-ease);
+}
+/* The card arriving: it fades and drops into place as a menu does (`fathom-pop-in`), keeping the half-width
+   shift that centres it. */
+@keyframes paste-card-in {
+  from { opacity: 0; transform: translate(-50%, -4px); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paste-card {
+    animation: none;
+  }
 }
 .paste-card__head {
   font-size: var(--t-micro);

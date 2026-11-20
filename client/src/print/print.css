@@ -18,6 +18,8 @@
   border: 1px solid var(--ink);
   z-index: 60;
   font-size: 12px;
+  /* Hung under the bar like Share, and arriving the same way. */
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
 }
 
 .print-panel__head {
@@ -167,6 +169,15 @@
   background: var(--surface);
   z-index: 70;
   overflow-y: auto;
+  /* A whole page laid over the design: it fades in, and the design under it has not moved. */
+  animation: fathom-fade-in var(--m-pop) var(--m-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .print-panel,
+  .print-preview {
+    animation: none;
+  }
 }
 
 .print-preview__bar {
@@ -443,6 +454,7 @@
     position: static;
     background: none;
     overflow: visible;
+    animation: none;
   }
   .print-preview__pages {
     padding: 0;

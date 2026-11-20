@@ -186,6 +186,12 @@
   to { opacity: 1; transform: none; }
 }
 
+/* A wash behind a dialog, or a whole page laid over this one, arriving: it fades in and nothing under it moves. */
+@keyframes fathom-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* Leaving. A menu, pop-over or card that has just closed leaves a still copy of itself (`shell/ghost.ts`), which goes
    back the way it came, a little faster than it arrived. Nothing in the copy can be pressed, and its words are drawn
    here rather than written in the page, so nothing can find or read them. */

@@ -354,6 +354,63 @@ try {
     await page.waitForTimeout(400);
     check('a second Esc closes the card', (await card.count()) === 0);
 
+    // A dialog arrives as a menu does instead of cutting in: a whole page fades in, a card fades and drops into
+    // place, and each rests exactly where its own rule puts it. Under reduced motion neither moves.
+    const arriving = async (selector) =>
+      page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (el == null) return null;
+        const style = getComputedStyle(el);
+        const box = el.getBoundingClientRect();
+        const pane = document.querySelector('.shell__drawing')?.getBoundingClientRect();
+        return { by: style.animationName, ms: style.animationDuration, opacity: style.opacity, offCentre: pane ? Math.round(box.left + box.width / 2 - (pane.left + pane.width / 2)) : null };
+      }, selector);
+    const openLearn = async () => {
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('.palette', { timeout: 5_000 });
+      await page.keyboard.type('Open Learn');
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.learn-overlay', { timeout: 5_000 });
+      await page.waitForTimeout(400);
+    };
+    const openPasteCard = async () => {
+      const spot = await page.evaluate(() => {
+        for (let y = 860; y > 200; y -= 20) {
+          for (let x = 1340; x > 300; x -= 20) if (document.elementFromPoint(x, y)?.classList.contains('react-flow__pane')) return { x, y };
+        }
+        return null;
+      });
+      if (spot == null) return false;
+      await page.mouse.click(spot.x, spot.y, { button: 'right' });
+      await page.locator('.drawing-context-menu__item', { hasText: 'Paste config' }).click();
+      await page.waitForSelector('[data-testid=paste-card]', { timeout: 5_000 });
+      await page.waitForTimeout(400);
+      return true;
+    };
+    await openLearn();
+    const learnIn = await arriving('.learn-overlay');
+    check('Learn fades in over the design', learnIn?.by === 'fathom-fade-in' && learnIn.ms === '0.16s' && learnIn.opacity === '1', JSON.stringify(learnIn));
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.learn-overlay', { state: 'detached', timeout: 5_000 });
+    const pasted = await openPasteCard();
+    const cardIn = await arriving('[data-testid=paste-card]');
+    check('the paste card drops into place', pasted && cardIn?.by === 'paste-card-in' && cardIn.ms === '0.16s', JSON.stringify(cardIn));
+    check('and rests in the middle of the canvas, fully drawn', cardIn != null && cardIn.opacity === '1' && Math.abs(cardIn.offCentre ?? 99) <= 1, JSON.stringify(cardIn));
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-testid=paste-card]', { state: 'detached', timeout: 5_000 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openLearn();
+    const learnStill = await arriving('.learn-overlay');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.learn-overlay', { state: 'detached', timeout: 5_000 });
+    const pastedStill = await openPasteCard();
+    const cardStill = await arriving('[data-testid=paste-card]');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-testid=paste-card]', { state: 'detached', timeout: 5_000 });
+    await page.emulateMedia({ reducedMotion: null });
+    check('under reduced motion neither moves', learnStill?.by === 'none' && pastedStill && cardStill?.by === 'none' && Math.abs(cardStill.offCentre ?? 99) <= 1, JSON.stringify({ learnStill, cardStill }));
+
     check(`no uncaught page errors (${scheme})`, pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }

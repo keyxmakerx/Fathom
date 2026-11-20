@@ -361,6 +361,15 @@ or test ids in the page. Search, the shortcuts sheet, Share and the faceplate te
 way (r149). Back opens the tool row for itself instead of pushing the tools along, the zoom
 menu rises from its button, and Home's tabs have one line that slides between them.
 
+**Dialogs arriving** (r149). A dialog that once cut in arrives as a menu does, in `--m-pop`: the sheet, card or
+panel fades and drops 4px (`fathom-pop-in`), and the wash behind it, or a whole page laid over the design,
+fades in (`fathom-fade-in`, `styles/base.css`). That is the vault's sheets, Inventory's Paste rows and Import
+file, the paste card and the suggestion cards over the canvas, Learn, the Print panel and its preview, the
+labels preview and the phone's scan sheet. Each is still under reduced motion and keeps nothing of the
+motion once it is in (`shell/arrive.test.ts`). Docs is a tab of the right-hand panel and slides in with it.
+None of these leaves a copy when it closes (`shell/ghost.ts`): leaving was not asked for, and a vault sheet
+must not, since a copy carries what was typed into its fields.
+
 **Sign-in and the console**
 - **Enrolment and sign-in, both planes.** A token's prefix names its door (`op_` operator, `inv_`
   invitation). Enrolment makes a non-extractable keypair before the request goes out. First run (ADR-0056)
