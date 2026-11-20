@@ -36,11 +36,14 @@ describe('Esc steps out one level (r116)', () => {
     expect(nextEscape({ above: false, peek: false, card: true })).toBe('card');
   });
 
-  it('counts any dialog as floating over the page, except the canvas\'s own card', () => {
+  it('counts any dialog or open menu as floating over the page, except the canvas\'s own card', () => {
     const asked: string[] = [];
     const page = (found: boolean) => ({ querySelector: (selector: string) => (asked.push(selector), found ? ({} as Element) : null) });
     expect(openAbove(page(true))).toBe(true);
     expect(openAbove(page(false))).toBe(false);
-    expect(asked[0]).toBe('[role="dialog"]:not(.quick-card)');
+    // On the page itself this is checked by the sample's drive: a selector that matches nothing reads as
+    // "nothing is open", and no test here has a page to ask. A menu inside a shut `<details>` is left out: the
+    // More list in Details is one, and counted, it sent the Esc for a hover card on to close Details as well.
+    expect(asked[0]).toBe('[role="dialog"]:not(.quick-card), [role="menu"]:not(details:not([open]) *)');
   });
 });

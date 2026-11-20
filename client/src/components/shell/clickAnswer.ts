@@ -20,10 +20,12 @@ export function useDetailsOpen(): boolean {
 /** How long after a press on the canvas a new selection still counts as that click's (see `useRightTab`). */
 export const CANVAS_PRESS_MS = 600;
 
-/** Whether something floats over the page besides the canvas's own card: Search, a sheet, a panel, a dialog.
- * It was opened after anything on the canvas and answers Esc itself. */
+/** Whether something floats over the page besides the canvas's own card: Search, a sheet, a panel, a dialog, or a
+ * menu hung from the bar. It was opened after anything on the canvas and answers Esc itself. A menu counts as
+ * a dialog does: it once did not, so Esc put away the card behind an open menu and left the menu open. Only an
+ * open one: the More list in Details is in the page while its `<details>` is shut, and is no menu until it opens. */
 export function openAbove(page: Pick<Document, 'querySelector'> = document): boolean {
-  return page.querySelector('[role="dialog"]:not(.quick-card)') != null;
+  return page.querySelector('[role="dialog"]:not(.quick-card), [role="menu"]:not(details:not([open]) *)') != null;
 }
 
 /** What one Esc puts away on the canvas, topmost first: a hover peek, then the quick card, then an opened

@@ -214,8 +214,8 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
     const onKey = (e: KeyboardEvent) => {
       settle();
       if (e.key !== 'Escape') return;
-      // A card in view is the top thing: Escape puts it away and nothing else (sign-off r60). Under Search or
-      // a sheet it still goes, but the Escape is theirs.
+      // A card in view is the top thing: Escape puts it away and nothing else (sign-off r60). Under Search, a
+      // sheet or a menu it still goes, but the Escape is theirs.
       if (document.querySelector('.port-peek') != null && !openAbove()) {
         e.preventDefault();
         e.stopPropagation();

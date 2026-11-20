@@ -298,6 +298,17 @@ try {
       await page.waitForTimeout(600);
     }
     check("the router's card is showing before Search opens", (await card.count()) === 1);
+    // A menu from the bar over the card, opened from the keyboard. Esc is the menu's first: it once put away the
+    // card behind the menu and left the menu open.
+    const barMenu = page.locator('.shell-popover:not([data-ghost])');
+    await page.getByRole('button', { name: 'Account menu' }).focus();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    check('a menu from the bar opens over the card', (await barMenu.count()) === 1 && (await card.count()) === 1);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    check('one Esc closes the menu', (await barMenu.count()) === 0);
+    check('and leaves the card behind it showing', (await card.count()) === 1);
     // Closed, Search leaves the way it came: a still copy of its sheet fades where it hung. The page keeps a note
     // of every copy as it is made, so nothing here depends on catching one in the 120ms it lasts.
     await page.evaluate(() => {
@@ -628,7 +639,7 @@ try {
     check('a camera moved during the trace stays where it was put when the trace closes', (await page.getByTestId('trace-panel').count()) === 0 && sameView(await camera(), moved) && !sameView(moved, opened), `${JSON.stringify(moved)} then ${JSON.stringify(await camera())}`);
 
     // A selected cable dims the others, and a dimmed cable is not drawn a second time above the devices, where
-    // the copy would be at full strength. Last, because a press on the drawing folds the question card.
+    // the copy would be at full strength. After the questions, because a press on the drawing folds their card.
     {
       // A spot on a cable's line outside the racks, with the cable itself the top thing there.
       const picked = await page.evaluate(() => {
@@ -656,6 +667,44 @@ try {
       });
       check('a selected cable dims the others', dim.dimmed > 0 && dim.dimmed === dim.cables - 1 && dim.picked === 1, JSON.stringify(dim));
       check('and a dimmed cable is not drawn again at full strength', dim.onTop.length === 0, dim.onTop.join(', '));
+    }
+
+    // With Details open on a device, its More list is in the page, folded away under the ⋯. That is not an open
+    // menu: one Esc puts a hover card away and nothing else. Counted as one, the same Esc went on to close Details.
+    {
+      const hover = page.locator('[data-testid=thing-peek], [data-testid=port-peek]');
+      const named = () => page.evaluate(() => document.querySelector('.dev-panel__name')?.textContent?.trim() ?? null);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      const row = await page.locator('.react-flow__node-chassis', { hasText: 'switch-1' }).first().boundingBox();
+      await page.mouse.click(row.x + 30, row.y + row.height / 2);
+      await page.getByTestId('quick-card').getByRole('button', { name: 'Details' }).click();
+      await page.waitForSelector('.dev-panel__name', { timeout: 5_000 });
+      await page.waitForTimeout(600);
+      const folded = await page.evaluate(() => {
+        const list = document.querySelector('details.dev-more [role="menu"]');
+        return list != null && list.closest('details').open === false;
+      });
+      check("Details is open on the switch, its More list folded away in the page", (await named()) === 'switch-1' && folded, `${await named()} ${folded}`);
+      // A spot on the router's row clear of its ports.
+      const on = await page.evaluate(() => {
+        const router = [...document.querySelectorAll('.react-flow__node-chassis')].find((el) => el.textContent.includes('router-1'));
+        const b = router.getBoundingClientRect();
+        const y = b.y + b.height / 2;
+        for (let x = b.x + 4; x < b.right - 12; x += 4) {
+          const el = document.elementFromPoint(x, y);
+          if (el != null && router.contains(el) && el.closest('[data-port-id]') == null) return { x, y };
+        }
+        return null;
+      });
+      await page.mouse.move(on.x, on.y + 40, { steps: 3 });
+      await page.mouse.move(on.x, on.y, { steps: 6 });
+      await page.waitForTimeout(900);
+      check('with Details open, a pointer moved onto another device shows its hover card', (await hover.count()) === 1, String(await hover.count()));
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+      check('one Esc puts the hover card away', (await hover.count()) === 0, String(await hover.count()));
+      check('and leaves Details open on the switch', (await named()) === 'switch-1', String(await named()));
     }
 
     check('no uncaught page errors (a pressed question)', pageErrors.length === 0, pageErrors.join(' | '));

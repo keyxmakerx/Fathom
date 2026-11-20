@@ -652,7 +652,9 @@ menu rises from its button, and Home's tabs have one line that slides between th
   open checks and AI ideas about it. Details' sections after Device and Location can be hidden and
   reordered (kept in this browser; Management cannot be hidden). Connections lists six and Show all. A
   design reopens on the place and panel tab it was left on; Esc closes only the top thing (with Search, a
-  sheet or a dialog over the page the Esc is that thing's, and a device's card behind it stays; r149). Names of
+  sheet, a dialog or a menu from the bar over the page the Esc is that thing's, and a device's card behind
+  it stays; r149. Before the menu was counted, Esc put away the card behind an open menu and left the menu
+  open; `shell/clickAnswer.ts` `openAbove`, `drive-sample.mjs`). Names of
   devices, ports, racks and cables in Plans, Checks, History, It's down and Trace select the thing.
 - **Model suggestion** (`document/guessModel.ts`, `scripts/drive-model-guess.mjs`). A box typed by hand
   is offered one catalogue model when its platform, notes, port names or cable labels name it, or a
