@@ -400,6 +400,24 @@ try {
     );
     await shot(page, 'SN-06-wide-open');
 
+    // The whole lab is further out than the wheel goes by itself. A pinch from there starts where the drawing is:
+    // it once put the drawing at the wheel's own floor in one step, whichever way the fingers moved.
+    const pinch = async (deltaY) => {
+      await page.mouse.move(first.pane.x + (first.pane.right - first.pane.x) / 2, first.pane.y + (first.pane.bottom - first.pane.y) / 2);
+      await page.keyboard.down('Control');
+      await page.mouse.wheel(0, deltaY);
+      await page.keyboard.up('Control');
+      await page.waitForTimeout(500);
+      return (await seen()).zoom;
+    };
+    const pinchedOut = await pinch(20);
+    check('a pinch out from the whole view leaves it where it is', Math.abs(pinchedOut - first.zoom) < 0.001, `${first.zoom} to ${pinchedOut}`);
+    const pinchedIn = await pinch(-20);
+    check('a pinch in from there zooms in a step, not straight to the closet stop', pinchedIn > first.zoom * 1.005 && pinchedIn < first.zoom * 1.06, `${first.zoom} to ${pinchedIn}`);
+    const pinchedBack = await pinch(20);
+    check('and a pinch back out returns to the whole view', Math.abs(pinchedBack - first.zoom) < 0.002, `${pinchedIn} to ${pinchedBack}`);
+    check('the pinches leave the question card open', (await seen()).folded === false);
+
     await page.getByRole('button', { name: 'Fit to view' }).click();
     await page.waitForTimeout(900);
     const fitted = await seen();

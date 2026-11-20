@@ -254,6 +254,16 @@ const STOP_ORDER: CameraStop[] = ['closet', 'rack', 'faceplate', 'inside'];
 export const MIN_ZOOM = CAMERA_STOPS.closet / 100 - 0.1;
 /** The last stop: zoom only magnifies, and stops here. */
 export const MAX_ZOOM = 4;
+
+/**
+ * How far out the wheel and a pinch go on this visit: `MIN_ZOOM`, or as far out as the camera has already been
+ * if that is further (a fit of a big closet, or the bar's own -, lands under `MIN_ZOOM`). From there the first
+ * turn of the wheel used to jump the drawing in to `MIN_ZOOM`, whichever way it was turned. `floor` is the answer
+ * so far; it only ever moves out.
+ */
+export function wheelFloor(floor: number, cameraZoom: number): number {
+  return Math.min(floor, cameraZoom);
+}
 /** The diagram look never magnifies past this, so one device cannot fill the screen; only the rack look reaches the faceplate. */
 export const DIAGRAM_MAX_ZOOM = 1.5;
 

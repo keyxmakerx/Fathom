@@ -66,6 +66,7 @@ import {
   rackHeightPx,
   restoredZoomAwaited,
   snapDropToU,
+  wheelFloor,
   zoomAboutPaneCentre,
   zoomBandAt,
   type CameraStop,
@@ -235,6 +236,7 @@ function rackFitViewOptions(racks: readonly { id: string }[], also: readonly { i
   return {
     nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...also],
     padding: FIT_PADDING as number | FitSides,
+    minZoom: MIN_ZOOM,
     maxZoom: CAMERA_STOPS.rack / 100,
   };
 }
@@ -552,6 +554,8 @@ function DrawingInner({
   const startPct = initialViewport != null ? Math.round(initialViewport.zoom * 100) : Math.max(zoom, 1);
   const [cameraStop, setCameraStop] = useState<CameraStop>(() => cameraStopAt(startPct));
   const [zoomBand, setZoomBand] = useState<ZoomBand>(() => zoomBandAt(startPct));
+  // How far out the wheel and a pinch go: `MIN_ZOOM`, or as far out as the camera has been on this visit.
+  const [zoomFloor, setZoomFloor] = useState(() => wheelFloor(MIN_ZOOM, initialViewport?.zoom ?? MIN_ZOOM));
   useCameraHub(cameraHub);
   // Whether the restored camera is still in use: true until the first fit decides it shows nothing.
   const restoredCameraRef = useRef(initialViewport != null);
@@ -1084,6 +1088,7 @@ function DrawingInner({
     (event, vp) => {
       personMovingRef.current = false;
       followCamera(vp);
+      setZoomFloor((floor) => wheelFloor(floor, vp.zoom));
       settled.settle(vp);
       onViewportSettledRef.current?.(vp);
       const pct = Math.round(vp.zoom * 100);
@@ -1764,7 +1769,7 @@ function DrawingInner({
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
       // r116: a double-click on a rack fits that rack to the view.
-      if (parsed?.kind === 'rack' && doubleClickAnswer('rack') === 'fit') void rf.fitView({ nodes: [{ id: node.id }], padding: 0.1, maxZoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
+      if (parsed?.kind === 'rack' && doubleClickAnswer('rack') === 'fit') void rf.fitView({ nodes: [{ id: node.id }], padding: 0.1, minZoom: MIN_ZOOM, maxZoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
     },
     [openChassis, onOpenDevice, onOpenShelf, openPanelFor, free.onNodeDoubleClick, rf],
   );
@@ -2210,7 +2215,7 @@ function DrawingInner({
         proOptions={PRO_OPTIONS}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
-        minZoom={MIN_ZOOM}
+        minZoom={zoomFloor}
         maxZoom={MAX_ZOOM}
         // Left-drag on empty canvas pans (Shift+drag is the marquee); the middle button, Space+drag, the wheel or a trackpad pan too (pinch zooms).
         panOnDrag={tool === 'pan' ? PAN_BUTTONS : MIDDLE_ONLY}

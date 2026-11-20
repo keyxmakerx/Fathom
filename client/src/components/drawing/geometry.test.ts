@@ -32,6 +32,7 @@ import {
   snapDropToU,
   sortFreeRuns,
   uToOffsetPx,
+  wheelFloor,
   zoomAboutPaneCentre,
 } from './geometry';
 
@@ -439,6 +440,30 @@ describe('restoredZoomAwaited: a design reopened where it was left', () => {
 
   it('has nothing to wait for when no camera was restored', () => {
     expect(restoredZoomAwaited(null, 100)).toBeNull();
+  });
+});
+
+describe('wheelFloor: how far out the wheel and a pinch go on a visit', () => {
+  it('is the closet stop\'s floor while the camera has stayed inside it', () => {
+    expect(wheelFloor(MIN_ZOOM, 1)).toBe(MIN_ZOOM);
+    expect(wheelFloor(MIN_ZOOM, MIN_ZOOM)).toBe(MIN_ZOOM);
+  });
+
+  // A fit of the sample's whole lab lands near 61%. With the floor left at MIN_ZOOM the first pinch from there,
+  // in or out, put the drawing at 77.5% in one step.
+  it('goes out to where a fit left the camera, so a pinch from there starts where the drawing is', () => {
+    expect(wheelFloor(MIN_ZOOM, 0.61)).toBe(0.61);
+  });
+
+  it('stays there for the visit: zooming in and back out reaches the fitted view again', () => {
+    let floor = MIN_ZOOM;
+    for (const zoom of [0.61, 0.9, 2, 1, 0.7]) floor = wheelFloor(floor, zoom);
+    expect(floor).toBe(0.61);
+  });
+
+  it('follows the camera further out, never back in', () => {
+    expect(wheelFloor(0.61, 0.32)).toBe(0.32);
+    expect(wheelFloor(0.32, 0.61)).toBe(0.32);
   });
 });
 
