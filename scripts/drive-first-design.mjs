@@ -862,7 +862,7 @@ async function runProof(browser, seed) {
   const afterOnce = await addresses(one);
   check(
     'browser one (steward): Undo leaves alone the address the drawer changed since, and says why',
-    /Nothing was undone: management address was changed by Drawer since\./.test(saidOnce) && afterOnce[0] === '10.0.0.1' && afterOnce[1] === '10.0.0.99',
+    /Nothing was undone: the mgmt address was changed by Drawer since\./.test(saidOnce) && afterOnce[0] === '10.0.0.1' && afterOnce[1] === '10.0.0.99',
     `${saidOnce} ${JSON.stringify(afterOnce)}`,
   );
   check('browser one (steward): and says what pressing Undo again does', /Undo again takes back the change you made before it\./.test(saidOnce), saidOnce);

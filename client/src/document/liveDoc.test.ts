@@ -385,30 +385,30 @@ describe('the words when a press does nothing', () => {
   const name = [{ key: 'Device.hostname' }];
 
   it('says which press it was', () => {
-    expect(skippedSentence(name, true)).toBe('Nothing was undone: hostname was changed by someone else since.');
-    expect(skippedSentence(name, true, 'redo')).toBe('Nothing was redone: hostname was changed by someone else since.');
-    expect(skippedSentence([{ key: 'Device.hostname' }, { key: 'Device.role' }], true)).toBe('Nothing was undone: hostname and role were changed by someone else since.');
+    expect(skippedSentence(name, true)).toBe('Nothing was undone: the name was changed by someone else since.');
+    expect(skippedSentence(name, true, 'redo')).toBe('Nothing was redone: the name was changed by someone else since.');
+    expect(skippedSentence([{ key: 'Device.hostname' }, { key: 'Device.role' }], true)).toBe('Nothing was undone: the name and the role were changed by someone else since.');
   });
 
   it('says what pressing again does, when a step stands behind the one that was tried', () => {
-    expect(skippedSentence(name, true, 'undo', true)).toBe('Nothing was undone: hostname was changed by someone else since. Undo again takes back the change you made before it.');
-    expect(skippedSentence(name, true, 'redo', true)).toBe('Nothing was redone: hostname was changed by someone else since. Redo again brings back the next one.');
+    expect(skippedSentence(name, true, 'undo', true)).toBe('Nothing was undone: the name was changed by someone else since. Undo again takes back the change you made before it.');
+    expect(skippedSentence(name, true, 'redo', true)).toBe('Nothing was redone: the name was changed by someone else since. Redo again brings back the next one.');
     expect(pressAgainSentence('undo', false)).toBe('');
     expect(pressAgainSentence('redo', false)).toBe('');
   });
 
   it('keeps to what was left alone when the press did undo the rest', () => {
-    expect(skippedSentence(name, false, 'undo', true)).toBe('Hostname was left as it is, because someone else changed it since.');
-    expect(skippedSentence([{ key: 'Device.hostname' }, { key: 'Device.role' }], false)).toBe('Hostname and role were left as they are, because someone else changed them since.');
+    expect(skippedSentence(name, false, 'undo', true)).toBe('The name was left as it is, because someone else changed it since.');
+    expect(skippedSentence([{ key: 'Device.hostname' }, { key: 'Device.role' }], false)).toBe('The name and the role were left as they are, because someone else changed them since.');
   });
 
   it('names whoever changed it, when one person changed all of it', () => {
     const nameOf = (account: string): string => (account === THEM ? 'Bob Roe' : 'Cy Day');
     const theirs = [{ key: 'Device.hostname', by: THEM }, { key: 'Device.role', by: THEM }];
-    expect(skippedSentence(theirs.slice(0, 1), true, 'undo', true, nameOf)).toBe('Nothing was undone: hostname was changed by Bob Roe since. Undo again takes back the change you made before it.');
-    expect(skippedSentence(theirs, false, 'undo', false, nameOf)).toBe('Hostname and role were left as they are, because Bob Roe changed them since.');
+    expect(skippedSentence(theirs.slice(0, 1), true, 'undo', true, nameOf)).toBe('Nothing was undone: the name was changed by Bob Roe since. Undo again takes back the change you made before it.');
+    expect(skippedSentence(theirs, false, 'undo', false, nameOf)).toBe('The name and the role were left as they are, because Bob Roe changed them since.');
     // Two people: neither is named for the other's part.
-    expect(skippedSentence([theirs[0], { key: 'Device.role', by: 'someone third' }], true, 'undo', false, nameOf)).toBe('Nothing was undone: hostname and role were changed by someone else since.');
+    expect(skippedSentence([theirs[0], { key: 'Device.role', by: 'someone third' }], true, 'undo', false, nameOf)).toBe('Nothing was undone: the name and the role were changed by someone else since.');
   });
 
   it('says who last wrote a skipped field, not who wrote it first', () => {

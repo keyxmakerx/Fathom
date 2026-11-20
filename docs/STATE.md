@@ -716,7 +716,8 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   says why and that the next one goes a change further back, and the next press puts that sentence away. Before
   r151 the same step was tried at every press and nothing made before it could be reached. Both sentences name
   the person as every history does (`whoWord`) and the thing by its own name, never an id: a refusal reads
-  "Nothing was undone: R1 was changed by Bob Roe since (added EX4300-48P to R1)" (`design/undoWords.ts`).
+  "Nothing was undone: R1 was changed by Bob Roe since (added EX4300-48P to R1)" (`design/undoWords.ts`). A
+  field left alone is called what its panel calls it, "the mgmt address" and "the name" (`panelLabel`).
   `drive-first-design.mjs` drives a skipped field and a refused step with two people on one design.
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.

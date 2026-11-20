@@ -451,8 +451,9 @@ export function skippedSentence(
   more = false,
   nameOf?: (account: string) => string,
 ): string {
-  const words = [...new Set(skipped.map((s) => fieldWords(s.key)))];
-  const list = words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+  // The panel's word for each field, as the card for a change made just after yours says it ("the mgmt address").
+  const words = [...new Set(skipped.map((s) => `the ${panelLabel(s.key)}`))];
+  const list = listWords(words);
   const many = words.length > 1;
   const people = new Set(skipped.map((s) => s.by));
   const one = people.size === 1 ? [...people][0] : undefined;
