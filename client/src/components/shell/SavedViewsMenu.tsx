@@ -141,7 +141,7 @@ function ViewsBody({ views, currentId = null, onSave, onGo, onRename, onDelete }
       <div className="views__head">Saved views</div>
       {views.length === 0 ? (
         <p className="views__empty">
-          Nothing saved yet. Set the camera and the Show layers how you want them, name the view below, and come back to it in one click.
+          Nothing saved yet. Set the camera and the layers how you want them, name the view below, and come back to it in one click.
         </p>
       ) : (
         <ul className="views__list">
