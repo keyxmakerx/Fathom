@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
-import { createRack, createSketchDevice, placeChassis, removeChassis, UnknownReferenceError } from './commands';
+import { createRack, createSketchDevice, moveChassis, placeChassis, removeChassis, UnknownReferenceError } from './commands';
 import { connectToOutside, setCableField } from './cables';
-import { setRackField } from './edit';
+import { setDeviceField, setRackField } from './edit';
 import { moveFree } from './freeform';
 import { LOCAL_ACTOR, edgesIn, edgesOut, emptyDocument, findEdge, findNode, formatNodeId, readLayoutPinFields, type Document } from './model';
 import { addNote, removeNote } from './notes';
 import { setSupplyField } from './supplies';
 import { newUlid } from './ulid';
-import { UndoConflictError, batchActor, conflict, redo, undo, undoSteps, undoable } from './undo';
+import { UndoConflictError, batchActor, conflict, redo, redoSkipping, undo, undoSkipping, undoSteps, undoable } from './undo';
 
 const NOW = 1_700_000_000_000;
 const ACTOR_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -349,6 +349,81 @@ describe('conflict', () => {
   it('does not conflict when the requesting actor owns the batch', () => {
     const { doc } = docWithRack(ACTOR_A, NOW);
     expect(conflict(doc, doc.batches[0].id, ACTOR_A)).toBeUndefined();
+  });
+});
+
+// A live design skips a field someone else has written since (ADR-0063 §6). Skipping answers for a field the undo
+// would write back. It once stood in for a refusal everywhere, so taking back an add removed the thing with a
+// colleague's edit on it, and said nothing.
+describe('undo in a live design — a thing someone else has changed is not removed', () => {
+  function placed(): { doc: Document; rackId: string; placeId: string; chassisId: string; deviceId: string } {
+    const { doc, rackId } = docWithRack(ACTOR_A, NOW);
+    const withDevice = placeChassis(doc, rackId, MODEL_1U, 1, 'front', { actor: ACTOR_A, now: NOW + 1 });
+    const chassisId = edgesIn(withDevice, rackId, 'MountedIn')[0].from;
+    return { doc: withDevice, rackId, placeId: withDevice.batches.at(-1)!.id, chassisId, deviceId: edgesIn(withDevice, chassisId, 'HasChassis')[0].from };
+  }
+
+  function refusal(run: () => unknown): UndoConflictError['conflict'] {
+    try {
+      run();
+    } catch (error) {
+      if (error instanceof UndoConflictError) return error.conflict;
+      throw error;
+    }
+    throw new Error('went through');
+  }
+
+  it('refuses to take back a placing once someone else has named the device', () => {
+    const { doc, placeId, deviceId } = placed();
+    const named = setDeviceField(doc, deviceId, 'hostname', 'sw-01', { actor: ACTOR_B, now: NOW + 2 });
+
+    const c = refusal(() => undoSkipping(named, placeId, { actor: ACTOR_A, now: NOW + 3 }));
+    expect(c).toMatchObject({ kind: 'later-change', actor: ACTOR_B, element: deviceId, batchId: named.batches.at(-1)!.id });
+    expect(findNode(named, deviceId)!.absentSince).toBeUndefined();
+  });
+
+  it('refuses to take back a placing once someone else has moved the device', () => {
+    const { doc, rackId, placeId, chassisId } = placed();
+    const moved = moveChassis(doc, chassisId, rackId, 7, 'front', { actor: ACTOR_B, now: NOW + 2 });
+
+    const c = refusal(() => undoSkipping(moved, placeId, { actor: ACTOR_A, now: NOW + 3 }));
+    expect(c).toMatchObject({ kind: 'later-change', actor: ACTOR_B, element: edgesOut(moved, chassisId, 'MountedIn')[0].id });
+  });
+
+  it('refuses to take a removal back again once someone else has named what it brought back', () => {
+    const { doc, chassisId, deviceId } = placed();
+    const removed = removeChassis(doc, chassisId, { actor: ACTOR_A, now: NOW + 2 });
+    const back = undoSkipping(removed, removed.batches.at(-1)!.id, { actor: ACTOR_A, now: NOW + 3 }).doc;
+    const undoId = back.batches.at(-1)!.id;
+    const named = setDeviceField(back, deviceId, 'hostname', 'sw-01', { actor: ACTOR_B, now: NOW + 4 });
+
+    const c = refusal(() => redoSkipping(named, undoId, { actor: ACTOR_A, now: NOW + 5 }));
+    expect(c).toMatchObject({ kind: 'later-change', actor: ACTOR_B, element: deviceId });
+    expect(findNode(named, deviceId)!.absentSince).toBeUndefined();
+  });
+
+  it('still takes back a field of its own beside a field someone else wrote on the same thing', () => {
+    const { doc, deviceId } = placed();
+    const mine = setDeviceField(doc, deviceId, 'hostname', 'sw-01', { actor: ACTOR_A, now: NOW + 2 });
+    const mineId = mine.batches.at(-1)!.id;
+    const theirs = setDeviceField(mine, deviceId, 'management_address', '10.0.0.1', { actor: ACTOR_B, now: NOW + 3 });
+
+    const r = undoSkipping(theirs, mineId, { actor: ACTOR_A, now: NOW + 4 });
+    expect(r.skipped).toEqual([]);
+    expect(findNode(r.doc, deviceId)!.fields['Device.hostname']).toBeUndefined();
+    expect(findNode(r.doc, deviceId)!.fields['Device.management_address'].value).toBe('10.0.0.1');
+  });
+
+  it('still leaves a move someone else made after its own, and names it', () => {
+    const { doc, rackId, chassisId } = placed();
+    const mine = moveChassis(doc, chassisId, rackId, 3, 'front', { actor: ACTOR_A, now: NOW + 2 });
+    const mineId = mine.batches.at(-1)!.id;
+    const theirs = moveChassis(mine, chassisId, rackId, 7, 'front', { actor: ACTOR_B, now: NOW + 3 });
+
+    const r = undoSkipping(theirs, mineId, { actor: ACTOR_A, now: NOW + 4 });
+    expect(r.doc).toBe(theirs);
+    expect(r.skipped.map((s) => s.key)).toContain('MountedIn.position_u');
+    expect(r.skipped.every((s) => s.by === ACTOR_B)).toBe(true);
   });
 });
 

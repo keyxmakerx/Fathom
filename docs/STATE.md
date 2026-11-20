@@ -711,7 +711,10 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   `undoSteps` reads both lists off the batches in order; `drive-sample.mjs` drags a rack to three places and
   undoes all three). Before r149 an undo was itself the next thing Undo took, so a design went back and forth
   between its last two states, and Redo could reach behind newer changes for an older undo. On a live design a
-  field someone else has written since is left as it is and the press says so. A step of which nothing could be
+  field someone else has written since is left as it is and the press says so. That holds for a field the undo
+  would write back, not for a thing it would remove: taking back an add once removed the thing with a colleague's
+  later name or move on it and said only "Undone: device added", and is now refused by name (`conflict`,
+  `removedByReversing`; `drive-first-design.mjs` drives it with two people). A step of which nothing could be
   taken back, or that was refused, is set aside while the design stays open (`stepsWithout`; r151): the press
   says why and that the next one goes a change further back, and the next press puts that sentence away. Before
   r151 the same step was tried at every press and nothing made before it could be reached. Both sentences name

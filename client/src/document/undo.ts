@@ -203,6 +203,17 @@ function touchedElements(doc: Document, batch: Batch, withoutFieldWrites = false
   return out;
 }
 
+/** What reversing `batch` removes: everything it added or brought back. */
+function removedByReversing(batch: Batch): Set<string> {
+  const out = new Set<string>();
+  for (const op of batch.ops) {
+    if (op.type === 'add_node') out.add(op.node);
+    else if (op.type === 'add_edge') out.add(op.edge);
+    else if (op.type === 'revive') out.add(op.element);
+  }
+  return out;
+}
+
 /** The first element `batch` sets a field on that is a recorded plan, or a step of one. */
 function recordedPlanTouched(doc: Document, batch: Batch): string | undefined {
   for (const op of batch.ops) {
@@ -239,7 +250,8 @@ export function conflict(
   doc: Document,
   batchId: string,
   requestingActor?: string,
-  /** Live sessions: another person's later field write does not refuse the undo; that field is skipped instead. */
+  /** Live sessions: another person's later field write does not refuse the undo; that field is skipped instead.
+   * A field written on something the undo would remove still refuses. */
   opts?: { skipChangedFields?: boolean },
 ): UndoConflict | undefined {
   const batch = doc.batches.find((b) => b.id === batchId);
@@ -258,11 +270,17 @@ export function conflict(
   if (recorded !== undefined) return { kind: 'recorded-plan', element: recorded };
 
   const touched = touchedElements(doc, batch);
+  // Skipping a field leaves what someone else wrote as it is. That answers for a field this undo would write back,
+  // not for a thing it would remove: the thing goes whole, their value with it.
+  const removed = opts?.skipChangedFields === true ? removedByReversing(batch) : undefined;
   const index = doc.batches.indexOf(batch);
   for (const later of doc.batches.slice(index + 1)) {
     const laterActor = batchActor(doc, later);
     if (laterActor === undefined || laterActor === actor) continue;
     const laterTouched = touchedElements(doc, later, opts?.skipChangedFields === true);
+    if (removed !== undefined) {
+      for (const op of later.ops) if (op.type === 'set_field' && removed.has(op.element)) laterTouched.add(op.element);
+    }
     let hit: string | undefined;
     for (const el of laterTouched) {
       if (touched.has(el)) {

@@ -998,6 +998,52 @@ async function runProof(browser, seed) {
     `closed when narrow: ${closedWhenNarrow}; before: ${offeredBefore}; after: ${await offered(one)}`,
   );
 
+  // Undo of an add, once someone else has worked on what was added. The steward places a device and the drawer
+  // names it. Taking the placing back would take the device away with the drawer's name on it. Leaving a field
+  // alone does not answer for that, so the Undo is refused and says whose change it was. It once went through:
+  // the device left both screens and nothing was said.
+  const cellsOf = async (page, label) => {
+    const at = await columnOf(page, label);
+    return page.evaluate((col) => [...document.querySelectorAll('.inv-table__row')].map((row) => row.querySelectorAll('[role=gridcell]')[col]?.textContent.trim() ?? ''), at);
+  };
+  const rowsAre = (page, n, timeout = 15000) => page.waitForFunction((want) => document.querySelectorAll('.inv-table__row').length === want, n, { timeout }).then(() => true, () => false);
+  await two.bringToFront();
+  await showColumn(two, 'Where');
+  const whereBefore = await cellsOf(two, 'Where');
+  await one.bringToFront();
+  await toPlace(one, 'Canvas', '.react-flow__pane');
+  await openTheRail(one);
+  await dragPaletteItemOntoRack(one, 0, 2);
+  await two.bringToFront();
+  const thirdListed = await rowsAre(two, 3);
+  const whereAfter = await cellsOf(two, 'Where');
+  const newRow = whereAfter.findIndex((w) => !whereBefore.includes(w));
+  check("browser two (drawer): sees the device the steward has just placed, live", thirdListed && newRow >= 0, JSON.stringify(whereAfter));
+  // A click on a row's name opens its page, so the name is edited from the keys: Home, then F2.
+  await two.locator('.inv-table__row').nth(Math.max(newRow, 0)).locator('[role=gridcell]').nth(await columnOf(two, ADDRESS)).click();
+  await two.keyboard.press('Home');
+  await two.keyboard.press('F2');
+  await two.locator('input.inv-table__editor').fill('sw-03');
+  await two.keyboard.press('Enter');
+  const named = (page) => page.waitForFunction(() => [...document.querySelectorAll('.inv-table__row [role=gridcell]')].some((c) => c.textContent.trim() === 'sw-03'), null, { timeout: 15000 }).then(() => true, () => false);
+  check('browser two (drawer): names that device', await named(two));
+  await one.bringToFront();
+  await toPlace(one, 'Inventory', '.inv-table__row');
+  check("browser one (steward): sees the drawer's name on it live", (await rowsAre(one, 3)) && (await named(one)));
+  await one.locator('[data-testid="bar-undo"]').click();
+  await one.locator('.racks-trail__refusal').waitFor({ timeout: 5000 }).catch(() => {});
+  const addRefused = ((await one.locator('.racks-trail__refusal').allInnerTexts())[0] ?? '').replace(/\s+/g, ' ').trim();
+  check(
+    'browser one (steward): Undo does not take away a device the drawer has named since, and says whose change stood in the way',
+    /^Nothing was undone: sw-03 was changed by Drawer since \(name changed\)\./.test(addRefused) && (await one.locator('.inv-table__row').count()) === 3,
+    `${addRefused} rows: ${await one.locator('.inv-table__row').count()}`,
+  );
+  await one.waitForTimeout(400); // History has slid in
+  await one.screenshot({ path: `${SHOTS}s7-undo-add-refused.png` });
+  await two.bringToFront();
+  await two.waitForTimeout(1200); // a removal would have reached it by now
+  check('browser two (drawer): and still has the device it named', (await two.locator('.inv-table__row').count()) === 3 && (await named(two)), `rows: ${await two.locator('.inv-table__row').count()}`);
+
   await stewardCtx.close();
   await drawerCtx.close();
 }
