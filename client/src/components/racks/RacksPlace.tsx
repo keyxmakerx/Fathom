@@ -2162,7 +2162,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     { id: 'trace', label: DEVICE_WORDS.trace, onSelect: selectedChassis != null ? () => trace.openFrom(selectedChassis) : undefined, hint: needsDevice },
   ];
   // The zoom stops the bottom pill opens upward with: the camera takes the stop's zoom and lands on what is
-  // selected, or on the nearest thing when the middle of the view is empty (`zoomAim.ts`).
+  // selected, or on the nearest thing when the middle of the view is empty. Going in from the Closet stop, the
+  // Rack stop lands on a rack (`zoomAim.ts`).
   const zoomStops: ShellProps['zoomStops'] = {
     stops: [
       { id: 'closet', label: 'Closet' },
@@ -2175,7 +2176,9 @@ export function RacksPlace(props: RacksPlaceProps) {
       const control = cameraHub.control;
       if (control == null) return;
       const zoom = CAMERA_STOPS[id as keyof typeof CAMERA_STOPS] / 100;
-      const camera = cameraForStop(document.querySelector('.shell__drawing .react-flow'), control.get(), zoom, id === 'faceplate' || id === 'inside');
+      const from = control.get();
+      const onRack = id === 'rack' && cameraStopAt(Math.round(from.zoom * 100)) === 'closet' ? { top: canvasToolRow(), foot: zoomButtons() } : null;
+      const camera = cameraForStop(document.querySelector('.shell__drawing .react-flow'), from, zoom, id === 'faceplate' || id === 'inside', onRack);
       if (camera != null) control.set(camera, true);
     },
   };

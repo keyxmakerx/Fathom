@@ -529,7 +529,10 @@ menu rises from its button, and Home's tabs have one line that slides between th
   U numbers, hatched free runs, device boxes and ports that fade in toward the faceplate. Four camera
   stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. A stop picked from the zoom menu lands on what
   is selected, or on the nearest thing when the middle of the view is empty (`racks/zoomAim.ts`; r147), and
-  the menu closes. Ctrl+wheel or pinch zooms (max 400%), the
+  the menu closes. Going in from the Closet stop with nothing selected, the Rack stop lands on the rack
+  nearest the middle of the view: in the middle of the width, and of the room between the tool row and the zoom
+  buttons, or with its top at the top of that room when it is taller (`cameraOntoRack`; r149).
+  Ctrl+wheel or pinch zooms (max 400%), the
   wheel pans. They go out to 77.5%, or as far out as the camera has been on this visit, so a pinch from a
   fitted view starts where the drawing is (`geometry.ts` `wheelFloor`; r149). The opening fit and Fit to view
   keep what they frame, trays included, clear of the tool row, the zoom buttons and a sample's question card

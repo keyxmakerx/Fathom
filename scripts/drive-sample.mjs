@@ -658,6 +658,57 @@ try {
     await context.close();
   }
 
+  // From the sample's first view the Rack stop lands on the rack. The middle of the whole lab is a wall, and the
+  // stop zoomed about the middle: the rack ended in the corner, partly under the tool row.
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=home`);
+    await page.waitForSelector('.home-sample', { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Open sample' }).click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(2000);
+    const seen = () =>
+      page.evaluate(() => {
+        const box = (selector) => {
+          const b = document.querySelector(selector)?.getBoundingClientRect();
+          return b == null ? null : { x: b.x, y: b.y, right: b.right, bottom: b.bottom };
+        };
+        const pane = box('.react-flow__pane');
+        const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform);
+        return {
+          camera: { zoom: m.a, x: m.e, y: m.f },
+          pane,
+          rack: box('.react-flow__node-rack'),
+          tools: box('.shell-canvas-bar__group'),
+          pill: box('[data-testid=shell-pill]'),
+          middleOn: document.elementFromPoint((pane.x + pane.right) / 2, (pane.y + pane.bottom) / 2)?.closest('.react-flow__node')?.className.match(/react-flow__node-(\w+)/)?.[1] ?? 'paper',
+        };
+      });
+    const pick = async (name) => {
+      await page.locator('.shell-pill__value').click();
+      await page.locator('.shell-pill__stop', { hasText: name }).click();
+      await page.waitForTimeout(1000);
+    };
+    const first = await seen();
+    check('the sample opens on the whole lab, the middle of the view not on the rack', first.camera.zoom < 0.9 && first.middleOn !== 'rack' && first.middleOn !== 'chassis', `${first.camera.zoom} on ${first.middleOn}`);
+    await pick('Rack');
+    const at = await seen();
+    check('the Rack stop goes to 100%', Math.abs(at.camera.zoom - 1) < 0.002, String(at.camera.zoom));
+    check('and lands on the rack, whole on the screen', at.rack.x >= at.pane.x && at.rack.right <= at.pane.right && at.rack.y >= at.pane.y && at.rack.bottom <= at.pane.bottom, JSON.stringify(at.rack));
+    check('in the middle of the width', Math.abs((at.rack.x + at.rack.right) / 2 - (at.pane.x + at.pane.right) / 2) <= 2, `${(at.rack.x + at.rack.right) / 2} in ${at.pane.x} to ${at.pane.right}`);
+    check('clear of the tool row and the zoom buttons', at.rack.y >= at.tools.bottom && at.rack.bottom <= at.pill.y, `${at.rack.y} to ${at.rack.bottom}, row to ${at.tools.bottom}, buttons from ${at.pill.y}`);
+    await shot(page, 'SN-11-rack-stop');
+    // From the Rack stop itself nothing moves: only going in from the closet looks for a rack.
+    await pick('Rack');
+    const again = await seen();
+    check('picked again from there, the camera stays', Math.abs(again.camera.x - at.camera.x) <= 1 && Math.abs(again.camera.y - at.camera.y) <= 1 && Math.abs(again.camera.zoom - at.camera.zoom) < 0.002, JSON.stringify(again.camera));
+    check('no uncaught page errors (the Rack stop)', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
   await browser.close();
   browser = null;
 } finally {

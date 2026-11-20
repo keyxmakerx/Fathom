@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AIM_INSET_PX, aimAt, cameraOnto, unionBox } from './zoomAim';
+import { AIM_INSET_PX, RACK_ROOM_PX, aimAt, cameraOnto, cameraOntoRack, unionBox, type Box, type Camera } from './zoomAim';
 
 const pane = { width: 1000, height: 800 };
 
@@ -48,5 +48,67 @@ describe('the camera for a stop', () => {
     const cy = (400 - from.y) / from.zoom;
     expect(camera.x).toBeCloseTo(500 - cx);
     expect(camera.y).toBeCloseTo(400 - cy);
+  });
+});
+
+describe('the Rack stop, going in from the closet', () => {
+  // The whole closet at 50%, with the tool row 40 into the pane's top and the zoom buttons 50 into its foot.
+  const from: Camera = { x: 0, y: 0, zoom: 0.5 };
+  const reach = { top: 40, bottom: 50 };
+  const top = reach.top + RACK_ROOM_PX;
+  const room = pane.height - reach.bottom - RACK_ROOM_PX - top;
+  /** Where a box drawn at `from` is on the pane under `camera`. */
+  const under = (camera: Camera, box: Box): Box => {
+    const k = camera.zoom / from.zoom;
+    return { left: ((box.left - from.x) / from.zoom) * camera.zoom + camera.x, top: ((box.top - from.y) / from.zoom) * camera.zoom + camera.y, width: box.width * k, height: box.height * k };
+  };
+
+  it('lands on the rack, in the middle of the room between the tool row and the zoom buttons', () => {
+    // The middle of the view is a wall; the rack is up in a corner.
+    const rack = { left: 100, top: 100, width: 150, height: 104 };
+    const camera = cameraOntoRack(from, pane, [rack], 1, reach)!;
+    expect(camera.zoom).toBe(1);
+    const seen = under(camera, rack);
+    expect(seen.left + seen.width / 2).toBeCloseTo(pane.width / 2);
+    expect(seen.top + seen.height / 2).toBeCloseTo(top + room / 2);
+  });
+
+  it('picks the rack nearest the middle of the view', () => {
+    const far = { left: 20, top: 20, width: 150, height: 104 };
+    const near = { left: 600, top: 300, width: 150, height: 104 };
+    const seen = under(cameraOntoRack(from, pane, [far, near], 1, reach)!, near);
+    expect(seen.left + seen.width / 2).toBeCloseTo(pane.width / 2);
+  });
+
+  it('shows the top of a rack too tall for the room', () => {
+    // Twice the size it is 780 tall and the room is 678. It lies above the middle of the view.
+    const rack = { left: 400, top: 0, width: 150, height: 390 };
+    const seen = under(cameraOntoRack(from, pane, [rack], 1, reach)!, rack);
+    expect(seen.top).toBeCloseTo(top);
+    expect(seen.left + seen.width / 2).toBeCloseTo(pane.width / 2);
+  });
+
+  it('keeps the part of a tall rack the middle of the view was on', () => {
+    // The middle of the view (500, 400) is 250 down this rack: twice the size, that is 500 down, in the room's middle.
+    const rack = { left: 400, top: 150, width: 150, height: 500 };
+    const seen = under(cameraOntoRack(from, pane, [rack], 1, reach)!, rack);
+    expect(seen.top + 500).toBeCloseTo(top + room / 2);
+    // Level with the middle but off to one side, the rack was not being looked at: its top.
+    const aside = { ...rack, left: 100 };
+    expect(under(cameraOntoRack(from, pane, [aside], 1, reach)!, aside).top).toBeCloseTo(top);
+  });
+
+  it('and leaves no paper above its top or under its foot', () => {
+    // On a part near its top: the rack's top stays at the top of the room.
+    const high = { left: 400, top: 380, width: 150, height: 500 };
+    expect(under(cameraOntoRack(from, pane, [high], 1, reach)!, high).top).toBeCloseTo(top);
+    // On a part near its foot: the foot stays at the foot of the room.
+    const low = { left: 400, top: -80, width: 150, height: 500 };
+    const seen = under(cameraOntoRack(from, pane, [low], 1, reach)!, low);
+    expect(seen.top + seen.height).toBeCloseTo(top + room);
+  });
+
+  it('answers nothing with no rack drawn', () => {
+    expect(cameraOntoRack(from, pane, [], 1, reach)).toBeNull();
   });
 });
