@@ -941,7 +941,9 @@ address and the proxy's (`access_log.rs`). How big a design goes, measured: `doc
 
 **History panel** (#124, #128). The bar's **History** leads with the chain check in words ("Checked:
 every save is intact", "Broken at save N"), lists saves newest first, shows any save read-only with its
-changes outlined, and **Restore this version** (Draw) makes a new save.
+changes outlined, and **Restore this version** (Draw) makes a new save. It opens beside whichever view is on
+screen, Inventory included. A past save is drawn on the canvas only: choosing one from another view goes there,
+and leaving the canvas with one showing goes back to now. The field view has no History (`DesignPlace.tsx`).
 
 **Round 15 quality of life** (r15-qol; schema 0.21, field key 462). A sketch port's name field takes a
 pattern (`ge-0/0/{0-23}` is 24 ports, `document/portPattern.ts`). A port has a MAC (`PhysicalPort.mac`),

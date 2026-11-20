@@ -917,6 +917,66 @@ async function runProof(browser, seed) {
     `${JSON.stringify(await addresses(one))} refusals shown: ${await one.locator('.racks-trail__refusal').count()}`,
   );
 
+  // History beside Inventory. Its list of saves opens where the person is: pressed from Inventory it once left for
+  // the canvas, and carried from the canvas to Inventory it was an empty panel. A past save is drawn on the canvas,
+  // so choosing one goes there, and leaving the canvas with one showing goes back to now. The field view draws no
+  // side panels, so a window narrowed to it closes History: left open there it greyed Undo with nothing to say why.
+  const offered = async (page) => `Undo ${await page.locator('[data-testid="bar-undo"]').isEnabled()}, Redo ${await page.locator('[data-testid="bar-redo"]').isEnabled()}`;
+  const gone = (page, selector, timeout = 5000) => page.waitForFunction((sel) => document.querySelector(sel) == null, selector, { timeout }).then(() => true, () => false);
+  const toPlace = async (page, name, landmark) => {
+    await page.locator('.shell-bar').getByText(name, { exact: true }).first().click();
+    await page.waitForSelector(landmark, { timeout: 15000 });
+  };
+  const offeredBefore = await offered(one);
+  const addressesNow = JSON.stringify(await addresses(one));
+  // The refused Undo above left History showing its Trail. Saves is the tab beside it.
+  if ((await one.locator('[data-testid="history-tab-saves"]').count()) === 0) await one.locator('[data-testid="dock-history"]').click();
+  if ((await one.locator('[data-testid="history-panel"]').count()) === 0) await one.locator('[data-testid="history-tab-saves"]').click();
+  const savesListed = await one.locator('.history__row').nth(1).waitFor({ timeout: 15000 }).then(() => true, () => false);
+  check(
+    'browser one (steward): History opens its list of saves beside Inventory',
+    savesListed && (await one.locator('.inv-table__row').count()) === 2,
+    `saves listed: ${await one.locator('.history__row').count()}, Inventory rows: ${await one.locator('.inv-table__row').count()}`,
+  );
+  await one.screenshot({ path: `${SHOTS}s7-history-beside-inventory.png` });
+  await one.locator('.history__row').nth(1).click();
+  const bannerShown = await one.locator('[data-testid="history-banner"]').waitFor({ timeout: 15000 }).then(() => true, () => false);
+  check(
+    'browser one (steward): choosing a save there goes to the canvas, which draws it',
+    bannerShown && (await one.locator('.react-flow__pane').count()) === 1 && (await one.locator('.history__row--on').count()) === 1,
+    `banner: ${bannerShown}, canvas: ${await one.locator('.react-flow__pane').count()}, saves marked: ${await one.locator('.history__row--on').count()}`,
+  );
+  await toPlace(one, 'Inventory', '.inv-table__row');
+  const noneMarked = await gone(one, '.history__row--on');
+  check(
+    'browser one (steward): leaving the canvas with a save showing goes back to now: Inventory lists the design as it is, beside the saves with none marked',
+    noneMarked && JSON.stringify(await addresses(one)) === addressesNow && (await one.locator('.history__row').count()) > 1,
+    `${JSON.stringify(await addresses(one))} saves listed: ${await one.locator('.history__row').count()}, marked: ${await one.locator('.history__row--on').count()}`,
+  );
+  await toPlace(one, 'Canvas', '.react-flow__pane');
+  await one.waitForTimeout(400);
+  check('browser one (steward): and the canvas shows the design as it is now too', (await one.locator('[data-testid="history-banner"]').count()) === 0 && (await one.locator('.history__row--on').count()) === 0, `banners: ${await one.locator('[data-testid="history-banner"]').count()}`);
+  const greyedWhileOpen = await offered(one);
+  await one.locator('[data-testid="dock-history"]').click();
+  const folded = await gone(one, '[data-testid="history-panel"]');
+  check(
+    'browser one (steward): folding History offers Undo and Redo again as they were before it opened',
+    folded && (await offered(one)) === offeredBefore && offeredBefore !== greyedWhileOpen,
+    `before: ${offeredBefore}; while open: ${greyedWhileOpen}; after: ${await offered(one)}`,
+  );
+  await toPlace(one, 'Inventory', '.inv-table__row');
+  await one.locator('[data-testid="dock-history"]').click();
+  await one.locator('.history__row').first().waitFor({ timeout: 15000 }).catch(() => {});
+  await one.setViewportSize({ width: 390, height: 844 });
+  const closedWhenNarrow = await gone(one, '[data-testid="history-panel"]');
+  await one.setViewportSize({ width: 1440, height: 900 });
+  await one.locator('[data-testid="bar-undo"]').waitFor({ timeout: 15000 }).catch(() => {});
+  check(
+    'browser one (steward): a window narrowed to the field view closes History, and wide again Undo and Redo are offered as before',
+    closedWhenNarrow && (await one.locator('[data-testid="history-panel"]').count()) === 0 && (await offered(one)) === offeredBefore,
+    `closed when narrow: ${closedWhenNarrow}; before: ${offeredBefore}; after: ${await offered(one)}`,
+  );
+
   await stewardCtx.close();
   await drawerCtx.close();
 }

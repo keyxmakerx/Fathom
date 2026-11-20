@@ -217,6 +217,11 @@ export function useHistory(organisationId: string, designId: string, active: boo
     [load, saves],
   );
 
+  const back = useCallback(() => {
+    pickSeq.current += 1;
+    setPicked(null);
+  }, []);
+
   const showOlder = useCallback(() => {
     const next = shown + PAGE;
     setShown(next);
@@ -243,9 +248,6 @@ export function useHistory(organisationId: string, designId: string, active: boo
     error,
     picked,
     pickVersion,
-    back: () => {
-      pickSeq.current += 1;
-      setPicked(null);
-    },
+    back,
   };
 }

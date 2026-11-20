@@ -889,7 +889,8 @@ export function DesignPlace(props: DesignPlaceProps) {
           ]
         : []),
       ...(doc != null ? [{ id: 'print', label: 'Print', hint: shortcutText('print'), keywords: ['export', 'pdf', 'cut sheet'], run: openPrintPanel }] : []),
-      ...(doc != null ? [{ id: 'history', label: historyOpen ? 'Close History' : 'Open History', keywords: ['saves', 'restore', 'past'], run: () => toggleHistory() }] : []),
+      // Not in the field view: it draws no side panels, so there would be nothing to open.
+      ...(doc != null && !phone ? [{ id: 'history', label: historyOpen ? 'Close History' : 'Open History', keywords: ['saves', 'restore', 'past'], run: () => toggleHistory() }] : []),
       { id: 'learn', label: 'Open Learn', keywords: ['explainers', 'teach', 'lesson', 'help'], run: () => learn.setView({ kind: 'library' }) },
       ...(doc != null && session.canDraw && !isLessonCopy && pickedSave == null
         ? [{ id: 'build-lesson', label: builderOpen ? 'Close the lesson builder' : 'Build a lesson', keywords: ['lesson', 'teach', 'course', 'quiz'], run: () => setBuilderOpen(!builderOpen) }]
@@ -1036,14 +1037,31 @@ export function DesignPlace(props: DesignPlaceProps) {
   // either is actually open, never on every render of the place itself.
   const printView = printMode !== 'closed' && session.doc != null ? viewOf(session.doc, session.catalogue) : null;
 
-  const toggleHistory = () => {
-    if (historyOpen) {
-      setHistoryOpen(false);
-      return;
-    }
-    if (props.place !== 'racks') onPlaceChange('racks');
-    setHistoryOpen(true);
-  };
+  // History opens beside whatever is on screen: the list of saves reads the same everywhere.
+  const toggleHistory = () => setHistoryOpen(!historyOpen);
+  // A past save is drawn on the canvas and nowhere else, so looking at one from another view goes there.
+  const historyHere: typeof history =
+    props.place === 'racks'
+      ? history
+      : {
+          ...history,
+          pickVersion: (version) => {
+            onPlaceChange('racks');
+            return history.pickVersion(version);
+          },
+        };
+  // Away from the canvas no save is being looked at: the other views show the design as it is, and a save still
+  // marked as picked beside them would say otherwise. Leaving the canvas goes back to now.
+  const backToNow = history.back;
+  const lookingBack = history.picked != null;
+  useEffect(() => {
+    if (props.place !== 'racks' && lookingBack) backToNow();
+  }, [props.place, lookingBack, backToNow]);
+  // The field view draws no side panels (phone.css). History left open there would grey Undo with nothing on screen
+  // to say why, so a window narrowed to it closes History.
+  useEffect(() => {
+    if (phone && historyOpen) setHistoryOpen(false);
+  }, [phone, historyOpen]);
   // The sample as it was made: its first save (r30-small's Reset sample).
   const loadFirstSave = async () => {
     const saves = await fetchHistory(organisationId, designId);
@@ -1076,7 +1094,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     ? {
         panel: (
           <HistoryPanel
-            history={history}
+            history={historyHere}
             nameOf={historyNameOf}
             designId={designId}
             accountId={accountId}
@@ -1206,6 +1224,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : (
       <InventoryPlace
         {...sharedShellProps}
+        history={historyView?.panel}
         engine={designEngine}
         sideTabs={designSideTabs.length > 0 ? designSideTabs : undefined}
         aiTargets={aiIdeas.targets}
