@@ -16,10 +16,11 @@
   to { stroke-dashoffset: 0; }
 }
 
+/* `--trace-grow` is how many times its drawn size a mark is shown at (1 unless the rack canvas is zoomed out). */
 @keyframes trace-dot-pop {
-  0% { transform: translate(var(--trace-x, 0), var(--trace-y, 0)) translate(-50%, -50%) scale(0.4); opacity: 0; }
-  70% { transform: translate(var(--trace-x, 0), var(--trace-y, 0)) translate(-50%, -50%) scale(1.15); opacity: 1; }
-  100% { transform: translate(var(--trace-x, 0), var(--trace-y, 0)) translate(-50%, -50%) scale(1); opacity: 1; }
+  0% { transform: translate(var(--trace-x, 0), var(--trace-y, 0)) translate(-50%, -50%) scale(calc(0.4 * var(--trace-grow, 1))); opacity: 0; }
+  70% { transform: translate(var(--trace-x, 0), var(--trace-y, 0)) translate(-50%, -50%) scale(calc(1.15 * var(--trace-grow, 1))); opacity: 1; }
+  100% { transform: translate(var(--trace-x, 0), var(--trace-y, 0)) translate(-50%, -50%) scale(var(--trace-grow, 1)); opacity: 1; }
 }
 
 .react-flow__node.trace-lit {

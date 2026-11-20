@@ -2477,7 +2477,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         </InSideSlot>
       ) : null}
       {/* Both stay mounted while an open device or a trace has the canvas, so Hide and the fold last the visit. */}
-      {doc != null ? <ReadyQuestions away={jot != null || trace.open} folded={look === 'diagram'} questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
+      {doc != null ? <ReadyQuestions away={jot != null || trace.open} folded={look === 'diagram'} questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow, look !== 'diagram')} /> : null}
       {doc != null && planted > 0 ? <PracticeNote away={jot != null || trace.open || checks.open} count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
       {doc != null && jot == null ? (
         <InSideSlot id="trace">

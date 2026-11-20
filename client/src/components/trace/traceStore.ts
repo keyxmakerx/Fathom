@@ -8,6 +8,11 @@ export interface TraceState {
   result: TraceResult | null;
   /** While the trace plays: how many hops are lit so far. Absent or null once it has settled. */
   revealed?: number | null;
+  /** Set by a pressed question, whose path the canvas moves to: a number that goes up with each one, kept until
+   * the trace closes. */
+  frame?: number;
+  /** The last `frame` the canvas has moved for. The hops wait for it. */
+  framed?: number;
 }
 
 export interface TraceStore {
@@ -47,5 +52,12 @@ export function useTraceResult(): TraceResult | null {
 export function useTraceRevealed(): number | null {
   const store = useContext(TraceContext);
   const get = (): number | null => store?.get().revealed ?? null;
+  return useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIBE, get, get);
+}
+
+/** The open trace's frame number, or null when it asked the canvas for none (or none is open). */
+export function useTraceFrame(): number | null {
+  const store = useContext(TraceContext);
+  const get = (): number | null => store?.get().frame ?? null;
   return useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIBE, get, get);
 }

@@ -446,6 +446,218 @@ try {
     await context.close();
   }
 
+  // A pressed question frames its path. The camera once stayed where it was, so a path that ran off the screen or
+  // under the trace's own panel was a list of hops and little to look at. It now moves to the path before the
+  // first hop lights and goes back when the trace closes. Each hop has a numbered mark, a cable's on the cable.
+  // Found on the way, all on main: a lit cable started drawing itself again at every later hop, a cable off the
+  // path stayed at full strength above the devices, and whatever slid under the resting pointer put up its
+  // hover card, which then took the Esc meant for the trace.
+  {
+    const context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=home`);
+    await page.waitForSelector('.home-sample', { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Open sample' }).click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(2000);
+    const camera = () =>
+      page.evaluate(() => {
+        const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform);
+        return { zoom: m.a, x: m.e, y: m.f };
+      });
+    const sameView = (a, b) => a != null && b != null && Math.abs(a.zoom - b.zoom) < 0.002 && Math.abs(a.x - b.x) <= 1.5 && Math.abs(a.y - b.y) <= 1.5;
+    const questions = page.getByTestId('ready-questions').locator('.trace-suggest button');
+    check('the sample offers three questions', (await questions.count()) === 3, String(await questions.count()));
+
+    // Presses question `index` with the pointer left where it was pressed, and says what the page showed: the
+    // camera when the first hop lit, how many elements each lit cable was while the trace played, and the path
+    // once it has played.
+    const ask = async (index) => {
+      const button = await questions.nth(index).boundingBox();
+      const at = { x: button.x + button.width / 2, y: button.y + button.height / 2 };
+      await page.mouse.move(at.x, at.y);
+      await page.evaluate(() => {
+        const seen = { firstHop: null, elements: {} };
+        window.__asked = seen;
+        const counted = new WeakSet();
+        const started = performance.now();
+        const look = () => {
+          if (seen.firstHop == null && document.querySelector('.trace-hop--now, .trace-hop--done') != null) {
+            const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform);
+            seen.firstHop = { zoom: m.a, x: m.e, y: m.f };
+          }
+          for (const edge of document.querySelectorAll('.react-flow__edge.trace-play')) {
+            const line = edge.querySelector('.drawing-cable path, .drawing-bundle path');
+            if (line == null || counted.has(line)) continue;
+            counted.add(line);
+            const id = edge.getAttribute('data-id');
+            seen.elements[id] = (seen.elements[id] ?? 0) + 1;
+          }
+        };
+        // After each frame is drawn, so a cable that is off the page only between two steps of one frame is not
+        // counted as gone.
+        const frame = () => {
+          const after = new MessageChannel();
+          after.port1.onmessage = look;
+          after.port2.postMessage(0);
+          if (performance.now() - started < 8000) requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      });
+      await page.mouse.down();
+      await page.mouse.up();
+      await page.waitForSelector('[data-testid=trace-hop]', { timeout: 8_000 });
+      // Played to its end: no row is waiting, lit or done any more.
+      await page.waitForFunction(() => document.querySelectorAll('.trace-hop').length > 0 && document.querySelectorAll('.trace-hop--now, .trace-hop--later, .trace-hop--done').length === 0, null, { timeout: 10_000 });
+      // Longer than a rack's hover card waits before it shows.
+      await page.waitForTimeout(1200);
+      return page.evaluate(({ x, y }) => {
+        const box = (el) => {
+          const b = el.getBoundingClientRect();
+          return { x: b.x, y: b.y, right: b.right, bottom: b.bottom };
+        };
+        const one = (selector) => {
+          const el = document.querySelector(selector);
+          return el == null ? null : box(el);
+        };
+        const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform);
+        const whole = '.drawing-cable:not(.drawing-cable--stub) > path[d], .drawing-bundle:not(.drawing-bundle--stub) > path[d]';
+        return {
+          camera: { zoom: m.a, x: m.e, y: m.f },
+          asked: window.__asked,
+          pane: one('.react-flow__pane'),
+          tools: one('.shell-canvas-bar__group'),
+          pill: one('[data-testid=shell-pill]'),
+          map: one('.canvas-minimap'),
+          hops: [...document.querySelectorAll('[data-testid=trace-hop]')].filter((h) => h.getAttribute('data-kind') !== 'stop').length,
+          marks: [...document.querySelectorAll('[data-testid=trace-dot]')].map((el) => ({ name: el.textContent.trim(), shown: getComputedStyle(el).display !== 'none', ...box(el) })),
+          racks: [...document.querySelectorAll('.react-flow__node-rack')].map(box),
+          cables: [...document.querySelectorAll('.react-flow__edge.trace-path')].map((edge) => {
+            const line = edge.querySelector(whole);
+            const p = line == null ? null : line.getPointAtLength(line.getTotalLength() / 2).matrixTransform(line.getScreenCTM());
+            return { name: edge.getAttribute('data-id'), middle: p == null ? null : { x: p.x, y: p.y }, ...box(edge) };
+          }),
+          // A cable off the path that is drawn once more above the devices.
+          fadedOnTop: [...document.querySelectorAll('.react-flow__edge.trace-faded[data-id^="cable:"]')].map((e) => e.getAttribute('data-id')).filter((id) => [...document.querySelectorAll('[data-testid=cable-top] use')].some((u) => u.getAttribute('href') === `#cable-v-${id}`)),
+          fadedCables: document.querySelectorAll('.react-flow__edge.trace-faded[data-id^="cable:"]').length,
+          underPointer: document.elementFromPoint(x, y)?.closest('.react-flow__node')?.className.match(/react-flow__node-(\w+)/)?.[1] ?? null,
+          hoverCards: document.querySelectorAll('[data-testid=thing-peek], [data-testid=port-peek]').length,
+          panel: document.querySelectorAll('[data-testid=trace-panel]').length,
+        };
+      }, at);
+    };
+    const inside = (pane, things) => things.filter((d) => d.x < pane.x || d.y < pane.y || d.right > pane.right || d.bottom > pane.bottom).map((d) => d.name);
+    const under = (cover, things) => (cover == null ? [] : things.filter((d) => d.x < cover.right && d.right > cover.x && d.y < cover.bottom && d.bottom > cover.y).map((d) => d.name));
+    const middleOf = (d) => ({ x: (d.x + d.right) / 2, y: (d.y + d.bottom) / 2 });
+    const inRack = (racks, p) => racks.some((r) => p.x >= r.x && p.x <= r.right && p.y >= r.y && p.y <= r.bottom);
+
+    const opened = await camera();
+    // The first question stays inside one corner of the lab (a camera to the NAS); the third crosses all of it.
+    for (const [index, name] of [[0, 'the first question'], [2, 'the third question']]) {
+      const seen = await ask(index);
+      const path = [...seen.marks, ...seen.cables];
+      check(`${name}: the camera moves to its path`, !sameView(seen.camera, opened), JSON.stringify(seen.camera));
+      check(`${name}: and is there before the first hop lights`, sameView(seen.asked.firstHop, seen.camera), `${JSON.stringify(seen.asked.firstHop)} then ${JSON.stringify(seen.camera)}`);
+      const numbered = new Set(seen.marks.flatMap((mk) => mk.name.split('·')));
+      check(`${name}: every hop has its mark`, seen.hops > 0 && numbered.size === seen.hops && seen.marks.every((mk) => mk.shown), `${seen.hops} hops, marks ${seen.marks.map((mk) => mk.name).join(' ')}`);
+      check(`${name}: the path and its marks are whole on the screen`, path.length > 0 && inside(seen.pane, path).length === 0, inside(seen.pane, path).join(', '));
+      const covered = [...under(seen.tools, path), ...under(seen.pill, path), ...under(seen.map, path)];
+      check(`${name}: with nothing of it under the tool row, the zoom buttons or the small map`, covered.length === 0, covered.join(', '));
+      // A cable that leaves its rack carries its mark on the middle of its line.
+      const runs = seen.cables.filter((c) => c.middle != null && !inRack(seen.racks, c.middle));
+      const adrift = runs.filter((c) => !seen.marks.some((mk) => Math.hypot(middleOf(mk).x - c.middle.x, middleOf(mk).y - c.middle.y) < 4));
+      check(`${name}: a cable's mark is on the cable`, runs.length > 0 && adrift.length === 0, `${runs.length} cables out of a rack, off theirs: ${adrift.map((c) => c.name).join(', ')}`);
+      const drawnAgain = Object.entries(seen.asked.elements).filter(([, count]) => count > 1);
+      check(`${name}: a lit cable draws itself once`, Object.keys(seen.asked.elements).length > 0 && drawnAgain.length === 0, JSON.stringify(seen.asked.elements));
+      check(`${name}: a cable off the path is not drawn again at full strength`, seen.fadedCables > 0 && seen.fadedOnTop.length === 0, `${seen.fadedCables} faded, on top: ${seen.fadedOnTop.join(', ')}`);
+      if (index === 2) {
+        check('the rack has come to rest under the pointer', seen.underPointer === 'rack', String(seen.underPointer));
+        check('and shows no hover card for it', seen.hoverCards === 0, String(seen.hoverCards));
+        await shot(page, 'SN-10-question-across');
+      } else {
+        await shot(page, 'SN-09-question-framed');
+      }
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(900);
+      check(`${name}: one Esc closes the trace`, (await page.getByTestId('trace-panel').count()) === 0);
+      check(`${name}: and the camera goes back to where the question was asked`, sameView(await camera(), opened), `${JSON.stringify(opened)} then ${JSON.stringify(await camera())}`);
+      check(`${name}: with the question card back`, await page.getByTestId('ready-questions').isVisible());
+    }
+
+    // The rule that keeps a card from a pointer at rest leaves the ordinary pause alone: a pointer moved onto a
+    // device shows its card, Esc puts it away, and a nudge that stays on the same part of the device does not
+    // bring it back (onto another part of it, it comes back, as it did before the rule).
+    {
+      const hover = page.locator('[data-testid=thing-peek], [data-testid=port-peek]');
+      // A spot on a device's row with one part of it, and no port, under the next 8 pixels.
+      const on = await page.evaluate(() => {
+        for (const row of document.querySelectorAll('.react-flow__node-chassis')) {
+          const b = row.getBoundingClientRect();
+          const y = b.y + b.height / 2;
+          for (let x = b.x + 4; x < b.right - 12; x += 4) {
+            const el = document.elementFromPoint(x, y);
+            const plain = el != null && row.contains(el) && el.closest('[data-port-id]') == null;
+            if (plain && [2, 4, 6, 8].every((d) => document.elementFromPoint(x + d, y) === el)) return { x, y };
+          }
+        }
+        return null;
+      });
+      check('a device has a spot clear of its ports to point at', on != null);
+      await page.mouse.move(on.x, on.y, { steps: 6 });
+      await page.waitForTimeout(900);
+      check('a pointer moved onto a device shows its hover card as before', (await hover.count()) === 1, String(await hover.count()));
+      await page.keyboard.press('Escape');
+      await page.mouse.move(on.x + 8, on.y, { steps: 4 });
+      await page.waitForTimeout(900);
+      check('Esc puts it away, and a nudge on the same part of the device does not bring it back', (await hover.count()) === 0, String(await hover.count()));
+    }
+
+    // A camera the person has moved since is theirs: closing the trace leaves it alone.
+    await ask(0);
+    const pane = await page.locator('.react-flow__pane').boundingBox();
+    await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
+    await page.keyboard.down('Control');
+    await page.mouse.wheel(0, 30);
+    await page.keyboard.up('Control');
+    await page.waitForTimeout(500);
+    const moved = await camera();
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(900);
+    check('a camera moved during the trace stays where it was put when the trace closes', (await page.getByTestId('trace-panel').count()) === 0 && sameView(await camera(), moved) && !sameView(moved, opened), `${JSON.stringify(moved)} then ${JSON.stringify(await camera())}`);
+
+    // A selected cable dims the others, and a dimmed cable is not drawn a second time above the devices, where
+    // the copy would be at full strength. Last, because a press on the drawing folds the question card.
+    {
+      const picked = await page.evaluate(() => {
+        const racks = [...document.querySelectorAll('.react-flow__node-rack')].map((r) => r.getBoundingClientRect());
+        for (const edge of document.querySelectorAll('.react-flow__edge[data-id^="cable:"]')) {
+          const line = edge.querySelector('.drawing-cable:not(.drawing-cable--stub) > path[d]');
+          if (line == null) continue;
+          const p = line.getPointAtLength(line.getTotalLength() / 2).matrixTransform(line.getScreenCTM());
+          if (racks.some((r) => p.x >= r.x && p.x <= r.right && p.y >= r.y && p.y <= r.bottom)) continue;
+          return { x: p.x, y: p.y };
+        }
+        return null;
+      });
+      check('a cable runs outside the racks, to press', picked != null);
+      await page.mouse.click(picked.x, picked.y);
+      await page.waitForTimeout(500);
+      const dim = await page.evaluate(() => {
+        const drawn = [...document.querySelectorAll('.react-flow__edge[data-id^="cable:"] .drawing-cable')];
+        const dimmed = drawn.filter((g) => Number(getComputedStyle(g).opacity) < 1).map((g) => g.getAttribute('data-cable-id'));
+        const copies = new Set([...document.querySelectorAll('[data-testid=cable-top] use')].map((u) => u.getAttribute('href')));
+        return { cables: drawn.length, dimmed: dimmed.length, onTop: dimmed.filter((id) => copies.has(`#cable-v-${id}`)), picked: document.querySelectorAll('[data-testid=cable-top-lit]').length };
+      });
+      check('a selected cable dims the others', dim.dimmed > 0 && dim.dimmed === dim.cables - 1 && dim.picked === 1, JSON.stringify(dim));
+      check('and a dimmed cable is not drawn again at full strength', dim.onTop.length === 0, dim.onTop.join(', '));
+    }
+
+    check('no uncaught page errors (a pressed question)', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
   await browser.close();
   browser = null;
 } finally {

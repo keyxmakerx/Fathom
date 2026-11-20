@@ -164,6 +164,19 @@ export function DockSlot({ side, open, width, name, panel, max, onResize, onRese
   );
 }
 
+/** How much narrower the space beside the docks will be once every side panel has finished sliding (negative:
+ * wider). Until then a slot is laid out at the width its slide has reached, and what sits beside it has the rest. */
+export function dockTravelLeft(): number {
+  if (typeof document === 'undefined') return 0;
+  let px = 0;
+  for (const slot of document.querySelectorAll<HTMLElement>('.dock-slot')) {
+    const now = slot.getBoundingClientRect().width;
+    const full = slot.dataset.state === 'closing' ? 0 : parseFloat(slot.style.width) || now;
+    px += full - now;
+  }
+  return Math.round(px);
+}
+
 export interface DockTabProps {
   label: string;
   /** The accessible name; defaults to the label. */

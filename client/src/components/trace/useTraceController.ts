@@ -35,8 +35,9 @@ export interface TraceController {
   openFrom(chassisId: string): void;
   /** A cable's path: from the device at one end to the device at the other (r116, a cable's "Trace this path"). */
   openBetween(fromChassisId: string, toChassisId: string): void;
-  /** Opens a whole question at once: from a device to an address or device name, with a flow (may be empty). */
-  ask(chassisId: string, to: string, flowText: string): void;
+  /** Opens a whole question at once: from a device to an address or device name, with a flow (may be empty).
+   * With `frame`, the canvas moves to the answer's path before the hops light. */
+  ask(chassisId: string, to: string, flowText: string, frame?: boolean): void;
   /** Opens a trace already filled in: a lesson's trace step asks for one. `from` may be a device or a port. */
   openWith(from: TraceEnd, to: TraceEnd, flowText: string): void;
   close(): void;
@@ -91,6 +92,9 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
   const store = useMemo(createTraceStore, []);
   const player = useMemo(() => createTracePlayer(store), [store]);
   const playedKey = useRef('');
+  // A pressed question asks for its answer to be framed; the number tells one such answer from the next.
+  const wantFrame = useRef(false);
+  const frames = useRef(0);
   useEffect(() => () => player.cancel(), [player]);
   const [from, setFrom] = useState<TraceEnd | null>(null);
   const [query, setQueryText] = useState('');
@@ -110,7 +114,8 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
       setError('');
       player.cancel();
       playedKey.current = '';
-      store.set({ result: null });
+      // The frame stays while the panel is open with no answer in it: only closing ends it.
+      store.set({ ...store.get(), result: null, revealed: null });
       return undefined;
     }
     const run = ++runRef.current;
@@ -125,18 +130,21 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
         setError('');
         // A new answer plays hop by hop; the same one coming back after a live edit just updates in place.
         const key = traceKey(r);
-        if (key === playedKey.current) store.set({ result: r, revealed: store.get().revealed ?? null });
+        if (key === playedKey.current) store.set({ ...store.get(), result: r });
         else {
           playedKey.current = key;
-          player.play(r);
+          if (wantFrame.current) player.play(r, (frames.current += 1));
+          else player.play(r);
         }
+        wantFrame.current = false;
       } catch (e) {
         if (run !== runRef.current) return;
         setResult(null);
         setError(e instanceof Error ? e.message : 'The trace could not run.');
         player.cancel();
         playedKey.current = '';
-        store.set({ result: null });
+        wantFrame.current = false;
+        store.set({ ...store.get(), result: null, revealed: null });
       }
     })();
     return undefined;
@@ -160,6 +168,7 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
     (chassisId: string) => {
       const end = endFor(view, doc, chassisId);
       if (end == null) return;
+      wantFrame.current = false;
       setFrom(end);
       setQueryText('');
       setTarget(null);
@@ -175,6 +184,7 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
       const end = endFor(view, doc, toChassisId);
       if (start == null) return;
       if (end == null) return openFrom(fromChassisId);
+      wantFrame.current = false;
       setFrom(start);
       setTarget(end);
       setQueryText(end.label);
@@ -186,9 +196,10 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
   );
 
   const ask = useCallback(
-    (chassisId: string, toText: string, flowWords: string) => {
+    (chassisId: string, toText: string, flowWords: string, frame = false) => {
       const end = endFor(view, doc, chassisId);
       if (end == null) return;
+      wantFrame.current = frame;
       setFrom(end);
       setQueryText(toText);
       setTarget(null);
@@ -200,6 +211,7 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
   );
 
   const openWith = useCallback((start: TraceEnd, end: TraceEnd, flow: string) => {
+    wantFrame.current = false;
     setFrom(start);
     setTarget(end);
     setQueryText(end.label);
@@ -218,6 +230,7 @@ export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps):
     setError('');
     player.cancel();
     playedKey.current = '';
+    wantFrame.current = false;
     store.set({ result: null });
   }, [store, player]);
 

@@ -28,7 +28,8 @@ import './plans-canvas.css';
 import { compatible } from '../../document/compat';
 import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
 import { CollabLayer } from '../collab/CollabLayer';
-import { TraceBadges, useTraceFade } from '../trace/fade';
+import { TraceBadges, TraceCanvasBridge, useTraceFade } from '../trace/fade';
+import type { PathRoom } from '../trace/pathFrame';
 import { rackDeviceKey } from './rackKeys';
 import { NameEditContext, type NameEditApi } from './NameEdit';
 import { mediaCandidates } from '../checks/checksModel';
@@ -70,6 +71,7 @@ import {
   zoomAboutPaneCentre,
   zoomBandAt,
   type CameraStop,
+  type FitCovers,
   type FitSides,
   type ZoomBand,
 } from './geometry';
@@ -87,6 +89,7 @@ import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
 import { parseFreeNodeId } from './freeLayout';
 import { CanvasTools, type CanvasTool } from './CanvasTools';
+import { dockTravelLeft } from '../shell/Dock';
 import { InSideSlot } from '../shell/sideSlot';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
@@ -916,11 +919,12 @@ function DrawingInner({
   // What a fit frames besides racks and surfaces: the free things, and the trays over and under the racks.
   const alsoFramed = () => [...free.fitIds, ...rf.getNodes().filter((n) => n.type === 'tray').map((n) => ({ id: n.id }))];
 
-  // A fit with room left for what floats over the pane; unchanged where nothing does.
-  const clearOfCovers = <T extends { nodes: { id: string }[]; maxZoom: number; padding: number | FitSides }>(options: T): T => {
+  // How far the tool row, the zoom buttons and a sample's card reach over the pane now; null with no pane to
+  // measure or nothing said to float over it.
+  const coversNow = (): { pane: { width: number; height: number }; reach: FitCovers } | null => {
     const pane = containerRef.current;
     const over = covers?.();
-    if (pane == null || over == null || pane.clientWidth === 0 || pane.clientHeight === 0) return options;
+    if (pane == null || over == null || pane.clientWidth === 0 || pane.clientHeight === 0) return null;
     const paneBox = pane.getBoundingClientRect();
     // One that is not on the page has no box, and so no reach.
     const boxOf = (el: Element | null) => {
@@ -930,17 +934,34 @@ function DrawingInner({
     const tools = boxOf(over.tools);
     const zoomButtons = boxOf(over.zoom);
     const card = boxOf(over.card);
-    const sides = paddingClearOf(
-      {
+    return {
+      pane: { width: pane.clientWidth, height: pane.clientHeight },
+      reach: {
         top: tools != null ? tools.bottom - paneBox.top : 0,
         bottom: zoomButtons != null ? paneBox.bottom - zoomButtons.top : 0,
         corner: card != null && card.right > paneBox.left && card.bottom > paneBox.top ? { width: card.right - paneBox.left, height: card.bottom - paneBox.top } : null,
       },
-      rf.getNodesBounds(options.nodes.map((n) => n.id)),
-      { width: pane.clientWidth, height: pane.clientHeight },
-      options.maxZoom,
-    );
+    };
+  };
+
+  // A fit with room left for what floats over the pane; unchanged where nothing does.
+  const clearOfCovers = <T extends { nodes: { id: string }[]; maxZoom: number; padding: number | FitSides }>(options: T): T => {
+    const now = coversNow();
+    if (now == null) return options;
+    const sides = paddingClearOf(now.reach, rf.getNodesBounds(options.nodes.map((n) => n.id)), now.pane, options.maxZoom);
     return sides == null ? options : { ...options, padding: sides };
+  };
+
+  // What a trace's path has room for: the pane as wide as it will be once the trace's panel has slid open beside
+  // it, less the tool row at the top, and at the foot the zoom buttons or the small map, whichever reaches higher
+  // (a path often ends in the corner the map sits in).
+  const pathRoom = (): PathRoom | null => {
+    const pane = containerRef.current;
+    if (pane == null || pane.clientWidth === 0 || pane.clientHeight === 0) return null;
+    const reach = coversNow()?.reach;
+    const map = pane.querySelector('.canvas-minimap')?.getBoundingClientRect();
+    const mapReach = map != null && map.height > 0 ? pane.getBoundingClientRect().bottom - map.top : 0;
+    return { width: Math.max(1, pane.clientWidth - dockTravelLeft()), height: pane.clientHeight, top: reach?.top ?? 0, bottom: Math.max(reach?.bottom ?? 0, mapReach) };
   };
 
   // Fits every rack, no closer than the rack stop, on mount and when the set of
@@ -2279,6 +2300,7 @@ function DrawingInner({
         <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
       </InSideSlot>
       <ChecksCanvasBridge />
+      <TraceCanvasBridge room={pathRoom} />
       <TraceBadges />
       <PlansCanvasBridge />
       <AiPreviewCanvasBridge />
