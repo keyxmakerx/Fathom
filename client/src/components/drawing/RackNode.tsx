@@ -105,6 +105,8 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
       : [];
 
   const lit = (u: number) => dropPreview != null && u >= dropPreview.fromU && u <= dropPreview.toU;
+  // An odd unit is marked: zoomed out, where a row is shorter than its number, only the even ones are numbered.
+  const uNumberClass = (u: number) => ['drawing-rack__u-number', lit(u) ? 'drawing-rack__u-number--lit' : '', u % 2 === 1 ? 'drawing-rack__u-number--odd' : ''].filter(Boolean).join(' ');
   const railSide: 'left' | 'right' = elevation === 'rear' ? 'right' : 'left';
 
   return (
@@ -172,7 +174,7 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
               })}
               <div className="drawing-rack__u-numbers drawing-rack__u-numbers--left" style={{ width: RAIL_PX }}>
                 {Array.from({ length: rack.heightU }, (_, i) => rack.heightU - i).map((u) => (
-                  <div key={u} className={lit(u) ? 'drawing-rack__u-number drawing-rack__u-number--lit' : 'drawing-rack__u-number'} style={{ height: U_PX }}>
+                  <div key={u} className={uNumberClass(u)} style={{ height: U_PX }}>
                     {u}
                   </div>
                 ))}
@@ -184,7 +186,7 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
           {railSide === 'right' && (
             <div className="drawing-rack__u-numbers drawing-rack__u-numbers--right" style={{ width: RAIL_PX }}>
               {Array.from({ length: rack.heightU }, (_, i) => rack.heightU - i).map((u) => (
-                <div key={u} className={lit(u) ? 'drawing-rack__u-number drawing-rack__u-number--lit' : 'drawing-rack__u-number'} style={{ height: U_PX }}>
+                <div key={u} className={uNumberClass(u)} style={{ height: U_PX }}>
                   {u}
                 </div>
               ))}

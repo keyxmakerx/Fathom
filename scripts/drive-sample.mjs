@@ -694,8 +694,22 @@ try {
     };
     const first = await seen();
     check('the sample opens on the whole lab, the middle of the view not on the rack', first.camera.zoom < 0.9 && first.middleOn !== 'rack' && first.middleOn !== 'chassis', `${first.camera.zoom} on ${first.middleOn}`);
+    // Under 77.5% a number kept readable is taller than the row it numbers, and each ran into the next: only the
+    // even units are numbered there.
+    const numbers = () =>
+      page.evaluate(() => {
+        const zoom = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform).a;
+        const all = [...document.querySelectorAll('.react-flow__node-rack .drawing-rack__u-number')].map((el) => ({ u: Number(el.textContent), shown: getComputedStyle(el).visibility !== 'hidden', y: el.getBoundingClientRect().y, font: parseFloat(getComputedStyle(el).fontSize) * zoom }));
+        const shown = all.filter((n) => n.shown);
+        return { shown: shown.map((n) => n.u), hidden: all.filter((n) => !n.shown).map((n) => n.u), font: shown[0]?.font ?? 0, pitch: shown.length > 1 ? Math.abs(shown[1].y - shown[0].y) : 0 };
+      });
+    const far = await numbers();
+    check('zoomed out, only the even units of the rack are numbered', far.shown.length > 1 && far.shown.every((u) => u % 2 === 0) && far.hidden.length > 0 && far.hidden.every((u) => u % 2 === 1), `shown ${far.shown.join(' ')}`);
+    check('and a number is no taller than the room it has', far.font >= 9 && far.font < far.pitch * 0.75, `${far.font.toFixed(1)}px in ${far.pitch.toFixed(1)}px`);
     await pick('Rack');
     const at = await seen();
+    const near = await numbers();
+    check('at the Rack stop every unit is numbered again', near.hidden.length === 0 && near.shown.length === far.shown.length + far.hidden.length && near.font < near.pitch * 0.75, `shown ${near.shown.join(' ')}, ${near.font.toFixed(1)}px in ${near.pitch.toFixed(1)}px`);
     check('the Rack stop goes to 100%', Math.abs(at.camera.zoom - 1) < 0.002, String(at.camera.zoom));
     check('and lands on the rack, whole on the screen', at.rack.x >= at.pane.x && at.rack.right <= at.pane.right && at.rack.y >= at.pane.y && at.rack.bottom <= at.pane.bottom, JSON.stringify(at.rack));
     check('in the middle of the width', Math.abs((at.rack.x + at.rack.right) / 2 - (at.pane.x + at.pane.right) / 2) <= 2, `${(at.rack.x + at.rack.right) / 2} in ${at.pane.x} to ${at.pane.right}`);

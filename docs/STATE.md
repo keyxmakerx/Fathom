@@ -526,7 +526,8 @@ menu rises from its button, and Home's tabs have one line that slides between th
 
 **The canvas** (one canvas, detail by degrees; ADR-0060)
 - **Racks and devices.** Opening a design reads the plain face (ADR-0049) and draws racks with rails,
-  U numbers, hatched free runs, device boxes and ports that fade in toward the faceplate. Four camera
+  U numbers, hatched free runs, device boxes and ports that fade in toward the faceplate. Under 77.5%, where a
+  number kept at 9px on the screen is taller than its row, only the even units are numbered (r149). Four camera
   stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. A stop picked from the zoom menu lands on what
   is selected, or on the nearest thing when the middle of the view is empty (`racks/zoomAim.ts`; r147), and
   the menu closes. Going in from the Closet stop with nothing selected, the Rack stop lands on the rack

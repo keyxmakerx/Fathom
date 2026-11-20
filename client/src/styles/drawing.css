@@ -50,6 +50,12 @@
   font-size: max(8px, calc(9px / var(--zoom, 1)));
 }
 
+/* Under 77.5% a number kept at 9px on the screen is as tall as the row it numbers, and each ran into the next.
+   There only the even units are numbered, as a ruler thins its marks. One a drag would cover still shows. */
+.drawing[data-zoom-band='50'] .drawing-rack__u-number--odd:not(.drawing-rack__u-number--lit) {
+  visibility: hidden;
+}
+
 /* Ports fade in, a step per band, as they become big enough to hit: 0 at
    the rack stop (100%), fully opaque at the faceplate stop (200%). */
 .drawing-chassis__ports,
