@@ -354,7 +354,8 @@ focus styles stay inside the app, so a password manager's own controls keep thei
 
 **Hints and leaving** (sign-off r147). A control in the bar, the tool row, the zoom pill or the dock shows a
 card on hover or keyboard focus: its name, one plain sentence, its key (`shell/hints.ts`, `Hints.tsx`; the
-words in `hintWords.ts`). A closed menu, right-click menu or quick card leaves a still copy that fades out
+words in `hintWords.ts`). After a press, a key or the wheel no card shows until the pointer has travelled,
+so a tool that slides under a pointer at rest stays quiet. A closed menu, right-click menu or quick card leaves a still copy that fades out
 the way it came (`shell/ghost.ts`): the real thing is gone at once, and the copy has no words, names, roles
 or test ids in the page. Back opens the tool row for itself instead of pushing the tools along, the zoom
 menu rises from its button, and Home's tabs have one line that slides between them.
@@ -456,7 +457,9 @@ menu rises from its button, and Home's tabs have one line that slides between th
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
   cables do not count. A step not yet done says how when pressed, and the next one says it unasked; the first
   names the button that Home has (New design, or Start drawing on first Home); a step
-  done since the last visit ticks itself on Home, once (r147). Hidden, it lives under Help. Not built: tracing from a device on
+  done since the last visit ticks itself on Home, once (r147). Hidden, it lives under Help. On the canvas the
+  sample's "Try a question" card folds on a click on the drawing and has a Hide, and both last the visit:
+  the card stays as it was left when a device or a trace is opened and closed (r147). Not built: tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
 - **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
   `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`

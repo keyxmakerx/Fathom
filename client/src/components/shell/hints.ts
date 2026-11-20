@@ -94,6 +94,15 @@ export const HINT_FOCUS_DELAY_MS = 150;
 /** Off a control, its card waits this long for the pointer to reach the next one, so it can glide there. */
 export const HINT_LINGER_MS = 120;
 
+/** How far the pointer travels from where a press, a key or the wheel put the hints away before one may show. */
+export const HINT_STIR_PX = 4;
+
+/** Whether the pointer is still where the hints were put away. A control that slides under a pointer at rest
+ * (Back leaving the tool row, a menu closing) was not pointed at, so it does not explain itself. */
+export function pointerAtRest(rest: { x: number; y: number } | null, x: number, y: number): boolean {
+  return rest != null && Math.hypot(x - rest.x, y - rest.y) < HINT_STIR_PX;
+}
+
 /** The wait before a hint shows: short while one was up a moment ago, so a row of tools reads in one sweep. */
 export function hintDelay(now: number, lastShownUntil: number | null, focus: boolean): number {
   if (focus) return HINT_FOCUS_DELAY_MS;

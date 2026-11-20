@@ -232,6 +232,38 @@ try {
     await page.waitForTimeout(900);
     const back = await cameraZoom();
     check('and - moves it back', Math.abs(back - leftAt) < 0.01, `${nearer} to ${back}`);
+
+    // Hide on the question card lasts the visit. It once came back each time a device was opened and left.
+    const questionCard = page.getByTestId('ready-questions');
+    check('the reopened sample offers its questions', (await questionCard.count()) === 1);
+    if ((await questionCard.count()) === 1) {
+      await questionCard.getByRole('button', { name: 'Hide' }).click();
+      await page.locator('.react-flow__node-chassis', { hasText: 'router-1' }).first().dispatchEvent('contextmenu', { button: 2, clientX: 0, clientY: 0 });
+      await page.locator('.drawing-context-menu__item', { hasText: /^Open$/ }).click();
+      await page.waitForSelector('[data-testid=jot]', { timeout: 10_000 });
+      await page.getByTestId('jump-back').click();
+      await page.waitForSelector('[data-testid=jot]', { state: 'detached', timeout: 10_000 });
+      await page.waitForTimeout(400);
+      check('a hidden question card stays hidden after a device is opened and left', (await questionCard.count()) === 0);
+    }
+
+    // A hint is for a control someone pointed at. When Back leaves the tool row a tool slides under the pointer
+    // at rest, and it once explained itself unasked.
+    const routerBox = await page.locator('.react-flow__node-chassis', { hasText: 'router-1' }).first().boundingBox();
+    if (routerBox != null) await page.mouse.click(routerBox.x + routerBox.width / 2, routerBox.y + routerBox.height / 2);
+    await page.waitForTimeout(600);
+    const backNow = page.getByTestId('jump-back');
+    check('Back is in the tool row while the router is selected', (await backNow.count()) === 1);
+    if ((await backNow.count()) === 1) {
+      await backNow.click();
+      await page.waitForSelector('[data-testid=jump-back]', { state: 'detached', timeout: 5_000 });
+      await page.waitForTimeout(1500);
+      check('a tool that slides under a pointer at rest shows no hint', (await page.getByTestId('hint').count()) === 0);
+    }
+    await page.getByTestId('shell-show').hover();
+    await page.waitForTimeout(900);
+    const hintSays = await page.getByTestId('hint').innerText().catch(() => '');
+    check('pointing at Layers shows its hint', /Layers/.test(hintSays), hintSays.slice(0, 80));
     check(`no uncaught page errors (${scheme})`, pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }

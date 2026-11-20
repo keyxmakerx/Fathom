@@ -10,7 +10,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import '../../styles/hints.css';
-import { HINT_LINGER_MS, HINT_WARM_DELAY_MS, hintDelay, keyCaps, placeHint, readHint, type Hint, type HintPlace, type HintSide } from './hints';
+import { HINT_LINGER_MS, HINT_WARM_DELAY_MS, hintDelay, keyCaps, placeHint, pointerAtRest, readHint, type Hint, type HintPlace, type HintSide } from './hints';
 
 const SELECTOR = '[data-hint]';
 
@@ -73,6 +73,12 @@ export function Hints() {
     let lastUpUntil: number | null = null;
     // The control just pressed: its hint stays away until the pointer has left it.
     let pressed: HTMLElement | null = null;
+    // Where the pointer was last seen, and where it was when a press, a key or the wheel put the hints away.
+    // Until it has travelled from there, nothing shows: what slides under a pointer at rest was not pointed at.
+    let atX = 0;
+    let atY = 0;
+    let seen = false;
+    let rest: { x: number; y: number } | null = null;
     let tabbing = false;
     let gone: MutationObserver | null = null;
 
@@ -136,12 +142,33 @@ export function Hints() {
       timer = setTimeout(() => show(el), delay);
     };
 
-    const onOver = (e: PointerEvent) => {
+    const point = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
       const el = controlOf(e.target);
       if (el == null || e.buttons !== 0 || el === pressed) return;
       if (el.getAttribute('aria-expanded') === 'true') return;
       schedule(el, false);
+    };
+    const see = (e: PointerEvent) => {
+      atX = e.clientX;
+      atY = e.clientY;
+      seen = true;
+    };
+    const settle = () => {
+      rest = seen ? { x: atX, y: atY } : null;
+    };
+    const onOver = (e: PointerEvent) => {
+      see(e);
+      if (pointerAtRest(rest, e.clientX, e.clientY)) return;
+      rest = null;
+      point(e);
+    };
+    const onMove = (e: PointerEvent) => {
+      see(e);
+      if (rest == null || pointerAtRest(rest, e.clientX, e.clientY)) return;
+      // The pointer has stirred: the control it is on may explain itself again.
+      rest = null;
+      point(e);
     };
     const onOut = (e: PointerEvent) => {
       const left = controlOf(e.target);
@@ -168,10 +195,17 @@ export function Hints() {
     const onDown = (e: PointerEvent) => {
       pressed = controlOf(e.target);
       tabbing = false;
+      see(e);
+      settle();
       if (current != null || described != null || timer != null) hide();
     };
     const onKey = (e: KeyboardEvent) => {
       tabbing = e.key === 'Tab';
+      settle();
+      if (current != null || described != null || timer != null) hide();
+    };
+    const onWheel = () => {
+      settle();
       if (current != null || described != null || timer != null) hide();
     };
     const onAway = () => {
@@ -179,21 +213,23 @@ export function Hints() {
     };
 
     document.addEventListener('pointerover', onOver);
+    document.addEventListener('pointermove', onMove, { passive: true });
     document.addEventListener('pointerout', onOut);
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey, true);
-    document.addEventListener('wheel', onAway, { capture: true, passive: true });
+    document.addEventListener('wheel', onWheel, { capture: true, passive: true });
     window.addEventListener('blur', onAway);
     return () => {
       document.removeEventListener('pointerover', onOver);
+      document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerout', onOut);
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
       document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey, true);
-      document.removeEventListener('wheel', onAway, true);
+      document.removeEventListener('wheel', onWheel, true);
       window.removeEventListener('blur', onAway);
       stopTimers();
       gone?.disconnect();

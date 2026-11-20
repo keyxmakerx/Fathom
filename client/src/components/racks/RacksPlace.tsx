@@ -2471,8 +2471,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} />
         </InSideSlot>
       ) : null}
-      {doc != null && jot == null && !trace.open ? <ReadyQuestions folded={look === 'diagram'} questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
-      {doc != null && jot == null && !trace.open && !checks.open && planted > 0 ? <PracticeNote count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
+      {/* Both stay mounted while an open device or a trace has the canvas, so Hide and the fold last the visit. */}
+      {doc != null ? <ReadyQuestions away={jot != null || trace.open} folded={look === 'diagram'} questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
+      {doc != null && planted > 0 ? <PracticeNote away={jot != null || trace.open || checks.open} count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
       {doc != null && jot == null ? (
         <InSideSlot id="trace">
           <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} continueIn={traceContinuation} elsewhere={traceElsewhere} />

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { HintCard } from './Hints';
-import { HINT_DELAY_MS, HINT_EDGE, HINT_FOCUS_DELAY_MS, HINT_GAP, HINT_WARM_DELAY_MS, HINT_WARM_FOR_MS, hint, hintDelay, keyCaps, placeHint, readHint } from './hints';
+import { HINT_DELAY_MS, HINT_EDGE, HINT_FOCUS_DELAY_MS, HINT_GAP, HINT_STIR_PX, HINT_WARM_DELAY_MS, HINT_WARM_FOR_MS, hint, hintDelay, keyCaps, placeHint, pointerAtRest, readHint } from './hints';
 import { BAR_HINT, DOCK_HINT, LENS_HINT, LENS_HINT_INVENTORY, TOOL_HINT, VIEW_HINT, WORK_HINT, ZOOM_HINT } from './hintWords';
 
 describe('a control that explains itself', () => {
@@ -66,6 +66,20 @@ describe('when the hint shows', () => {
     expect(hintDelay(10_000, 10_000 - HINT_WARM_FOR_MS, false)).toBe(HINT_WARM_DELAY_MS);
     expect(hintDelay(10_000, 10_000 - HINT_WARM_FOR_MS - 1, false)).toBe(HINT_DELAY_MS);
     expect(hintDelay(10_000, null, true)).toBe(HINT_FOCUS_DELAY_MS);
+  });
+});
+
+describe('a pointer at rest', () => {
+  it('stays quiet where a press put the hints away, until it has travelled', () => {
+    const rest = { x: 40, y: 60 };
+    expect(pointerAtRest(rest, 40, 60)).toBe(true);
+    expect(pointerAtRest(rest, 40 + HINT_STIR_PX - 1, 60)).toBe(true);
+    expect(pointerAtRest(rest, 40 + HINT_STIR_PX, 60)).toBe(false);
+    expect(pointerAtRest(rest, 40, 60 - HINT_STIR_PX)).toBe(false);
+  });
+
+  it('is not held back when nothing put the hints away', () => {
+    expect(pointerAtRest(null, 40, 60)).toBe(false);
   });
 });
 
