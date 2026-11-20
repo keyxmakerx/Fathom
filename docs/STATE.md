@@ -548,6 +548,13 @@ menu rises from its button, and Home's tabs have one line that slides between th
   serials; *single-fed* and *one fitted* are derived. Racks have a row and bay. A rack dragged by hand keeps its
   place (its `LayoutPin`, saved as seen from the front, mirrored when the row shows the rear; undo returns it
   to its bay slot; ADR-0074 decision 5, `scripts/drive-rack-place.mjs`). A read-only viewer's drag lasts the session.
+  A dragged rack carries its devices, shelves and cables at every frame, at the pane's edge too, where the
+  view pans by itself: nothing else slides to its place while anything is dragged (`data-node-drag`,
+  `drawing.css`), a node that has only moved keeps the size React Flow measured, so its cables are not taken
+  off the page while it is measured again (`drawing/movedNodes.ts`; a dragged device's too), and the drag
+  tells the settled view where the camera is, so the rack's own cables are not cut to stubs
+  (`drive-sample.mjs` checks all three; before r149 the devices trailed the rack by up to 50px, and its
+  cables blinked while it moved and were gone at the edge).
 - **Shelves, surfaces, sketches** (ADR-0051): shelves take units and slots; devices fix to a wall, floor,
   desk, ceiling or board. A closet's walls, desks and ceilings stand in columns beside its racks, tallest
   first, each at least as tall as the tallest rack there, or 42U with no rack (`drawing/rows.ts`

@@ -133,6 +133,7 @@ import { buildDrawingNodes, ownerNodeIdForPort } from './buildDrawingNodes';
 import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
 import { easeOut, glideOptions } from './motion';
+import { useMovedNodes } from './movedNodes';
 import { panToShow } from './keepInView';
 import { useSettle } from './useSettle';
 import { liveSagPath, markFreshCable } from './cableMotion';
@@ -548,6 +549,9 @@ function DrawingInner({
   // A rack being dragged: where it is under the pointer, so it carries its devices and their cables
   // with it as it moves (sign-off r129), instead of jumping on drop.
   const [rackDrag, setRackDrag] = useState<{ id: string; position: { x: number; y: number } } | null>(null);
+  // Something is being dragged. Nothing else slides to its place meanwhile (`drawing.css`): a rack's devices
+  // are nodes of their own, and each slide left them a step behind the rack they are in.
+  const [nodeDragging, setNodeDragging] = useState(false);
   const [dropPreview, setDropPreview] = useState<DropPreview>({});
   const [shakingId, setShakingId] = useState<string | null>(null);
   // React Flow owns the camera; this component keeps only the stop and the
@@ -1799,10 +1803,21 @@ function DrawingInner({
   const chassisHeightUFor = (node: FlowNode): number =>
     node.type === 'chassis' ? (node.data as ChassisNodeData).chassis.heightU : 1;
 
-  const handleNodeDragStart: OnNodeDrag = useCallback((_event, node, dragged) => void free.onNodeDragStart(node, dragged), [free.onNodeDragStart]);
+  const handleNodeDragStart: OnNodeDrag = useCallback(
+    (_event, node, dragged) => {
+      setNodeDragging(true);
+      free.onNodeDragStart(node, dragged);
+    },
+    [free.onNodeDragStart],
+  );
 
+  const settleView = settled.settle;
   const handleNodeDrag: OnNodeDrag = useCallback(
     (_event, node, dragged) => {
+      // Held at the pane's edge the view pans by itself, and a pan's end is not announced until it stops. The
+      // view the stubs go by is told here, or a rack carried along with the view reads as off screen and its
+      // own cables are cut to stubs.
+      settleView(rf.getViewport());
       if (free.onNodeDrag(node, dragged)) return;
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'rack') {
@@ -1826,11 +1841,12 @@ function DrawingInner({
       const valid = !overlapsRack(rack, { id: parsed.id, positionU, heightU });
       setDropPreview({ [rack.id]: { fromU: positionU, toU: positionU + heightU - 1, valid } });
     },
-    [view.racks, rackPositions, free.onNodeDrag],
+    [view.racks, rackPositions, free.onNodeDrag, settleView, rf],
   );
 
   const handleNodeDragStop: OnNodeDrag = useCallback(
     (_event, node) => {
+      setNodeDragging(false);
       if (free.onNodeDragStop(node)) return;
       const parsed = parseNodeId(node.id);
       if (parsed == null) return;
@@ -2185,6 +2201,9 @@ function DrawingInner({
   const troubled = useTroubleFade(planned.nodes, suggestedEdges);
   const faded = useChecksFade(troubled.nodes, troubled.edges);
   const shown = useTraceFade(faded.nodes, faded.edges);
+  // Last, so it sees each node as React Flow will: one that has only moved keeps its measured size, and its
+  // cables stay on the page while it moves (`movedNodes.ts`).
+  const shownNodes = useMovedNodes(shown.nodes);
   // Every drawn cable's id, for the copy above the devices (`CableTopLayer`); the ones a Show, a plan or a
   // trace has faded, which get no copy; and the ones "It's down" is checking, which a selected cable does not
   // dim. The same array and sets while what is in them is the same.
@@ -2216,6 +2235,7 @@ function DrawingInner({
       ref={containerRef}
       data-camera-stop={cameraStop}
       data-zoom-band={zoomBand}
+      data-node-drag={nodeDragging ? '' : undefined}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -2225,7 +2245,7 @@ function DrawingInner({
       <CableCrossingKeys />
       <CableFocus container={containerRef} />
       <ReactFlow
-        nodes={shown.nodes}
+        nodes={shownNodes}
         edges={shown.edges}
         nodeTypes={ALL_NODE_TYPES}
         edgeTypes={ALL_EDGE_TYPES}

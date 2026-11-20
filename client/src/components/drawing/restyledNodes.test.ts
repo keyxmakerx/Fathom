@@ -57,11 +57,18 @@ describe('a node given another class', () => {
     expect(made.data).toEqual({ name: 'a', ports: 2 });
   });
 
-  it('carries no size React Flow has not measured, or when React Flow holds some other object', () => {
+  it('carries no size React Flow has not measured, or when React Flow holds a node that differs', () => {
     const base = node('a');
     expect(restyle(new Map(), new Map(), held(base, {}), base, 'faded').measured).toBeUndefined();
-    expect(restyle(new Map(), new Map(), held(node('a')), base, 'faded').measured).toBeUndefined();
+    expect(restyle(new Map(), new Map(), held(node('a', { data: { name: 'a', ports: 2 } })), base, 'faded').measured).toBeUndefined();
     expect(restyle(new Map(), new Map(), undefined, base, 'faded').measured).toBeUndefined();
+  });
+
+  it('carries the size when React Flow holds a copy of this node that differs only in where it is', () => {
+    // A node that was moved is held as a copy carrying its size (`movedNodes.ts`).
+    const base = node('a');
+    const moved = { ...node('a'), position: { x: 80, y: 0 }, measured: { width: 240, height: 16 } };
+    expect(restyle(new Map(), new Map(), held(moved), base, 'faded').measured).toEqual({ width: 240, height: 16 });
   });
 
   it('keeps a size the node already says for itself', () => {

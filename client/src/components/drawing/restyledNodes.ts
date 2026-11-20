@@ -6,6 +6,8 @@
 // size React Flow measured, and a node whose class has not changed keeps the copy it had.
 import type { InternalNode, Node } from '@xyflow/react';
 
+import { onlyMoved } from './movedNodes';
+
 /** A node as it was handed in, the class it was last given, and the copy that carried it. */
 export interface Restyled {
   base: Node;
@@ -17,8 +19,9 @@ export interface Restyled {
  * `node` with `cls` added to its class and `data` to its data.
  *
  * `was` is what the last pass made and `now` collects this pass, both by node id. `held` is the node as React
- * Flow has it. The size is carried only when React Flow's node came from this same `node` (the node itself, or
- * the last copy of it), so a node that has really changed is measured again as it always was.
+ * Flow has it. The size is carried only when React Flow's node came from this same `node` (the node itself, the
+ * last copy of it, or a copy that differs only in where it is: `movedNodes.ts`), so a node that has really
+ * changed is measured again as it always was.
  */
 export function restyle(
   was: ReadonlyMap<string, Restyled>,
@@ -39,7 +42,7 @@ export function restyle(
     ...(data ? { data: { ...node.data, ...data } } : {}),
   };
   const from = held?.internals.userNode;
-  const same = from === node || (had != null && had.base === node && from === had.made);
+  const same = from === node || (had != null && had.base === node && from === had.made) || (from != null && onlyMoved(from, node));
   const size = held?.measured;
   if (same && node.measured == null && size?.width != null && size.height != null) {
     made = { ...made, measured: { width: size.width, height: size.height } };

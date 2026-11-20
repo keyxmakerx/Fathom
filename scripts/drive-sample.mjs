@@ -750,6 +750,70 @@ try {
     check('the sample reopens there, where it was left', Math.abs(back.camera.x - left.camera.x) <= 1.5 && Math.abs(back.camera.y - left.camera.y) <= 1.5 && Math.abs(back.camera.zoom - left.camera.zoom) < 0.002, `${JSON.stringify(left.camera)} then ${JSON.stringify(back.camera)}`);
     await shot(page, 'SN-12-reopened-on-a-desk');
 
+    // A dragged rack keeps its devices and shelves on it. They are nodes of their own, and each one slid to its
+    // new place over 150 ms: a step behind the rack in any drag, and about 50px behind it at the pane's edge,
+    // where the view pans by itself. Its cables stay on the page too: each device was measured again at every
+    // step, and until it had been its cables were not drawn, so they blinked while the rack moved and were gone
+    // while it was held at the edge. Back to the rack first, the long way round, since the view is on a desk.
+    await pick('Closet');
+    await pick('Rack');
+    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    const grip = await seen();
+    const carried = () => page.evaluate(() => ({ ...window.__carried }));
+    await page.evaluate(() => {
+      const rack = document.querySelector('.react-flow__node-rack');
+      const frame = rack.getBoundingClientRect();
+      const inRack = [...document.querySelectorAll('.react-flow__node-chassis, .react-flow__node-shelf')].filter((el) => {
+        const b = el.getBoundingClientRect();
+        return b.x >= frame.x && b.right <= frame.right && b.y >= frame.y && b.bottom <= frame.bottom;
+      });
+      const gaps = () => {
+        const at = rack.getBoundingClientRect();
+        return inRack.flatMap((el) => { const b = el.getBoundingClientRect(); return [b.x - at.x, b.y - at.y]; });
+      };
+      const held = gaps();
+      const cables = () => document.querySelectorAll('.react-flow__edge[data-id^="cable:"]').length;
+      const tags = () => document.querySelectorAll('.drawing-stub__tag').length;
+      window.__carried = { things: inRack.length, frames: 0, worst: 0, cables: cables(), fewest: cables(), tags: tags(), mostTags: tags() };
+      const tick = () => {
+        const now = gaps();
+        window.__carried.frames += 1;
+        window.__carried.worst = Math.max(window.__carried.worst, ...now.map((gap, i) => Math.abs(gap - held[i])));
+        window.__carried.fewest = Math.min(window.__carried.fewest, cables());
+        window.__carried.mostTags = Math.max(window.__carried.mostTags, tags());
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    const gx = grip.rack.x + 6;
+    const gy = grip.rack.bottom - 8;
+    await page.mouse.move(gx, gy);
+    await page.mouse.down();
+    for (let i = 1; i <= 20; i += 1) {
+      await page.mouse.move(gx + i * 10, gy + i);
+      await page.waitForTimeout(16);
+    }
+    await page.waitForTimeout(300);
+    const across = await seen();
+    const plain = await carried();
+    check('a rack is dragged across the paper, with devices and a shelf in it', across.rack.x - grip.rack.x > 150 && plain.things >= 3 && plain.frames >= 10, `${across.rack.x - grip.rack.x}px, ${plain.things} things, ${plain.frames} frames`);
+    check('and they stay on the rack all the way, none a step behind', plain.worst <= 1.5, `${plain.worst.toFixed(1)}px off at the worst`);
+    check('with every cable on the page in every frame', plain.cables > 2 && plain.fewest === plain.cables, `${plain.fewest} of ${plain.cables} at the fewest`);
+    // To the pane's left edge and held there: the view pans by itself and the rack goes with the pointer.
+    for (let i = 1; i <= 10; i += 1) {
+      await page.mouse.move(gx + 200 + ((grip.pane.x + 12 - gx - 200) * i) / 10, gy + 20);
+      await page.waitForTimeout(16);
+    }
+    await page.waitForTimeout(700);
+    const edge = await seen();
+    const panned = await carried();
+    await shot(page, 'SN-13-rack-held-at-the-edge');
+    check('held at the edge of the pane, the view pans by itself', edge.camera.x - across.camera.x > 100, `${across.camera.x} then ${edge.camera.x}`);
+    check('and the devices are still on the rack, not trailing it', panned.worst <= 1.5 && panned.frames > plain.frames + 10, `${panned.worst.toFixed(1)}px off at the worst, ${panned.frames} frames`);
+    check('its cables are still drawn, whole', panned.fewest === panned.cables && panned.mostTags === panned.tags, `${panned.fewest} of ${panned.cables} at the fewest, ${panned.mostTags} cut to a stub`);
+    await page.mouse.up();
+    await page.waitForTimeout(800);
+
     check('no uncaught page errors (the Rack stop)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }

@@ -100,6 +100,13 @@
   transition: transform var(--m-pane) var(--m-ease), opacity var(--m-pane) var(--m-ease);
 }
 
+/* While anything is dragged (`data-node-drag`, `Drawing.tsx`) nothing else slides either. A rack carries its
+   devices and shelves as nodes of their own, and each slide left them a step behind the rack: about 50px at the
+   pane's edge, where the view pans by itself, with their cables already where the rack was going. */
+.drawing[data-node-drag] .react-flow__node {
+  transition: opacity var(--m-pane) var(--m-ease);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .drawing .react-flow__node {
     transition: none;
