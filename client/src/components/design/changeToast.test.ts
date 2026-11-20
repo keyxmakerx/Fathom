@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { connectPorts } from '../../document/cables';
 import { addSketchPort, createRack, createSketchDevice, placeChassis, removeChassis } from '../../document/commands';
 import { setDeviceField } from '../../document/edit';
+import { moveFree } from '../../document/freeform';
 import { edgesIn, emptyDocument, formatNodeId, type Batch, type Document } from '../../document/model';
 import { addNote } from '../../document/notes';
 import { newUlid } from '../../document/ulid';
@@ -148,15 +149,33 @@ describe('historyWordsOf', () => {
     expect(historyWordsOf(three.doc)(three.batch)).toBe('Fields changed');
   });
 
+  // A drag writes the thing's place on the canvas, its pin. The first drag makes the pin and every later one
+  // writes it, and that later one once read "Moved" with nothing after it.
+  it('says a move by the thing moved, at the first drag and at every one after', () => {
+    const chassisId = base.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    const once = moveFree(base, [{ id: chassisId, x: 40, y: 80 }], { actor: ME, now: 2_000 });
+    const twice = moveFree(once, [{ id: chassisId, x: 120, y: 160 }], { actor: ME, now: 3_000 });
+    expect(historyWordsOf(once)(last(once))).toBe('Moved · sw-01');
+    expect(last(twice).ops.every((op) => op.type === 'set_field')).toBe(true);
+    expect(historyWordsOf(twice)(last(twice))).toBe('Moved · sw-01');
+    const undone = undo(twice, last(twice).id, { actor: ME, now: 4_000 });
+    expect(historyWordsOf(undone)(last(undone))).toBe('Undone: moved · sw-01');
+  });
+
   it('says a new thing by its own name, and one that joins others by what it joins', () => {
     const started = createPremises(emptyDocument(), { actor: ME, now: 1_000 });
     let doc = createRack(started.doc, started.premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', actor: ME, now: 1_001 });
     doc = createSketchDevice(doc, { actor: ME, now: 1_002, hostname: 'core-01' });
     doc = createSketchDevice(doc, { actor: ME, now: 1_003, hostname: 'acc-01' });
-    for (const chassis of doc.nodes.filter((n) => n.id.startsWith('chassis:'))) doc = addSketchPort(doc, chassis.id, { label: 'eth0', connector: 'rj45', face: 'front' }, { actor: ME, now: 1_004 });
+    // Each port at its own moment: two ids minted in one millisecond sort either way round.
+    let at = 1_004;
+    for (const chassis of doc.nodes.filter((n) => n.id.startsWith('chassis:'))) {
+      doc = addSketchPort(doc, chassis.id, { label: 'eth0', connector: 'rj45', face: 'front' }, { actor: ME, now: at });
+      at += 1;
+    }
     const ports = doc.nodes.filter((n) => n.id.startsWith('physical-port:')).map((n) => n.id);
-    doc = connectPorts(doc, ports[0]!, ports[1]!, { sheath: 'blue' }, { actor: ME, now: 1_005 });
-    doc = addNote(doc, ports[0]!, { text: 'checked the cabling', how: 'typed', actor: ME, now: 1_006 });
+    doc = connectPorts(doc, ports[0]!, ports[1]!, { sheath: 'blue' }, { actor: ME, now: 1_010 });
+    doc = addNote(doc, ports[0]!, { text: 'checked the cabling', how: 'typed', actor: ME, now: 1_011 });
     expect(doc.batches.map(historyWordsOf(doc))).toEqual([
       // The design's one place, made with the first thing drawn and named by nobody.
       'Design started',

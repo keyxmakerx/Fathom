@@ -206,8 +206,8 @@ function changeBehind(batch: Batch, byId: ReadonlyMap<string, Batch>): Batch | n
   return cur === undefined || cur.reverses !== undefined ? null : cur;
 }
 
-/** What History calls a node: its own name, or for a chassis or a port the device it belongs to. `null` for a
- * thing with no name of its own, a cable or a note or a tag: that is said by what it is attached to. */
+/** What History calls a node: its own name, or for a chassis, a port or a place on the canvas what it belongs to.
+ * `null` for a thing with no name of its own, a cable or a note or a tag: that is said by what it is attached to. */
 function nodeSubject(doc: Document, id: string): string | null {
   const kind = nodeKind(id);
   if (kind === 'PhysicalPort') {
@@ -217,6 +217,11 @@ function nodeSubject(doc: Document, id: string): string | null {
   if (kind === 'Chassis') {
     const device = everyEdgeIn(doc, id).find((e) => edgeKind(e.id) === 'HasChassis');
     return device === undefined ? null : ownName(doc, device.from);
+  }
+  // Where a thing stands on the canvas is its pin, and a move is said by the thing moved.
+  if (kind === 'LayoutPin') {
+    const pinned = everyEdgeIn(doc, id).find((e) => edgeKind(e.id) === 'HasLayoutPin');
+    return pinned === undefined ? null : nodeSubject(doc, pinned.from);
   }
   return ownName(doc, id);
 }
