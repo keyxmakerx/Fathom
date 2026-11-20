@@ -537,7 +537,9 @@ menu rises from its button, and Home's tabs have one line that slides between th
   wheel pans. They go out to 77.5%, or as far out as the camera has been on this visit, so a pinch from a
   fitted view starts where the drawing is (`geometry.ts` `wheelFloor`; r149). The opening fit and Fit to view
   keep what they frame, trays included, clear of the tool row, the zoom buttons and a sample's question card
-  (`paddingClearOf`; r149). A design reopens where its camera was left (`design/resume.ts`), exactly, however far out; from
+  (`paddingClearOf`; r149). A design reopens where its camera was left (`design/resume.ts`), exactly, however far out, as
+  long as that view still shows something drawn: a rack, a wall, a desk, a ceiling or a box on the open canvas
+  (a rack only, before r149). From
   there the pill's + and − move the drawing (before r147 they changed the number only, for the whole visit;
   `drive-sample.mjs` checks it). Placing snaps to a unit and refuses an overlap with a shake. Every change saves: one in
   flight, the latest queued, a refusal shown and never rolled back. A rack's height is 42U, 24U, 12U or

@@ -94,6 +94,8 @@ export interface FreeLayer {
   edges: RFEdge[];
   /** Every free node's id, for fitting the camera. */
   fitIds: { id: string }[];
+  /** Where each of them is drawn, as far as is known before the page has measured it. */
+  rects(): { x: number; y: number; width: number; height: number }[];
   /** What a free layer wants over and beside the canvas. */
   portal: ReactNode;
   overlay: ReactNode;
@@ -846,6 +848,11 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
     nodes,
     edges,
     fitIds,
+    rects: () =>
+      allNodeIds.map((id) => {
+        const r = rectOf(id);
+        return { x: r.x, y: r.y, width: r.w, height: r.h };
+      }),
     portal,
     overlay,
     onNodeClick,

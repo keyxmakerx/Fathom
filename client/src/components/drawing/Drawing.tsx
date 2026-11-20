@@ -979,12 +979,17 @@ function DrawingInner({
     hasFitOnceRef.current = true;
     if (!lookSwitched && !shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
     if (isFirstRun && restoredCameraRef.current && initialViewport != null) {
-      // The camera was restored: that replaces the fit, unless it no longer shows any rack.
+      // The camera was restored: that replaces the fit, unless it no longer shows anything that is drawn. A wall,
+      // a desk and a box on the open canvas count as a rack does: a design left zoomed in on its desk reopens there.
       const pane = containerRef.current;
-      const rects = view.racks.flatMap((r) => {
-        const at = rackPositions[r.id];
-        return at == null ? [] : [{ x: at.x, y: at.y, width: RACK_NODE_WIDTH, height: rackNodeHeight(r) }];
-      });
+      const rects = [
+        ...view.racks.flatMap((r) => {
+          const at = rackPositions[r.id];
+          return at == null ? [] : [{ x: at.x, y: at.y, width: RACK_NODE_WIDTH, height: rackNodeHeight(r) }];
+        }),
+        ...[...surfacesLayout.panels, ...(surfacesLayout.floor != null ? [surfacesLayout.floor] : [])].map((p) => ({ x: p.x, y: p.y, width: p.widthPx, height: p.heightPx })),
+        ...free.rects(),
+      ];
       if (pane == null || viewShowsAny(initialViewport, { width: pane.clientWidth, height: pane.clientHeight }, rects)) {
         return;
       }

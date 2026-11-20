@@ -630,20 +630,24 @@ try {
     // A selected cable dims the others, and a dimmed cable is not drawn a second time above the devices, where
     // the copy would be at full strength. Last, because a press on the drawing folds the question card.
     {
+      // A spot on a cable's line outside the racks, with the cable itself the top thing there.
       const picked = await page.evaluate(() => {
         const racks = [...document.querySelectorAll('.react-flow__node-rack')].map((r) => r.getBoundingClientRect());
         for (const edge of document.querySelectorAll('.react-flow__edge[data-id^="cable:"]')) {
           const line = edge.querySelector('.drawing-cable:not(.drawing-cable--stub) > path[d]');
           if (line == null) continue;
-          const p = line.getPointAtLength(line.getTotalLength() / 2).matrixTransform(line.getScreenCTM());
-          if (racks.some((r) => p.x >= r.x && p.x <= r.right && p.y >= r.y && p.y <= r.bottom)) continue;
-          return { x: p.x, y: p.y };
+          for (const along of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+            const p = line.getPointAtLength(line.getTotalLength() * along).matrixTransform(line.getScreenCTM());
+            if (racks.some((r) => p.x >= r.x && p.x <= r.right && p.y >= r.y && p.y <= r.bottom)) continue;
+            if (edge.contains(document.elementFromPoint(p.x, p.y))) return { x: p.x, y: p.y };
+          }
         }
         return null;
       });
       check('a cable runs outside the racks, to press', picked != null);
       await page.mouse.click(picked.x, picked.y);
-      await page.waitForTimeout(500);
+      await page.waitForSelector('[data-testid=cable-top-lit]', { state: 'attached', timeout: 5_000 }).catch(() => {});
+      await page.waitForTimeout(300);
       const dim = await page.evaluate(() => {
         const drawn = [...document.querySelectorAll('.react-flow__edge[data-id^="cable:"] .drawing-cable')];
         const dimmed = drawn.filter((g) => Number(getComputedStyle(g).opacity) < 1).map((g) => g.getAttribute('data-cable-id'));
@@ -719,6 +723,33 @@ try {
     await pick('Rack');
     const again = await seen();
     check('picked again from there, the camera stays', Math.abs(again.camera.x - at.camera.x) <= 1 && Math.abs(again.camera.y - at.camera.y) <= 1 && Math.abs(again.camera.zoom - at.camera.zoom) < 0.002, JSON.stringify(again.camera));
+    // A design left looking at a wall or a desk, with no rack in view, reopens there. The remembered view was once
+    // kept only if it showed a rack; any other reopened on the opening view.
+    const inView = () =>
+      page.evaluate(() => {
+        const pane = document.querySelector('.react-flow__pane').getBoundingClientRect();
+        const count = (selector) => [...document.querySelectorAll(selector)].filter((el) => { const b = el.getBoundingClientRect(); return b.width > 0 && b.x < pane.right && b.right > pane.x && b.y < pane.bottom && b.bottom > pane.y; }).length;
+        return { racks: count('.react-flow__node-rack'), surfaces: count('.react-flow__node-surface') };
+      });
+    await page.mouse.move(at.pane.x + 300, at.pane.y + 300);
+    for (let turns = 0; turns < 8 && (await inView()).racks > 0; turns += 1) {
+      await page.mouse.wheel(500, 200);
+      await page.waitForTimeout(250);
+    }
+    await page.waitForTimeout(800);
+    const left = await seen();
+    const leftOn = await inView();
+    check('the wheel takes the view off the rack, onto a wall or a desk', leftOn.racks === 0 && leftOn.surfaces > 0, JSON.stringify(leftOn));
+    await page.locator('.shell-bar__brand').first().click();
+    await page.waitForSelector('.first-steps, .home__help', { timeout: 10_000 });
+    await page.waitForTimeout(400);
+    await page.getByText('Sample home lab', { exact: true }).first().click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(1500);
+    const back = await seen();
+    check('the sample reopens there, where it was left', Math.abs(back.camera.x - left.camera.x) <= 1.5 && Math.abs(back.camera.y - left.camera.y) <= 1.5 && Math.abs(back.camera.zoom - left.camera.zoom) < 0.002, `${JSON.stringify(left.camera)} then ${JSON.stringify(back.camera)}`);
+    await shot(page, 'SN-12-reopened-on-a-desk');
+
     check('no uncaught page errors (the Rack stop)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
