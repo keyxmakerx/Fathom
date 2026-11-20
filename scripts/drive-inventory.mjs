@@ -124,6 +124,39 @@ try {
   check('only a window of the 602 rows is in the page', rendered > 10 && rendered < 80, `rows in DOM=${rendered}`);
   await shot('inventory-01-table.png');
 
+  // 1b — no column head is cut short: every column on, sorted by each column and by each pair.
+  const cutHeads = () => page.$$eval('.inv-table__label', (els) => els.filter((l) => l.scrollWidth > l.clientWidth).map((l) => l.textContent));
+  await page.getByRole('button', { name: 'Columns' }).click();
+  const columnBoxes = page.locator('.inv-toolbar__pop--columns input[type=checkbox]');
+  const turnedOn = [];
+  for (let i = 0; i < (await columnBoxes.count()); i += 1) {
+    if (await columnBoxes.nth(i).isChecked()) continue;
+    await columnBoxes.nth(i).check();
+    turnedOn.push(i);
+  }
+  await page.getByRole('button', { name: 'Columns' }).click();
+  const heads = page.locator('.inv-table__sort');
+  const headCount = await heads.count();
+  check('every device column is in the table', headCount >= 13, `heads=${headCount}`);
+  const cut = new Set(await cutHeads());
+  for (let i = 0; i < headCount; i += 1) {
+    await heads.nth(i).click();
+    for (const label of await cutHeads()) cut.add(`${label}, sorted`);
+    if (i + 1 === headCount) break;
+    await heads.nth(i + 1).click({ modifiers: ['Shift'] });
+    for (const label of await cutHeads()) cut.add(`${label}, in a two-key sort`);
+  }
+  check('no column head is cut short, sorted or not', cut.size === 0, [...cut].join(' | '));
+  await shot('inventory-01b-heads.png');
+  // Back to how the list opened: no sort, and the columns it started with.
+  await heads.nth(headCount - 1).click();
+  await heads.nth(headCount - 1).click();
+  check('the sort is cleared', (await page.locator('.inv-table__mark').count()) === 0);
+  await page.getByRole('button', { name: 'Columns' }).click();
+  for (const i of turnedOn) await columnBoxes.nth(i).uncheck();
+  await page.getByRole('button', { name: 'Columns' }).click();
+  check('the columns are back to the ones the list opened with', (await heads.count()) === headCount - turnedOn.length, `heads=${await heads.count()}`);
+
   // 2 — filter by name.
   const line = (await openFilter(page, 'Filter devices'));
   await line.fill('name~bulk-0042');
@@ -190,6 +223,7 @@ try {
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
   check('a new field becomes a column and takes a date', (await page.locator('.inv-table__row').first().innerText()).includes('2027-03-01'));
+  check('the head of a field somebody named is not cut short either', !(await cutHeads()).includes('Warranty ends'), (await cutHeads()).join(' | '));
   await shot('inventory-03-field.png');
 
   // 8 — paste rows (header + update + add) and bulk-tag them.

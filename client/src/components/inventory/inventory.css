@@ -419,7 +419,12 @@
   overflow: hidden;
 }
 
-/* the heading's words are cut short with an ellipsis; the sort marker beside them never is */
+/* the caret brings its own padding, so the sort button gives none on that side */
+.inv-table__sort:not(:last-child) {
+  padding-right: 0;
+}
+
+/* a heading too long for its column is cut short with an ellipsis; the sort marker beside it never is */
 .inv-table__label {
   min-width: 0;
   overflow: hidden;
