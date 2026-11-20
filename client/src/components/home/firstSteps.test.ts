@@ -7,7 +7,20 @@ import { addSketchPort, createSketchDevice } from '../../document/commands';
 import { emptyDocument, parseNodeId, type Document } from '../../document/model';
 import { buildSample, sample } from './sampleNetwork';
 import { GettingStarted } from './GettingStarted';
-import { FIRST_STEPS, freshSteps, loadFirstSteps, markStepsSeen, nextStep, recordFirstSteps, rememberSample, sampleOfDesign, setFirstStepsHidden, stepsIn } from './firstSteps';
+import {
+  FIRST_STEPS,
+  freshSteps,
+  homeStartsWith,
+  howTo,
+  loadFirstSteps,
+  markStepsSeen,
+  nextStep,
+  recordFirstSteps,
+  rememberSample,
+  sampleOfDesign,
+  setFirstStepsHidden,
+  stepsIn,
+} from './firstSteps';
 
 function fakeStorage(): Storage {
   const m = new Map<string, string>();
@@ -104,6 +117,29 @@ describe('the five first steps', () => {
       expect(step.how).toMatch(/^[A-Z].*\.$/);
       expect(step.how.length).toBeLessThanOrEqual(110);
     }
+  });
+
+  it('name the button this Home really has for the first step', () => {
+    const first = FIRST_STEPS[0]!;
+    expect(howTo(first)).toBe(first.how);
+    expect(howTo(first, 'new-design')).toContain('Press New design,');
+    expect(howTo(first, 'start-drawing')).toContain('Press Start drawing,');
+    expect(howTo(first, 'none')).not.toMatch(/Press/);
+    for (const startsWith of ['new-design', 'start-drawing', 'none'] as const) {
+      expect(howTo(first, startsWith)).toMatch(/^[A-Z].*\.$/);
+      expect(howTo(first, startsWith).length).toBeLessThanOrEqual(110);
+      // Only the first step changes with the button.
+      for (const step of FIRST_STEPS.slice(1)) expect(howTo(step, startsWith)).toBe(step.how);
+    }
+    // First Home has the welcome's Start drawing; after that New design, or neither for someone who may not draw.
+    expect(homeStartsWith(true, false, true)).toBe('start-drawing');
+    expect(homeStartsWith(false, true, true)).toBe('new-design');
+    expect(homeStartsWith(false, false, true)).toBe('none');
+    // Until Home has loaded, the words stay as they will most likely be.
+    expect(homeStartsWith(false, false, false)).toBe('new-design');
+    const html = renderToStaticMarkup(createElement(GettingStarted, { done: [], startsWith: 'start-drawing', onHide: () => {} }));
+    expect(html).toContain('Press Start drawing,');
+    expect(html).not.toContain('New design');
   });
 
   it('tick themselves once: a step done since Home last drew the list is fresh until it has been seen', () => {

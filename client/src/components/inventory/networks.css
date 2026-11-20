@@ -261,9 +261,10 @@
   font-size: var(--t-small);
 }
 
-/* No network in the design at all: the box spans the list. */
+/* No network in the design at all: the box spans the list, and reads as a sentence, not as a row of data. */
 .networks-panel__none {
   grid-column: 1 / -1;
+  font-family: var(--sans);
 }
 
 .networks-panel__footnote {

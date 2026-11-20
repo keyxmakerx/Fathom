@@ -25,6 +25,7 @@ import {
   portRowBudgetPx,
   portalTraySide,
   rackAtPoint,
+  restoredZoomAwaited,
   snapDropToU,
   sortFreeRuns,
   uToOffsetPx,
@@ -418,6 +419,23 @@ describe('zoomAboutPaneCentre — a bar-driven zoom keeps the pane centre fixed'
   it('an unchanged zoom is a no-op on x/y', () => {
     const viewport = { x: 17, y: -5, zoom: 1.5 };
     expect(zoomAboutPaneCentre(viewport, 1.5, 800, 600)).toEqual(viewport);
+  });
+});
+
+describe('restoredZoomAwaited: a design reopened where it was left', () => {
+  it('holds the bar off while it still shows an older zoom', () => {
+    expect(restoredZoomAwaited(120, 100)).toBe(120);
+  });
+
+  // The bar showing the restored zoom is the bar caught up. Left waiting here, + and - changed the number
+  // and never the drawing, for the whole visit.
+  it('lets the bar lead again once it shows the restored zoom', () => {
+    expect(restoredZoomAwaited(120, 120)).toBeNull();
+    expect(restoredZoomAwaited(restoredZoomAwaited(120, 120), 130)).toBeNull();
+  });
+
+  it('has nothing to wait for when no camera was restored', () => {
+    expect(restoredZoomAwaited(null, 100)).toBeNull();
   });
 });
 

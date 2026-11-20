@@ -660,12 +660,20 @@
   margin-top: var(--s2);
 }
 
+/* As wide as it is beside the sample on first Home, so it is plainly the same card. */
 .home-own {
+  max-width: 28rem;
   animation: fathom-pop-in var(--m-pop) var(--m-ease) both;
 }
 
 .home-own .about-link {
   display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-own {
+    animation: none;
+  }
 }
 
 .home__org-note {

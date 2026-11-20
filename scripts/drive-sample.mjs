@@ -195,6 +195,11 @@ try {
       check('the rack is on the canvas to drag', false);
     }
 
+    // Leave the sample at the Rack stop, so the visit below reopens it there.
+    await page.locator('.shell-pill__value').click();
+    await page.locator('.shell-pill__stop', { hasText: 'Rack' }).click();
+    await page.waitForTimeout(1200);
+
     await page.locator('.shell-bar__brand').first().click();
     await page.waitForSelector('.first-steps, .home__help', { timeout: 10_000 });
     await page.waitForTimeout(500);
@@ -210,6 +215,23 @@ try {
     await shot(page, 'SN-05-hidden');
     await page.locator('.home__panel').getByRole('button', { name: 'Getting started' }).click();
     check('Getting started comes back from Help', (await page.locator('.first-steps').count()) === 1);
+
+    // A design reopened where it was left: the bar's + and - still move the drawing. They once changed the
+    // number and nothing else for the whole visit, because the camera waited on a zoom the bar already showed.
+    await page.getByText('Sample home lab', { exact: true }).first().click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(1500);
+    const cameraZoom = () => page.evaluate(() => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform).a);
+    const leftAt = await cameraZoom();
+    check('the sample reopens where it was left, at the Rack stop', Math.abs(leftAt - 1) < 0.01, String(leftAt));
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.waitForTimeout(900);
+    const nearer = await cameraZoom();
+    check('reopened, + moves the drawing and not only the number', nearer > leftAt + 0.05, `${leftAt} to ${nearer}`);
+    await page.getByRole('button', { name: 'Zoom out' }).click();
+    await page.waitForTimeout(900);
+    const back = await cameraZoom();
+    check('and - moves it back', Math.abs(back - leftAt) < 0.01, `${nearer} to ${back}`);
     check(`no uncaught page errors (${scheme})`, pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }

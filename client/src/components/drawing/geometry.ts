@@ -435,6 +435,12 @@ export function rackAtPoint<R extends { id: string; heightU: number }>(
   return null;
 }
 
+/** A camera restored on open speaks first: the bar still shows an older zoom, which must not pull the camera to
+ * it. Returns the restored zoom (percent) still waited on, or null once the bar shows it and leads again. */
+export function restoredZoomAwaited(restoredPct: number | null, barPct: number): number | null {
+  return restoredPct != null && barPct !== restoredPct ? restoredPct : null;
+}
+
 /** The viewport after zooming to `nextZoom` with the pane's centre held still. */
 export function zoomAboutPaneCentre(
   viewport: { x: number; y: number; zoom: number },

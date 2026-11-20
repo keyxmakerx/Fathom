@@ -42,7 +42,7 @@ import { TeamsPage } from '../teams/TeamsPage';
 import { newDesignTarget } from './newDesign';
 import { RecentRow } from './RecentRow';
 import { whenLabel } from '../history/HistoryPanel';
-import { freshSteps, loadFirstSteps, markStepsSeen, rememberSample, setFirstStepsHidden, type FirstStepsState } from './firstSteps';
+import { freshSteps, homeStartsWith, loadFirstSteps, markStepsSeen, rememberSample, setFirstStepsHidden, type FirstStepsState } from './firstSteps';
 import { GettingStarted, SampleCard } from './GettingStarted';
 import { HOME_SAMPLE, modelsFor } from './sampleModels';
 import { buildSample, sample, sampleModels, type SamplePaste, type SampleSpec } from './sampleNetwork';
@@ -343,6 +343,12 @@ export function Home({
     (scopes.status === 'ready' && scopes.value.some((scope) => canDrawFor(scope.capability))) ||
     (organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && (org.role === 'admin' || org.practice)));
   const inOrganisation = organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId);
+  // The first step names the button that is really here: the welcome's Start drawing, Home's New design, or neither.
+  const startsWith = homeStartsWith(
+    organisationCount === 0 && practice !== undefined && !waitingInvitee,
+    canMakeDesigns,
+    organisations.status !== 'loading' && (selectedOrgId === null || scopes.status !== 'loading'),
+  );
   // ADR-0081: Teams is for someone in, leading or supervising a team here.
   const [inTeam, setInTeam] = useState(false);
   useEffect(() => {
@@ -857,7 +863,7 @@ export function Home({
 
       <aside className="home__panel">
         {!firstSteps.hidden && !waitingInvitee && (
-          <GettingStarted done={firstSteps.done} fresh={stepsJustTicked} onHide={() => hideFirstSteps(true)} />
+          <GettingStarted done={firstSteps.done} fresh={stepsJustTicked} startsWith={startsWith} onHide={() => hideFirstSteps(true)} />
         )}
         <div className="home__label">You</div>
         <div className="home__you-address m">{address}</div>

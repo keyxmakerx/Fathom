@@ -3,7 +3,7 @@
 // how when pressed, and the next one says it without being asked.
 import { useState } from 'react';
 
-import { FIRST_STEPS, nextStep, type StepId } from './firstSteps';
+import { FIRST_STEPS, howTo, nextStep, type StartsWith, type StepId } from './firstSteps';
 
 export interface SampleCardProps {
   summary: string;
@@ -54,10 +54,12 @@ export interface GettingStartedProps {
   done: readonly StepId[];
   /** Steps ticked since the list was last drawn: each ticks itself, once. */
   fresh?: readonly StepId[];
+  /** Which button on this Home starts a design of one's own; the first step names it. */
+  startsWith?: StartsWith;
   onHide: () => void;
 }
 
-export function GettingStarted({ done, fresh = [], onHide }: GettingStartedProps) {
+export function GettingStarted({ done, fresh = [], startsWith = 'new-design', onHide }: GettingStartedProps) {
   const count = FIRST_STEPS.filter((s) => done.includes(s.id)).length;
   const next = nextStep(done);
   // One step says how at a time: the next one to begin with, then whichever the person presses.
@@ -112,7 +114,7 @@ export function GettingStarted({ done, fresh = [], onHide }: GettingStartedProps
               {!ticked && (
                 <div className={shown ? 'first-steps__how first-steps__how--open' : 'first-steps__how'} aria-hidden={!shown}>
                   <div className="first-steps__how-clip">
-                    <p>{step.how}</p>
+                    <p>{howTo(step, startsWith)}</p>
                   </div>
                 </div>
               )}

@@ -454,7 +454,8 @@ menu rises from its button, and Home's tabs have one line that slides between th
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves
   it as the person's own design. A model the catalogue lacks is drawn as a sketch with the same port labels.
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
-  cables do not count. A step not yet done says how when pressed, and the next one says it unasked; a step
+  cables do not count. A step not yet done says how when pressed, and the next one says it unasked; the first
+  names the button that Home has (New design, or Start drawing on first Home); a step
   done since the last visit ticks itself on Home, once (r147). Hidden, it lives under Help. Not built: tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
 - **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
@@ -521,7 +522,9 @@ menu rises from its button, and Home's tabs have one line that slides between th
   stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. A stop picked from the zoom menu lands on what
   is selected, or on the nearest thing when the middle of the view is empty (`racks/zoomAim.ts`; r147), and
   the menu closes. Ctrl+wheel or pinch zooms (max 400%), the
-  wheel pans. Placing snaps to a unit and refuses an overlap with a shake. Every change saves: one in
+  wheel pans. A design reopens where its camera was left (`design/resume.ts`), exactly, however far out; from
+  there the pill's + and − move the drawing (before r147 they changed the number only, for the whole visit;
+  `drive-sample.mjs` checks it). Placing snaps to a unit and refuses an overlap with a shake. Every change saves: one in
   flight, the latest queued, a refusal shown and never rolled back. A rack's height is 42U, 24U, 12U or
   typed, refused below what is mounted.
 - **Rear elevation** (ADR-0050): every rack has front and rear; supplies are parts in slots with their own

@@ -61,6 +61,7 @@ import {
   openingFit,
   overlapsRack,
   rackAtPoint,
+  restoredZoomAwaited,
   snapDropToU,
   zoomAboutPaneCentre,
   zoomBandAt,
@@ -1296,12 +1297,18 @@ function DrawingInner({
   // else about the pane centre. A person's own move reports its zoom at its end.
   useEffect(() => {
     if (personMovingRef.current) return;
+    // A restored camera tells the bar its zoom (on mount) rather than being reset to the bar's. Once the bar
+    // shows it the bar leads again; left waiting, + and - changed the number and never the drawing.
+    const awaited = restoredPctRef.current;
+    restoredPctRef.current = restoredZoomAwaited(awaited, zoom);
+    if (restoredPctRef.current != null) return;
     const live = rf.getViewport();
     if (Math.round(live.zoom * 100) === zoom) return;
-    if (restoredPctRef.current != null) {
-      // A restored camera tells the bar its zoom (on mount) rather than being reset to the bar's.
-      if (zoom !== restoredPctRef.current) return;
-      restoredPctRef.current = null;
+    if (awaited != null && initialViewport != null) {
+      // The canvas opens no further out than the wheel goes, so a camera left further out than that (a fit of
+      // a big closet) opened short of it. Put it where it was left, at once.
+      void rf.setViewport(initialViewport);
+      return;
     }
     const nextZoom = zoom / 100;
     if (GLIDE.duration > 0) barGlideRef.current = zoom;

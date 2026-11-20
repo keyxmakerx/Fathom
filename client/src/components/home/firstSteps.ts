@@ -16,8 +16,20 @@ export interface FirstStep {
   how: string;
 }
 
+/** How Home lets a person start a design of their own: its New design button, the first card's Start drawing, or
+ * neither, for someone who may only open what others made. */
+export type StartsWith = 'new-design' | 'start-drawing' | 'none';
+
+const OPENING: Record<StartsWith, string> = {
+  'new-design': 'Press New design',
+  'start-drawing': 'Press Start drawing',
+  none: 'Open a design you may change',
+};
+
+const deviceHow = (startsWith: StartsWith): string => `${OPENING[startsWith]}, then drag a device from the Equipment tab onto the rack.`;
+
 export const FIRST_STEPS: readonly FirstStep[] = [
-  { id: 'device', label: 'Add your first device', how: 'Press New design, then drag a device from the Equipment tab onto the rack.' },
+  { id: 'device', label: 'Add your first device', how: deviceHow('new-design') },
   { id: 'place', label: 'Put it in a rack or on a wall', how: 'Drag the device onto a rack, a shelf or a wall.' },
   {
     id: 'paste',
@@ -32,6 +44,18 @@ export const FIRST_STEPS: readonly FirstStep[] = [
     how: 'Right-click a device and choose Trace from here. In the sample, Try a question has some ready.',
   },
 ];
+
+/** How to do `step`. The first one names the button this Home really has, so nobody looks for one that is not there. */
+export function howTo(step: FirstStep, startsWith: StartsWith = 'new-design'): string {
+  return step.id === 'device' ? deviceHow(startsWith) : step.how;
+}
+
+/** Which button this Home has for a design of one's own. Until Home has loaded enough to know, it is taken to be
+ * New design, so the words do not change under a reader. */
+export function homeStartsWith(firstHome: boolean, mayMakeDesigns: boolean, known: boolean): StartsWith {
+  if (firstHome) return 'start-drawing';
+  return mayMakeDesigns || !known ? 'new-design' : 'none';
+}
 
 /** The step to do next: the first not yet ticked, or null when all five are. */
 export function nextStep(done: readonly StepId[]): StepId | null {
