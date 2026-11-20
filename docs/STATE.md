@@ -699,6 +699,10 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   cell; double-click, Enter, F2 or typing edits any editable cell, the name too. A row's page opens only from
   the small ↗ in its first cell or Ctrl Enter. Inventory keeps its list, where a click on the name opens the
   page. After an edit closes, the keys go back to the grid. `scripts/drive-keep-place.mjs` step 5 drives it.
+- **One edit of a cell is one change, and Esc writes nothing** (r151). Enter and Esc hand the keys back to the
+  grid, which blurs the editor before the table has drawn again. That blur once committed a second time: on a live
+  design an edit finished with Enter was written twice, so the first Undo after it took back nothing anyone could
+  see, and Esc wrote what was typed (`inventory/DataTable.tsx` `closedRef`). `drive-inventory.mjs` drives Esc.
 - **Notes** are nodes on a device, port or rack: pasted through the gate or stored as typed, and saying so.
 - **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
   refuses by name. The trail shows sealed and pending, with a comment on the next change. Each Undo goes one

@@ -182,6 +182,9 @@ try {
   for (const label of ['Role', 'Mgmt address']) await page.getByLabel(label, { exact: true }).check();
   await page.getByRole('button', { name: 'Columns' }).click();
   const roleCell = page.locator('.inv-table__row [role=gridcell]').nth(3);
+  const addressCell = page.locator('.inv-table__row [role=gridcell]').nth(4);
+  const cellText = async (cell) => (await cell.innerText()).trim();
+  const noAddress = await cellText(addressCell);
   await roleCell.dblclick();
   await page.locator('select.inv-table__editor').selectOption('firewall');
   await page.keyboard.press('Tab');
@@ -192,12 +195,34 @@ try {
   check('role and management address were edited in place, Tab moving between them', rowText.includes('firewall') && rowText.includes('10.0.0.9'), rowText.replace(/\s+/g, ' '));
   await shot('inventory-02-edited.png');
 
-  // 5 — a refused value stays open with the reason.
-  await page.locator('.inv-table__row [role=gridcell]').nth(4).dblclick();
+  // 4b — one edit is one change, and one Undo takes it back. With a server behind the design the table once wrote
+  // each edit twice. This harness has no server and cannot show that: `drive-first-design.mjs` checks it.
+  await page.locator('[data-testid="bar-undo"]').click();
+  await page.waitForTimeout(300);
+  check('one Undo takes the address back and leaves the role', (await cellText(addressCell)) === noAddress && (await cellText(roleCell)) === 'firewall', `address "${await cellText(addressCell)}", role "${await cellText(roleCell)}"`);
+  await page.locator('[data-testid="bar-redo"]').click();
+  await page.waitForTimeout(300);
+  check('and one Redo brings it back', (await cellText(addressCell)) === '10.0.0.9', await cellText(addressCell));
+
+  // 5 — a refused value stays open with the reason, and Escape puts both away.
+  await addressCell.dblclick();
   await page.locator('input.inv-table__editor').fill('not-an-ip');
   await page.keyboard.press('Enter');
   check('a refused value shows why and keeps the editor open', (await page.locator('.inv-table__error').count()) === 1 && (await page.locator('input.inv-table__editor').count()) === 1);
   await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check(
+    'Escape closes the editor, and the reason goes with it',
+    (await page.locator('input.inv-table__editor').count()) === 0 && (await page.locator('.inv-table__error').count()) === 0 && (await cellText(addressCell)) === '10.0.0.9',
+    `editors ${await page.locator('input.inv-table__editor').count()}, reasons ${await page.locator('.inv-table__error').count()}, address "${await cellText(addressCell)}"`,
+  );
+
+  // 5b — Escape leaves the cell as it was. What was typed was once written on the way out, as Enter would.
+  await addressCell.dblclick();
+  await page.locator('input.inv-table__editor').fill('10.0.0.77');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check('Escape writes nothing of what was typed', (await cellText(addressCell)) === '10.0.0.9' && (await page.locator('input.inv-table__editor').count()) === 0, await cellText(addressCell));
 
   // 6 — a custom field is defined in the page and then fills a column.
   await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).click();
