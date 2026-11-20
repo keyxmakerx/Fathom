@@ -127,6 +127,8 @@ export interface Overwrite {
   mine: { presence: FieldPresence | 'unknown'; value?: CanonValue };
   /** What stands now. */
   theirs: { presence: FieldPresence | 'unknown'; value?: CanonValue };
+  /** The record `theirs` came with. Absent when their change left no value there. */
+  theirsProv?: string;
   /** The device (or rack, label...) the field belongs to, by name. */
   on: string;
   /** The change was somebody putting their own value back. */
@@ -190,12 +192,20 @@ export function overwritesBy(before: Document, after: Document, change: Change, 
       by,
       mine: { presence: was.presence, value: was.value },
       theirs: { presence: now?.presence ?? 'unknown', value: now?.value },
+      ...(now !== undefined ? { theirsProv: now.prov } : {}),
       on: elementName(after, op.element),
       putBack: change.batch.label === PUT_BACK_LABEL,
       at: ctx.now,
     });
   }
   return out;
+}
+
+/** Whether the field still holds what the notice says it holds. Once anyone has written it again, this person
+ * included, the notice describes a value that is no longer there, and "Put mine back" would put back something
+ * older than what is. */
+export function overwriteStands(doc: Document, o: Overwrite): boolean {
+  return fieldEntry(doc, o.element, o.key)?.prov === o.theirsProv;
 }
 
 /** This person's own fields, written in this sitting within the window, on the

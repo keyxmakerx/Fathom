@@ -309,6 +309,36 @@ describe('what others do', () => {
     expect(back.batches[back.batches.length - 1].label).toBe(PUT_BACK_LABEL);
   });
 
+  it('lets the notice go once the person has written that field again, and does not bring it back', async () => {
+    const { r, deviceId, theirs } = overwritten();
+    expect(last(r).overwrite).not.toBeNull();
+    // Ann types a newer role over Bob's: "yours router" is no longer what Put mine back should offer.
+    const again = setDeviceField(theirs, deviceId, 'role', 'firewall', { actor: ME, now: Date.now() + 20 });
+    r.live.edit(again);
+    expect(last(r).overwrite).toBeNull();
+    expect(findNode(last(r).doc, deviceId)!.fields['Device.role'].value).toBe('firewall');
+    // Her change comes back confirmed, and the notice stays away.
+    r.events().frame(frame(FRAME_CHANGE, 13, writeChange(changeOf(theirs, again))));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(last(r).overwrite).toBeNull();
+  });
+
+  it('lets the notice go when someone else writes that field again', () => {
+    const { r, deviceId, theirs } = overwritten();
+    const third = setDeviceField(theirs, deviceId, 'role', 'access_point', { actor: 'someone third', now: Date.now() + 20 });
+    r.events().frame(frame(FRAME_CHANGE, 13, writeChange(changeOf(theirs, third))));
+    expect(last(r).overwrite).toBeNull();
+  });
+
+  it('keeps the notice while only other fields are written', () => {
+    const { r, deviceId, theirs } = overwritten();
+    const other = setDeviceField(theirs, deviceId, 'hostname', 'core-sw-01', { actor: ME, now: Date.now() + 20 });
+    r.live.edit(other);
+    expect(last(r).overwrite?.items.map((i) => i.yours)).toEqual(["yours router → Bob's switch"]);
+    // The device has a name now, and the notice was written before it had one: it still names the field.
+    expect(last(r).overwrite?.items.map((i) => i.field)).toEqual(['role']);
+  });
+
   it('keeping theirs just dismisses the notice', () => {
     const { r } = overwritten();
     expect(last(r).overwrite).not.toBeNull();

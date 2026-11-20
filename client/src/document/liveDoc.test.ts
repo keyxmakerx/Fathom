@@ -14,6 +14,7 @@ import {
   openLive,
   overwriteLines,
   overwriteParts,
+  overwriteStands,
   yoursLine,
   keepLabel,
   mergedSentence,
@@ -174,6 +175,23 @@ describe('the just-after-you window', () => {
     const s = openLive(base, 10);
     const remote = theirs(base, (d) => setDeviceField(d, deviceId, 'hostname', 'theirs', { actor: THEM, now: T0 + 2000 }));
     expect(applyRemote(s, remote.change, 11, ctx(T0 + 3000)).overwrites).toEqual([]);
+  });
+
+  it('stands only until that field is written again, by anyone', () => {
+    const { base, deviceId } = world();
+    const mine = setDeviceField(base, deviceId, 'hostname', 'mine', { actor: ME, now: T0 + 1000 });
+    const edit = localEdit(openLive(base, 10), mine);
+    const s = applyRemote(edit.state, edit.changes[0], 11, ctx(T0 + 1000)).state;
+    const remote = theirs(mine, (d) => setDeviceField(d, deviceId, 'hostname', 'theirs', { actor: THEM, now: T0 + 1005 }));
+    const r = applyRemote(s, remote.change, 12, ctx(T0 + 2000));
+    const o = r.overwrites[0];
+    expect(overwriteStands(r.state.visible, o)).toBe(true);
+    // Another field of the same device does not touch it.
+    expect(overwriteStands(setDeviceField(r.state.visible, deviceId, 'role', 'switch', { actor: ME, now: T0 + 3000 }), o)).toBe(true);
+    // The same field does, whoever writes it, and whatever they write: even the value that stood.
+    expect(overwriteStands(setDeviceField(r.state.visible, deviceId, 'hostname', 'newer', { actor: ME, now: T0 + 3000 }), o)).toBe(false);
+    expect(overwriteStands(setDeviceField(r.state.visible, deviceId, 'hostname', 'third', { actor: 'someone third', now: T0 + 3000 }), o)).toBe(false);
+    expect(overwriteStands(setDeviceField(r.state.visible, deviceId, 'hostname', 'theirs', { actor: ME, now: T0 + 3000 }), o)).toBe(false);
   });
 });
 

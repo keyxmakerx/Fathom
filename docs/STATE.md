@@ -930,7 +930,9 @@ several asks which. A pasted route is listed as "from a paste" and is not remove
 **Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
 encrypts and streams them to other browsers. Different fields merge; on the same field the later one
-wins, and the overwritten person can **Put mine back**. Others show as initials dots in the bar.
+wins, and the overwritten person can **Put mine back**. That notice goes once the field is written again, by
+them or anyone, since it would offer a value older than what is there (`liveDoc.ts` `overwriteStands`). Others
+show as initials dots in the bar.
 Since 2026-10-27 the dots and pointers cross server processes through `NOTIFY` on `fathom_presence`,
 as changes already did, so several servers behind one load balancer need no sticky sessions
 (`docs/RUNNING-IT.md`, "Running more than one server"). The audit feed is sent by whichever server

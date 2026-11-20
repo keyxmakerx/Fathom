@@ -37,6 +37,7 @@ import {
   openLive,
   overwriteLines,
   overwriteParts,
+  overwriteStands,
   panelLabel,
   putMineBack,
   yoursLine,
@@ -220,6 +221,8 @@ export class LiveEditing {
 
   private emit(): void {
     if (this.disposed) return;
+    // A notice about a field goes for good once that field is written again, by this person or anyone else.
+    if (this.overwrites.length > 0) this.overwrites = this.overwrites.filter((o) => overwriteStands(this.state.visible, o));
     this.d.onView({
       doc: this.state.visible,
       mode: this.mode,
