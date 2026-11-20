@@ -207,10 +207,9 @@ try {
       check('Undo brings the old serial back', dev(await state(page), 'fw-01')?.serial === 'SRX-0001');
     }
   }
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await page.waitForTimeout(150);
 
-  // Another person edits fw-01 while the Check step is open: that row is left alone and reported.
+  // Another person edits fw-01 while the Check step is open: that row is left alone and reported. fw-01 holds
+  // SRX-0001, which this file differs from. (A second Undo here would go one import further back and empty it.)
   await openAndDrop(page, 'late.csv', 'name,serial\nfw-01,LATE-FILE\n');
   await page.getByRole('button', { name: 'Match columns' }).click();
   await page.getByRole('button', { name: 'Check', exact: true }).click();
