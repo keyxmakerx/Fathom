@@ -146,15 +146,17 @@ try {
     check('trail: the cable is on the drawing before undo', (await page.locator('.react-flow__edge-cable').count()) === 1);
 
     await openTheTrail(page);
+    // A row says what changed in words and to what; the label as recorded is what the words show when pointed at.
+    const recordedAs = (row) => page.locator('.racks-trail__row').nth(row).locator('.racks-trail__col--what [title]').getAttribute('title');
     const rowsBefore = await page.locator('.racks-trail__row').allTextContents();
-    check('trail: "connect ports" is the newest row before undo', (rowsBefore[0] ?? '').includes('connect ports'));
+    check('trail: the cable connected is the newest row before undo', (rowsBefore[0] ?? '').includes('Cable connected · core-01 and acc-01') && (await recordedAs(0)) === 'Recorded as: connect ports', `${rowsBefore[0]} [${await recordedAs(0)}]`);
 
     await page.keyboard.press('Control+z');
     await page.waitForTimeout(1_800); // ADR-0053 §4: past SEAL_SETTLE_MS, so the new row reads sealed too
 
     const rowsAfter = await page.locator('.racks-trail__row').allTextContents();
-    check('trail: the top row reads "undo of connect ports"', (rowsAfter[0] ?? '').includes('undo of connect ports'), rowsAfter[0]);
-    check('trail: the reversed row still stands beneath it', (rowsAfter[1] ?? '').includes('connect ports'), rowsAfter[1]);
+    check('trail: the top row reads as that undone, recorded as "undo of connect ports"', (rowsAfter[0] ?? '').includes('Undone: cable connected · core-01 and acc-01') && (await recordedAs(0)) === 'Recorded as: undo of connect ports', `${rowsAfter[0]} [${await recordedAs(0)}]`);
+    check('trail: the reversed row still stands beneath it', (rowsAfter[1] ?? '').includes('Cable connected · core-01 and acc-01') && (await recordedAs(1)) === 'Recorded as: connect ports', `${rowsAfter[1]} [${await recordedAs(1)}]`);
     check('trail: the cable is off the drawing after undo', (await page.locator('.react-flow__edge-cable').count()) === 0);
     check('trail: no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
@@ -182,14 +184,15 @@ try {
     await openTheTrail(page); // belt and braces: a refused undo opens it on its own too
 
     const refusal = await page.locator('.racks-trail__refusal').allTextContents();
+    // In words: what was changed, by whom as histories name people, and what that change was. No id is quoted.
     check(
-      "conflict: the refusal names the colleague's change",
-      refusal.some((t) => t.includes('add note') && t.includes(colleague)),
+      "conflict: the refusal says what was changed since, and what the colleague's change was",
+      refusal.some((t) => t.includes('Nothing was undone: core-01 was changed by a colleague since (note added).') && !t.includes(colleague)),
       refusal.join(' | '),
     );
     check('conflict: the cable is still on the drawing (nothing undone)', (await page.locator('.react-flow__edge-cable').count()) === 1);
     const rows = await page.locator('.racks-trail__row').allTextContents();
-    check('conflict: no "undo of" row landed', !rows.some((r) => r.includes('undo of')), rows.join(' | '));
+    check('conflict: no undo row landed', !rows.some((r) => r.includes('Undone')), rows.join(' | '));
     check('conflict: no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
     await page.screenshot({ path: SHOTS + 's6i-conflict.png' });

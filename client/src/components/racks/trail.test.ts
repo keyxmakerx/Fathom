@@ -22,18 +22,22 @@ function docWithRack(actor: string, now: number): { doc: Document; rackId: strin
   return { doc: withRack, rackId };
 }
 
+/** Histories' word for a person, as `whoNamer` gives it once a design has heard Bob's name. */
+const nameOf = (account: string) => (account === ACTOR_A ? 'you' : account === ACTOR_B ? 'Bob Roe' : 'a colleague');
+
 describe('whoLabel', () => {
-  it('names the signed-in account by its own address', () => {
-    expect(whoLabel(ACTOR_A, ACTOR_A, 'maria@example.com')).toBe('maria@example.com');
+  it('says what every other history says for a person', () => {
+    expect(whoLabel(ACTOR_A, nameOf)).toBe('you');
+    expect(whoLabel(ACTOR_B, nameOf)).toBe('Bob Roe');
+    expect(whoLabel('01ARZ3NDEKTSV4RRFFQ69G5FCV', nameOf)).toBe('a colleague');
   });
 
-  it('gives anyone else a short id, never their address', () => {
-    expect(whoLabel(ACTOR_B, ACTOR_A, 'maria@example.com')).toBe(ACTOR_B.slice(0, 8));
-  });
-
-  it('reads a LOCAL-stamped or mixed batch as local', () => {
-    expect(whoLabel(LOCAL_ACTOR, ACTOR_A, 'maria@example.com')).toBe('local');
-    expect(whoLabel(undefined, ACTOR_A, 'maria@example.com')).toBe('local');
+  it('reads a LOCAL-stamped or mixed batch as local, without asking for a name', () => {
+    const never = () => {
+      throw new Error('asked for a name');
+    };
+    expect(whoLabel(LOCAL_ACTOR, never)).toBe('local');
+    expect(whoLabel(undefined, never)).toBe('local');
   });
 });
 
@@ -91,10 +95,40 @@ describe('trailRows', () => {
     const edited = setRackField(doc, rackId, 'row', 'Row A', { actor: ACTOR_A, now: NOW + 1 });
     const undone = undo(edited, edited.batches[1].id, { actor: ACTOR_A, now: NOW + 2 });
 
-    const rows = trailRows(undone, ACTOR_A, 'me@example.com', new Set());
+    const rows = trailRows(undone, nameOf, new Set());
     expect(rows.map((r) => r.batchId)).toEqual([undone.batches[2].id, undone.batches[1].id, undone.batches[0].id]);
-    expect(rows[0].what).toBe(`undo of ${undone.batches[1].label}`);
+    expect(rows[0].label).toBe(`undo of ${undone.batches[1].label}`);
     expect(rows.every((r) => r.sealed === false)).toBe(true);
+  });
+
+  it('says what changed in words and to what, and keeps the label as recorded beside them', () => {
+    const { doc, rackId } = docWithRack(ACTOR_A, NOW);
+    const edited = setRackField(doc, rackId, 'row', 'Row A', { actor: ACTOR_A, now: NOW + 1 });
+    const undone = undo(edited, edited.batches[1].id, { actor: ACTOR_A, now: NOW + 2 });
+    const redone = redo(undone, undone.batches[2].id, { actor: ACTOR_A, now: NOW + 3 });
+
+    const rows = trailRows(redone, nameOf, new Set());
+    expect(rows.map((r) => r.what)).toEqual(['Redone: rack moved to another row', 'Undone: rack moved to another row', 'Rack moved to another row', 'Rack added']);
+    expect(rows.map((r) => r.on)).toEqual(['R1', 'R1', 'R1', 'R1']);
+    expect(rows.map((r) => r.label)).toEqual(['redo of undo of set Rack.row', 'undo of set Rack.row', 'set Rack.row', 'create rack']);
+  });
+
+  it('names who made each change and never shows a piece of an account id, which the row keeps whole', () => {
+    const { doc, rackId } = docWithRack(ACTOR_A, NOW);
+    const theirs = setRackField(doc, rackId, 'row', 'Row A', { actor: ACTOR_B, now: NOW + 1 });
+    const unheard = setRackField(theirs, rackId, 'bay', 2, { actor: '01ARZ3NDEKTSV4RRFFQ69G5FCV', now: NOW + 2 });
+
+    const rows = trailRows(unheard, nameOf, new Set());
+    expect(rows.map((r) => r.who)).toEqual(['a colleague', 'Bob Roe', 'you']);
+    expect(rows.map((r) => r.account)).toEqual(['01ARZ3NDEKTSV4RRFFQ69G5FCV', ACTOR_B, ACTOR_A]);
+    for (const r of rows) expect(r.who).not.toMatch(/01ARZ3ND/);
+  });
+
+  it('gives a change that is nobody\'s no account', () => {
+    const { doc } = docWithRack(LOCAL_ACTOR, NOW);
+    const rows = trailRows(doc, nameOf, new Set());
+    expect(rows[0].who).toBe('local');
+    expect(rows[0].account).toBeNull();
   });
 
   it('reads a batch as sealed only when its id is in the sealed set, and carries its comment', () => {
@@ -105,7 +139,7 @@ describe('trailRows', () => {
       batches: edited.batches.map((b, i) => (i === 1 ? { ...b, comment: 'moving the AP uplink' } : b)),
     };
     const sealed = new Set([withComment.batches[0].id]);
-    const rows = trailRows(withComment, ACTOR_A, 'me@example.com', sealed);
+    const rows = trailRows(withComment, nameOf, sealed);
     const sealedRow = rows.find((r) => r.batchId === withComment.batches[0].id)!;
     const pendingRow = rows.find((r) => r.batchId === withComment.batches[1].id)!;
     expect(sealedRow.sealed).toBe(true);

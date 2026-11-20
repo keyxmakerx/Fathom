@@ -109,27 +109,28 @@
 
 .racks-trail__col--who,
 .racks-trail__cell.racks-trail__col--who {
-  flex: 0 0 84px;
+  flex: 0 0 72px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* What changed is read whole: it wraps where the panel is narrow, and the reason given for a change sits under it. */
 .racks-trail__col--what,
 .racks-trail__cell.racks-trail__col--what {
-  flex: 2 1 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 1 1 0;
+  overflow-wrap: anywhere;
 }
 
-.racks-trail__col--why,
-.racks-trail__cell.racks-trail__col--why {
-  flex: 1 1 0;
+/* A name is kept whole: where the line is short it moves down as one piece. */
+.racks-trail__on {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.racks-trail__why {
+  display: block;
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .racks-trail__col--seal,

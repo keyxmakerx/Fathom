@@ -2,7 +2,8 @@
 // document in the browser (the server runs no checks). Used by the History panel.
 
 import type { NodeKind } from '../../../schema/generated/ir_types';
-import { emptyDocument, isNodeOfKind, readDeviceFields, type Document, type GraphEdge, type GraphNode, type Op } from './model';
+import { elementName, NO_NAME } from './liveDoc';
+import { emptyDocument, isNodeOfKind, readDeviceFields, type Batch, type Document, type GraphEdge, type GraphNode, type Op } from './model';
 
 export interface SaveChange {
   /** One line: the labels of the changes this save carried. */
@@ -48,22 +49,30 @@ function summaryOf(before: Document, after: Document): string {
     }
     if (items.length > 0) parts.push(`${verb} ${fmtNames(items)}`);
   }
-  const renamed = [...now.keys()]
-    .filter((id) => isNodeOfKind(id, 'Device') && was.has(id) && name(was, id) !== name(now, id))
-    .map((id) => `${name(was, id)} \u2192 ${name(now, id)}`);
+  const renamedIds = new Set([...now.keys()].filter((id) => isNodeOfKind(id, 'Device') && was.has(id) && name(was, id) !== name(now, id)));
+  const renamed = [...renamedIds].map((id) => `${name(was, id)} \u2192 ${name(now, id)}`);
   if (renamed.length > 0) parts.push(`renamed ${fmtNames(renamed)}`);
-  const edited = [...now.keys()].filter((id) => was.has(id) && fieldKey(was.get(id)!) !== fieldKey(now.get(id)!)).length - renamed.length;
+  const edited = [...now.keys()].filter((id) => was.has(id) && !renamedIds.has(id) && fieldKey(was.get(id)!) !== fieldKey(now.get(id)!));
   const edgeKey = (e: GraphEdge) => `${e.from}>${e.to}|${fieldKeyOf(e.fields)}`;
   const mounts = (d: Document) => new Map(d.edges.filter((e) => e.absentSince === undefined && e.id.startsWith('mounted-in:')).map((e) => [e.id, edgeKey(e)]));
   const mountsWas = mounts(before);
   const moved = [...mounts(after)].filter(([id, k]) => mountsWas.has(id) && mountsWas.get(id) !== k).length;
   if (moved > 0) parts.push(`moved ${count(moved, 'device')}`);
-  if (edited > 0) parts.push(`edited ${count(edited, 'item')}`);
+  if (edited.length > 0) parts.push(`edited ${edited.length === 1 ? editedOne(after, edited[0]!) : count(edited.length, 'item')}`);
   return parts.join(', ');
 }
 
-/** The batches `after` has that `before` lacks. `before` is `null` for the first save. */
-export function describeSave(before: Document | null, after: Document): SaveChange {
+/** The one thing a save edited, by name: its device's hostname or its own name. A cable has neither and would be
+ * named for the device at one end, so it is counted instead, as anything with no name is. */
+function editedOne(doc: Document, id: string): string {
+  if (isNodeOfKind(id, 'Cable')) return count(1, 'cable');
+  const name = elementName(doc, id);
+  return name === NO_NAME ? count(1, 'item') : name;
+}
+
+/** The batches `after` has that `before` lacks. `before` is `null` for the first save. `wordsOf` says a change
+ * whose save drew nothing different; left out, that is its label as recorded. */
+export function describeSave(before: Document | null, after: Document, wordsOf: (batch: Batch) => string = (batch) => batch.label): SaveChange {
   const known = new Set((before?.batches ?? []).map((b) => b.id));
   const fresh = after.batches.filter((b) => !known.has(b.id));
   const changed = [...new Set(fresh.flatMap((b) => b.ops.flatMap(opElements)))];
@@ -72,7 +81,7 @@ export function describeSave(before: Document | null, after: Document): SaveChan
   const drawn = summaryOf(before ?? emptyDocument(), after);
   if (drawn !== '') return { summary: drawn, changed };
   if (fresh.length === 0) return { summary: before === null ? 'Design created' : 'Saved with no drawn change', changed: [] };
-  const labels = fresh.map((b) => b.label);
+  const labels = fresh.map(wordsOf);
   const shown = labels.slice(0, 2).join('; ');
   return { summary: labels.length > 2 ? `${shown}; +${labels.length - 2} more` : shown, changed };
 }

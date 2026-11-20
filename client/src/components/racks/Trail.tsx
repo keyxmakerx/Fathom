@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { Document } from '../../document/model';
-import { trailRows } from './trail';
+import { whoNamer } from '../collab/changesSince';
+import { trailRows, type TrailRow } from './trail';
 import './racks.css';
 import { EmptyState } from '../ui/EmptyState';
 
@@ -11,8 +12,10 @@ export interface TrailProps {
    * expired session and the shell noticing (`useDesignSession.ts`'s own
    * comment on the same gap). */
   accountId: string | null;
-  /** The signed-in account's own address — `whoLabel`'s "by name" half. */
+  /** The signed-in account's own address, shown when a row of theirs is pointed at. */
   accountAddress: string | null;
+  /** The design the names heard are kept for (`whoNamer`). */
+  designId: string | undefined;
   /** `DesignPlace.tsx`'s own approximation of ADR-0053 §4's "present in the
    * last version opened or saved" — see that file's header for what this
    * client can and cannot actually observe about a save's own completion. */
@@ -42,8 +45,14 @@ function formatWhen(ms: number): string {
  * only draws it and owns the new-row pulse, UI-SPEC "Motion" #4: "State
  * change pulses once and settles. Never blinks, never loops."
  */
-export function Trail({ doc, accountId, accountAddress, sealedBatchIds, undoRefusal, pendingComment, onPendingCommentChange }: TrailProps) {
-  const rows = trailRows(doc, accountId, accountAddress, sealedBatchIds);
+export function Trail({ doc, accountId, accountAddress, designId, sealedBatchIds, undoRefusal, pendingComment, onPendingCommentChange }: TrailProps) {
+  const rows = trailRows(doc, whoNamer(accountId, designId), sealedBatchIds);
+  // The record itself, for whoever needs it: the whole account id behind a name, and the label as it was written.
+  const accountOf = (row: TrailRow) => {
+    if (row.account === null) return undefined;
+    if (row.account === accountId && accountAddress != null) return `${accountAddress} · account ${row.account}`;
+    return row.who === 'a colleague' ? `Account ${row.account}` : `${row.who} · account ${row.account}`;
+  };
 
   // Motion #4: "a new entry pulses once and settles" — never on the very
   // first render (there is nothing "new" about a trail that just loaded),
@@ -71,7 +80,6 @@ export function Trail({ doc, accountId, accountAddress, sealedBatchIds, undoRefu
         <span className="racks-trail__col racks-trail__col--when">When</span>
         <span className="racks-trail__col racks-trail__col--who">Who</span>
         <span className="racks-trail__col racks-trail__col--what">What changed</span>
-        <span className="racks-trail__col racks-trail__col--why">Why</span>
         <span className="racks-trail__col racks-trail__col--seal">Seal</span>
       </div>
 
@@ -85,9 +93,16 @@ export function Trail({ doc, accountId, accountAddress, sealedBatchIds, undoRefu
               className={row.batchId === pulsingId ? 'racks-trail__row racks-trail__row--new' : 'racks-trail__row'}
             >
               <span className="racks-trail__cell racks-trail__col--when">{formatWhen(row.whenMs)}</span>
-              <span className="racks-trail__cell racks-trail__col--who">{row.who}</span>
-              <span className="racks-trail__cell racks-trail__col--what">{row.what}</span>
-              <span className="racks-trail__cell racks-trail__col--why">{row.why ?? ''}</span>
+              <span className="racks-trail__cell racks-trail__col--who" title={accountOf(row)}>
+                {row.who}
+              </span>
+              <span className="racks-trail__cell racks-trail__col--what">
+                <span title={`Recorded as: ${row.label}`}>
+                  {row.what}
+                  {row.on != null ? <> · <span className="racks-trail__on">{row.on}</span></> : null}
+                </span>
+                {row.why != null && row.why !== '' ? <span className="racks-trail__why">{row.why}</span> : null}
+              </span>
               <span className="racks-trail__cell racks-trail__col--seal">{row.sealed ? 'sealed' : 'pending'}</span>
             </div>
           ))

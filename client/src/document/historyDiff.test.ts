@@ -71,6 +71,32 @@ describe('describeSave summaries', () => {
     const next: Document = { ...doc, batches: [{ id: newUlid(NOW), label: 'tidy up', ops: [] }] };
     expect(describeSave(doc, next).summary).toBe('tidy up');
   });
+
+  it('says those changes in the words it is given, when it is given any', () => {
+    const { doc } = base();
+    const next: Document = { ...doc, batches: [{ id: newUlid(NOW), label: 'set Device.management_address', ops: [] }] };
+    expect(describeSave(doc, next, (batch) => `${batch.label}, in words`).summary).toBe('set Device.management_address, in words');
+  });
+
+  it('names the one thing a save edited', () => {
+    const { doc } = base();
+    const withNas = createSketchDevice(doc, { hostname: 'nas-01', actor: ACTOR, now: NOW });
+    const deviceId = withNas.nodes.find((n) => n.id.startsWith('device:'))!.id;
+    const addressed = setDeviceField(withNas, deviceId, 'management_address', '10.0.0.5', { actor: ACTOR, now: NOW });
+    expect(describeSave(withNas, addressed).summary).toBe('edited nas-01');
+  });
+
+  it('counts what it edited when that is more than one thing, a cable, or has no name', () => {
+    const { doc } = base();
+    const field = (value: string) => ({ presence: 'set' as const, prov: newUlid(NOW), value });
+    const cableId = formatNodeId('Cable', newUlid(NOW));
+    const noteId = formatNodeId('Note', newUlid(NOW));
+    const withBoth: Document = { ...doc, nodes: [...doc.nodes, { id: cableId, existence: newUlid(NOW), fields: { 'Cable.label': field('a') } }, { id: noteId, existence: newUlid(NOW), fields: { 'Note.text': field('a') } }] };
+    const edit = (d: Document, id: string, key: string): Document => ({ ...d, nodes: d.nodes.map((n) => (n.id === id ? { ...n, fields: { [key]: field('b') } } : n)) });
+    expect(describeSave(withBoth, edit(withBoth, cableId, 'Cable.label')).summary).toBe('edited 1 cable');
+    expect(describeSave(withBoth, edit(withBoth, noteId, 'Note.text')).summary).toBe('edited 1 item');
+    expect(describeSave(withBoth, edit(edit(withBoth, cableId, 'Cable.label'), noteId, 'Note.text')).summary).toBe('edited 2 items');
+  });
 });
 
 describe('describeRestore', () => {

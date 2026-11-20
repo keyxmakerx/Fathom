@@ -917,6 +917,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         doc={doc}
         accountId={accountId}
         accountAddress={accountAddress}
+        designId={designId}
         sealedBatchIds={sealedBatchIds}
         undoRefusal={undoRefusal}
         pendingComment={pendingComment}

@@ -718,7 +718,12 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   the person as every history does (`whoWord`) and the thing by its own name, never an id: a refusal reads
   "Nothing was undone: R1 was changed by Bob Roe since (added EX4300-48P to R1)" (`design/undoWords.ts`). A
   field left alone is called what its panel calls it, "the mgmt address" and "the name" (`panelLabel`).
-  `drive-first-design.mjs` drives a skipped field and a refused step with two people on one design.
+  `drive-first-design.mjs` drives a skipped field and a refused step with two people on one design. The trail
+  reads the same way: its Who column names people as `whoWord` does ("you", the name heard, "a colleague"), and
+  What changed says the change and what it was made to, "Address changed · switch-2", "Cable connected · core-01
+  and acc-01", "Undone: added sw-01" (`design/changeToast.ts` `historyPartsOf`). The whole account id and the
+  label as recorded ("undo of set Device.management_address") show on hover, and a comment sits under its
+  change. A save that drew nothing different is listed in those words, and one that edited one thing names it.
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
   Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.

@@ -1,7 +1,7 @@
 // What a refused Undo or Redo says to the person who pressed it. The refusal's own message (`UndoConflictError`)
 // quotes ids, an account's among them; this names the person and the thing. Pure, so it is tested without a page.
 
-import { elementName } from '../../document/liveDoc';
+import { elementName, NO_NAME } from '../../document/liveDoc';
 import type { Document } from '../../document/model';
 import type { UndoConflict } from '../../document/undo';
 
@@ -10,9 +10,6 @@ import { namedWords } from './changeToast';
 function lowerFirst(text: string): string {
   return text.length === 0 ? text : text[0]!.toLowerCase() + text.slice(1);
 }
-
-/** `elementName`'s answer when it found no name. */
-const NO_NAME = 'this item';
 
 /** One sentence for a refusal: what stood in the way, and whose change it was. `nameOf` gives a person's name as
  * histories write it ("a colleague" when none has been heard), never a piece of an account id. */

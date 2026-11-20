@@ -910,6 +910,27 @@ async function runProof(browser, seed) {
   check('browser one (steward): and has changed nothing', JSON.stringify(await addresses(one)) === JSON.stringify(['10.0.0.1', '10.0.0.3']), JSON.stringify(await addresses(one)));
   await one.waitForTimeout(400); // History has slid in
   await one.screenshot({ path: `${SHOTS}s7-undo-refused.png` });
+
+  // The trail under that sentence. It names people as every other history does, "you" and the name heard for a
+  // colleague, never the start of an account id, and says each change in words and what it was made to. The record
+  // stays readable: the whole account id behind a name and the label as it was written show when pointed at.
+  const trailTop = await one.evaluate(() =>
+    [...document.querySelectorAll('.racks-trail__row')].slice(0, 2).map((row) => {
+      const who = row.querySelector('.racks-trail__col--who');
+      const what = row.querySelector('.racks-trail__col--what');
+      return { who: who.textContent.trim(), account: who.title, what: what.textContent.trim(), recorded: what.querySelector('[title]')?.title ?? '' };
+    }),
+  );
+  check(
+    "browser one (steward): the trail names the drawer and says the tag in words, with the account and the label as recorded behind them",
+    trailTop[0]?.who === 'Drawer' && /^Drawer · account [0-9A-HJKMNP-TV-Z]{26}$/.test(trailTop[0].account) && trailTop[0].what === 'Tag added · an unnamed device' && trailTop[0].recorded === 'Recorded as: tag',
+    JSON.stringify(trailTop[0]),
+  );
+  check(
+    'browser one (steward): and reads "you" for its own change beneath that, in words too',
+    trailTop[1]?.who === 'you' && / · account [0-9A-HJKMNP-TV-Z]{26}$/.test(trailTop[1].account) && trailTop[1].what === 'Address changed · an unnamed device' && trailTop[1].recorded === 'Recorded as: set Device.management_address',
+    JSON.stringify(trailTop[1]),
+  );
   await one.locator('[data-testid="bar-undo"]').click();
   check(
     'browser one (steward): the next Undo goes on to the change before the refused one, and the refusal is put away',

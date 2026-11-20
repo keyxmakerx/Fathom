@@ -8,6 +8,7 @@ import type { CanonValue } from './canon';
 import {
   archiveField,
   assertHand,
+  everyEdgeIn,
   findEdge,
   findNode,
   parseNodeId,
@@ -355,6 +356,51 @@ export function valueText(v: { presence: string; value?: CanonValue }): string {
 
 const NAME_FIELDS = ['Device.hostname', 'Rack.label', 'PassiveNode.label', 'Surface.label', 'Premises.label', 'Label.text', 'Line.label'];
 
+/** `elementName`'s answer when it found no name. */
+export const NO_NAME = 'this item';
+
+const NAMES_HAD = new WeakMap<Document['history'], Map<string, string>>();
+
+/** What a device, or its chassis's model, was last called before that was cleared. Undoing the adding of a device
+ * clears its fields as well as marking it absent, and whatever names it afterwards still has to say which it was. */
+export function nameItHad(doc: Document, id: string): string | null {
+  let had = NAMES_HAD.get(doc.history);
+  if (had === undefined) {
+    had = new Map();
+    for (const record of doc.history) {
+      if (record.field !== 'Device.hostname' && record.field !== 'Chassis.model') continue;
+      for (let i = record.entries.length - 1; i >= 0; i -= 1) {
+        const entry = record.entries[i]!;
+        if (entry.presence === 'set' && typeof entry.value === 'string' && entry.value !== '') {
+          had.set(record.element, entry.value);
+          break;
+        }
+      }
+    }
+    NAMES_HAD.set(doc.history, had);
+  }
+  return had.get(id) ?? null;
+}
+
+/** A thing's own name: a device's hostname ("an unnamed device" without one), a rack's or a place's label. `null`
+ * for a thing that has none, a cable or a port or a note, which is said by what it belongs to instead. */
+export function ownName(doc: Document, id: string): string | null {
+  const node = findNode(doc, id);
+  if (!node) return null;
+  const own = NAME_FIELDS.map((k) => node.fields[k]).find((e) => e?.presence === 'set' && typeof e.value === 'string');
+  if (own) return own.value as string;
+  // One taken away is called what it was last called.
+  return kindOf(id) === 'Device' ? ((node.absentSince !== undefined ? nameItHad(doc, id) : null) ?? 'an unnamed device') : null;
+}
+
+function kindOf(id: string): string | null {
+  try {
+    return parseNodeId(id).kind;
+  } catch {
+    return null;
+  }
+}
+
 /** What to call the thing a field is on: its device's hostname, or its own name. */
 export function elementName(doc: Document, id: string): string {
   let cur = id;
@@ -364,22 +410,15 @@ export function elementName(doc: Document, id: string): string {
       cur = edge.from;
       continue;
     }
-    const node = findNode(doc, cur);
-    if (!node) break;
-    const own = NAME_FIELDS.map((k) => node.fields[k]).find((e) => e?.presence === 'set' && typeof e.value === 'string');
-    if (own) return own.value as string;
-    let kind = '';
-    try {
-      kind = parseNodeId(cur).kind;
-    } catch {
-      break;
-    }
-    if (kind === 'Device') return 'an unnamed device';
-    const up = doc.edges.find((e) => e.to === cur && e.absentSince === undefined);
+    if (!findNode(doc, cur)) break;
+    const own = ownName(doc, cur);
+    if (own !== null) return own;
+    if (kindOf(cur) === null) break;
+    const up = everyEdgeIn(doc, cur).find((e) => e.absentSince === undefined);
     if (!up) break;
     cur = up.from;
   }
-  return 'this item';
+  return NO_NAME;
 }
 
 function listWords(words: readonly string[]): string {

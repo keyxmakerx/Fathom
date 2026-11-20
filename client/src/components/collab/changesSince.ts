@@ -234,8 +234,17 @@ export const SYSTEM_ACCOUNT_ID = '0000000000000000000000SYST';
 export const SYSTEM_ACCOUNT_NAME = 'Fathom (system change)';
 
 export function whoWord(account: string | null | undefined, accountId: string | null, designId: string | undefined, you = 'you'): string {
-  if (account == null || account === '') return 'unknown';
-  if (account === SYSTEM_ACCOUNT_ID) return SYSTEM_ACCOUNT_NAME;
-  if (account === accountId) return you;
-  return loadNames(accountId, designId).get(account) ?? 'a colleague';
+  return whoNamer(accountId, designId, you)(account);
+}
+
+/** `whoWord` for a whole list: the names this design has heard are read once, when the first one is wanted. */
+export function whoNamer(accountId: string | null, designId: string | undefined, you = 'you'): (account: string | null | undefined) => string {
+  let heard: Map<string, string> | null = null;
+  return (account) => {
+    if (account == null || account === '') return 'unknown';
+    if (account === SYSTEM_ACCOUNT_ID) return SYSTEM_ACCOUNT_NAME;
+    if (account === accountId) return you;
+    heard ??= loadNames(accountId, designId);
+    return heard.get(account) ?? 'a colleague';
+  };
 }
