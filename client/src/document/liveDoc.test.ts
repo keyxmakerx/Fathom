@@ -21,14 +21,16 @@ import {
   panelLabel,
   elementName,
   PUT_BACK_LABEL,
+  pressAgainSentence,
   putMineBack,
+  skippedSentence,
   type Context,
   type LiveState,
 } from './liveDoc';
 import { edgesIn, emptyDocument, findNode, formatNodeId, type Document } from './model';
 import { writePlain } from './plain';
 import { newUlid } from './ulid';
-import { redoSkipping, undoSkipping, UndoConflictError, undo } from './undo';
+import { redoSkipping, stepsWithout, undoSkipping, UndoConflictError, undo, undoSteps } from './undo';
 
 const T0 = 1_700_000_000_000;
 const ME = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -299,7 +301,7 @@ describe('undo leaves what others changed', () => {
     // Plain undo refuses; the live one skips the field and does nothing at all here.
     expect(() => undo(b, target.id, { actor: ME, now: T0 + 3000 })).toThrow(UndoConflictError);
     const r = undoSkipping(b, target.id, { actor: ME, now: T0 + 3000 });
-    expect(r.skipped).toEqual([{ element: deviceId, key: 'Device.hostname' }]);
+    expect(r.skipped).toEqual([{ element: deviceId, key: 'Device.hostname', by: THEM }]);
     expect(r.doc).toBe(b);
 
     // A batch with two parts: only the part another person touched is left.
@@ -314,7 +316,7 @@ describe('undo leaves what others changed', () => {
     const mergedId = merged.batches[merged.batches.length - 1].id;
     const theirsLater = setDeviceField(merged, deviceId, 'hostname', 'theirs', { actor: THEM, now: T0 + 2000 });
     const u = undoSkipping(theirsLater, mergedId, { actor: ME, now: T0 + 3000 });
-    expect(u.skipped).toEqual([{ element: deviceId, key: 'Device.hostname' }]);
+    expect(u.skipped).toEqual([{ element: deviceId, key: 'Device.hostname', by: THEM }]);
     expect(findNode(u.doc, chassisId)!.fields['Chassis.serial']).toBeUndefined();
     expect(findNode(u.doc, deviceId)!.fields['Device.hostname'].value).toBe('theirs');
     expect(u.doc.batches[u.doc.batches.length - 1].reverses).toBe(mergedId);
@@ -330,6 +332,92 @@ describe('undo leaves what others changed', () => {
     const r = undoSkipping(a, a.batches[a.batches.length - 1].id, { actor: ME, now: T0 + 2000 });
     expect(r.skipped).toEqual([]);
     expect(findNode(r.doc, deviceId)!.fields['Device.hostname']).toBeUndefined();
+  });
+
+  // The step a press could take nothing of back stayed the next step, so every press tried it again and nothing
+  // made before it could be reached.
+  it('goes on to the change before, once a step someone else has changed all of is set aside', () => {
+    const { base, deviceId, chassisId } = world();
+    const first = setChassisField(base, chassisId, 'serial', 'S1', { actor: ME, now: T0 + 1000 });
+    const second = setDeviceField(first, deviceId, 'hostname', 'mine', { actor: ME, now: T0 + 2000 });
+    const theirs = setDeviceField(second, deviceId, 'hostname', 'theirs', { actor: THEM, now: T0 + 3000 });
+
+    const steps = undoSteps(theirs, ME);
+    const stuck = steps.undo[0];
+    expect(undoSkipping(theirs, stuck.id, { actor: ME, now: T0 + 4000 }).doc).toBe(theirs);
+    // Pressed again with nothing set aside, Undo would try the same step.
+    expect(undoSteps(theirs, ME).undo[0].id).toBe(stuck.id);
+
+    const after = stepsWithout(steps, new Set([stuck.id]));
+    expect(after.undo).toHaveLength(steps.undo.length - 1);
+    expect(after.undo.map((b) => b.id)).not.toContain(stuck.id);
+    const back = undoSkipping(theirs, after.undo[0].id, { actor: ME, now: T0 + 5000 });
+    expect(back.skipped).toEqual([]);
+    expect(findNode(back.doc, chassisId)!.fields['Chassis.serial']).toBeUndefined();
+    expect(findNode(back.doc, deviceId)!.fields['Device.hostname'].value).toBe('theirs');
+
+    // What was taken back can be brought back, and the step set aside is in neither list.
+    const then = stepsWithout(undoSteps(back.doc, ME), new Set([stuck.id]));
+    expect(then.redo).toHaveLength(1);
+    expect(then.undo.map((b) => b.id)).not.toContain(stuck.id);
+    const forward = redoSkipping(back.doc, then.redo[0].id, { actor: ME, now: T0 + 6000 });
+    expect(findNode(forward.doc, chassisId)!.fields['Chassis.serial'].value).toBe('S1');
+  });
+
+  it('sets nothing aside until asked, and hands back the same lists', () => {
+    const { base, deviceId } = world();
+    const steps = undoSteps(setDeviceField(base, deviceId, 'hostname', 'mine', { actor: ME, now: T0 + 1000 }), ME);
+    expect(stepsWithout(steps, new Set())).toBe(steps);
+    expect(stepsWithout(steps, new Set(['a batch that is not a step']))).toEqual(steps);
+  });
+
+  it('takes a step set aside out of the steps forward as well', () => {
+    const { base, deviceId } = world();
+    const a = setDeviceField(base, deviceId, 'hostname', 'mine', { actor: ME, now: T0 + 1000 });
+    const undone = undoSkipping(a, a.batches[a.batches.length - 1].id, { actor: ME, now: T0 + 2000 }).doc;
+    const steps = undoSteps(undone, ME);
+    expect(steps.redo).toHaveLength(1);
+    expect(stepsWithout(steps, new Set([steps.redo[0].id])).redo).toEqual([]);
+  });
+});
+
+describe('the words when a press does nothing', () => {
+  const name = [{ key: 'Device.hostname' }];
+
+  it('says which press it was', () => {
+    expect(skippedSentence(name, true)).toBe('Nothing was undone: hostname was changed by someone else since.');
+    expect(skippedSentence(name, true, 'redo')).toBe('Nothing was redone: hostname was changed by someone else since.');
+    expect(skippedSentence([{ key: 'Device.hostname' }, { key: 'Device.role' }], true)).toBe('Nothing was undone: hostname and role were changed by someone else since.');
+  });
+
+  it('says what pressing again does, when a step stands behind the one that was tried', () => {
+    expect(skippedSentence(name, true, 'undo', true)).toBe('Nothing was undone: hostname was changed by someone else since. Undo again takes back the change you made before it.');
+    expect(skippedSentence(name, true, 'redo', true)).toBe('Nothing was redone: hostname was changed by someone else since. Redo again brings back the next one.');
+    expect(pressAgainSentence('undo', false)).toBe('');
+    expect(pressAgainSentence('redo', false)).toBe('');
+  });
+
+  it('keeps to what was left alone when the press did undo the rest', () => {
+    expect(skippedSentence(name, false, 'undo', true)).toBe('Hostname was left as it is, because someone else changed it since.');
+    expect(skippedSentence([{ key: 'Device.hostname' }, { key: 'Device.role' }], false)).toBe('Hostname and role were left as they are, because someone else changed them since.');
+  });
+
+  it('names whoever changed it, when one person changed all of it', () => {
+    const nameOf = (account: string): string => (account === THEM ? 'Bob Roe' : 'Cy Day');
+    const theirs = [{ key: 'Device.hostname', by: THEM }, { key: 'Device.role', by: THEM }];
+    expect(skippedSentence(theirs.slice(0, 1), true, 'undo', true, nameOf)).toBe('Nothing was undone: hostname was changed by Bob Roe since. Undo again takes back the change you made before it.');
+    expect(skippedSentence(theirs, false, 'undo', false, nameOf)).toBe('Hostname and role were left as they are, because Bob Roe changed them since.');
+    // Two people: neither is named for the other's part.
+    expect(skippedSentence([theirs[0], { key: 'Device.role', by: 'someone third' }], true, 'undo', false, nameOf)).toBe('Nothing was undone: hostname and role were changed by someone else since.');
+  });
+
+  it('says who last wrote a skipped field, not who wrote it first', () => {
+    const { base, deviceId } = world();
+    const mine = setDeviceField(base, deviceId, 'hostname', 'mine', { actor: ME, now: T0 + 1000 });
+    const target = mine.batches[mine.batches.length - 1];
+    const first = setDeviceField(mine, deviceId, 'hostname', 'first', { actor: 'someone third', now: T0 + 2000 });
+    const last = setDeviceField(first, deviceId, 'hostname', 'last', { actor: THEM, now: T0 + 3000 });
+    expect(undoSkipping(last, target.id, { actor: ME, now: T0 + 4000 }).skipped).toEqual([{ element: deviceId, key: 'Device.hostname', by: THEM }]);
   });
 });
 

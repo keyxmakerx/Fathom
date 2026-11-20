@@ -798,6 +798,125 @@ async function runProof(browser, seed) {
     `chassis before=${chassisBeforeUndo} after=${chassisAfterUndo}, undo refusal divs: ${undoRefusalAfterUndo}`,
   );
 
+  // -------------------------------------------------------------------
+  // Undo in Inventory, alone and then with someone else. One edit of a cell is one change: with a server behind
+  // it the table once wrote each edit twice, and the first Undo after it took back nothing anyone could see.
+  // Then the steward gives the second device an address, the drawer changes it, and the steward presses Undo.
+  // That address is the drawer's now: nothing is undone and a sentence says why. The next press goes one change
+  // further back. It once tried the same change again, press after press, and nothing the steward had done before
+  // it could be reached.
+  // -------------------------------------------------------------------
+  const ADDRESS = 'Mgmt address';
+  const showColumn = async (page, label) => {
+    if ((await page.locator('[role=columnheader]', { hasText: label }).count()) > 0) return;
+    await page.getByRole('button', { name: 'Columns' }).click();
+    await page.getByLabel(label, { exact: true }).check();
+    await page.getByRole('button', { name: 'Columns' }).click();
+  };
+  const toInventory = async (page) => {
+    await page.bringToFront();
+    await page.locator('.shell-bar').getByText('Inventory', { exact: true }).first().click();
+    await page.waitForSelector('.inv-table__row', { timeout: 15000 });
+    await showColumn(page, ADDRESS);
+  };
+  const columnOf = (page, label) => page.evaluate((l) => [...document.querySelectorAll('[role=columnheader]')].findIndex((h) => h.textContent.trim().startsWith(l)), label);
+  /** What each row shows under Mgmt address, top to bottom. */
+  const addresses = async (page) => {
+    const at = await columnOf(page, ADDRESS);
+    return page.evaluate((col) => [...document.querySelectorAll('.inv-table__row')].map((row) => row.querySelectorAll('[role=gridcell]')[col]?.textContent.trim() ?? ''), at);
+  };
+  /** Waits for a row to show `value` under a column; false when it never does. */
+  const cellShows = (page, row, label, value, timeout = 15000) =>
+    page
+      .waitForFunction(([r, l, v]) => {
+        const col = [...document.querySelectorAll('[role=columnheader]')].findIndex((h) => h.textContent.trim().startsWith(l));
+        return document.querySelectorAll('.inv-table__row')[r]?.querySelectorAll('[role=gridcell]')[col]?.textContent.trim() === v;
+      }, [row, label, value], { timeout })
+      .then(() => true, () => false);
+  const shows = (page, row, value, timeout = 15000) => cellShows(page, row, ADDRESS, value, timeout);
+  const editCell = async (page, row, label, value) => {
+    await page.locator('.inv-table__row').nth(row).locator('[role=gridcell]').nth(await columnOf(page, label)).dblclick();
+    await page.locator('input.inv-table__editor').fill(value);
+    await page.keyboard.press('Enter');
+    return cellShows(page, row, label, value);
+  };
+  const setAddress = (page, row, value) => editCell(page, row, ADDRESS, value);
+
+  await toInventory(one);
+  const unset = (await addresses(one))[0];
+  check('browser one (steward): Inventory lists the two devices, neither with an address', (await addresses(one)).length === 2 && (await addresses(one)).every((a) => a === unset), JSON.stringify(await addresses(one)));
+  check('browser one (steward): gives the first device an address', await setAddress(one, 0, '10.0.0.1'), JSON.stringify(await addresses(one)));
+  await one.locator('[data-testid="bar-undo"]').click();
+  check('browser one (steward): one Undo takes that address back', await shows(one, 0, unset, 5000), JSON.stringify(await addresses(one)));
+  await one.locator('[data-testid="bar-redo"]').click();
+  check('browser one (steward): and one Redo brings it back', await shows(one, 0, '10.0.0.1', 5000), JSON.stringify(await addresses(one)));
+  check('browser one (steward): gives the second device an address', await setAddress(one, 1, '10.0.0.2'), JSON.stringify(await addresses(one)));
+  await toInventory(two);
+  check("browser two (drawer): sees both addresses live, and changes the second", (await shows(two, 0, '10.0.0.1')) && (await shows(two, 1, '10.0.0.2')) && (await setAddress(two, 1, '10.0.0.99')), JSON.stringify(await addresses(two)));
+  await one.bringToFront();
+  check("browser one (steward): sees the drawer's address live", await shows(one, 1, '10.0.0.99'), JSON.stringify(await addresses(one)));
+
+  await one.locator('[data-testid="bar-undo"]').click();
+  await one.locator('[data-testid="live-note"]').waitFor({ timeout: 5000 }).catch(() => {});
+  const saidOnce = ((await one.locator('[data-testid="live-note"]').allInnerTexts())[0] ?? '').replace(/\s+/g, ' ').trim();
+  const afterOnce = await addresses(one);
+  check(
+    'browser one (steward): Undo leaves alone the address the drawer changed since, and says why',
+    /Nothing was undone: management address was changed by Drawer since\./.test(saidOnce) && afterOnce[0] === '10.0.0.1' && afterOnce[1] === '10.0.0.99',
+    `${saidOnce} ${JSON.stringify(afterOnce)}`,
+  );
+  check('browser one (steward): and says what pressing Undo again does', /Undo again takes back the change you made before it\./.test(saidOnce), saidOnce);
+  await one.screenshot({ path: `${SHOTS}s7-undo-after-another-1.png` });
+
+  await one.locator('[data-testid="bar-undo"]').click();
+  const wentBack = await shows(one, 0, unset, 5000);
+  const saidTwice = ((await one.locator('[data-testid="live-note"]').allInnerTexts())[0] ?? '').replace(/\s+/g, ' ').trim();
+  const afterTwice = await addresses(one);
+  check(
+    'browser one (steward): a second Undo goes one change further back, to the address given before',
+    wentBack && afterTwice[1] === '10.0.0.99',
+    JSON.stringify(afterTwice),
+  );
+  check('browser one (steward): and puts away the sentence about the press before', saidTwice === '', saidTwice);
+  await one.screenshot({ path: `${SHOTS}s7-undo-after-another-2.png` });
+
+  const forward = await one.locator('[data-testid="bar-redo"]').isEnabled();
+  if (forward) await one.locator('[data-testid="bar-redo"]').click();
+  check('browser one (steward): Redo brings that address back', forward && (await shows(one, 0, '10.0.0.1', 5000)), `Redo offered: ${forward} ${JSON.stringify(await addresses(one))}`);
+  await two.bringToFront();
+  check("browser two (drawer): ends with the steward's first address and its own second", (await shows(two, 0, '10.0.0.1')) && (await shows(two, 1, '10.0.0.99')), JSON.stringify(await addresses(two)));
+
+  // A refused Undo. The steward gives the second device an address again and the drawer tags that device. A tag is
+  // not a field of the device, so Undo cannot leave it alone and take back the rest: it is refused. History opens
+  // and says whose change stood in the way and what it was, by name and never by an id, and what the next press
+  // does. The refused step is set aside like the one before, and the next press goes on to the change behind it.
+  await one.bringToFront();
+  check('browser one (steward): gives the second device an address again', await setAddress(one, 1, '10.0.0.3'), JSON.stringify(await addresses(one)));
+  await two.bringToFront();
+  await showColumn(two, 'Tags');
+  check('browser two (drawer): tags that device', await editCell(two, 1, 'Tags', 'edge'));
+  await one.bringToFront();
+  await showColumn(one, 'Tags');
+  check("browser one (steward): sees the drawer's tag live", await cellShows(one, 1, 'Tags', 'edge'));
+  await one.locator('[data-testid="bar-undo"]').click();
+  await one.locator('.racks-trail__refusal').waitFor({ timeout: 5000 }).catch(() => {});
+  const refusedSaid = ((await one.locator('.racks-trail__refusal').allInnerTexts())[0] ?? '').replace(/\s+/g, ' ').trim();
+  check(
+    'browser one (steward): a refused Undo says in History whose change stood in the way and what it was, and what the next press does',
+    refusedSaid === 'Nothing was undone: an unnamed device was changed by Drawer since (tag added). Undo again takes back the change you made before it.',
+    refusedSaid,
+  );
+  check('browser one (steward): and quotes no id', !/[0-9A-HJKMNP-TV-Z]{26}/.test(refusedSaid) && !/\b(device|chassis|tag|tagged):/i.test(refusedSaid), refusedSaid);
+  check('browser one (steward): and has changed nothing', JSON.stringify(await addresses(one)) === JSON.stringify(['10.0.0.1', '10.0.0.3']), JSON.stringify(await addresses(one)));
+  await one.waitForTimeout(400); // History has slid in
+  await one.screenshot({ path: `${SHOTS}s7-undo-refused.png` });
+  await one.locator('[data-testid="bar-undo"]').click();
+  check(
+    'browser one (steward): the next Undo goes on to the change before the refused one, and the refusal is put away',
+    (await shows(one, 0, unset, 5000)) && (await addresses(one))[1] === '10.0.0.3' && (await one.locator('.racks-trail__refusal').count()) === 0,
+    `${JSON.stringify(await addresses(one))} refusals shown: ${await one.locator('.racks-trail__refusal').count()}`,
+  );
+
   await stewardCtx.close();
   await drawerCtx.close();
 }

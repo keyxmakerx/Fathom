@@ -434,11 +434,32 @@ export function droppedSentence(dropped: readonly Change[]): string {
   return `${dropped.length} of your changes no longer fit what others did, so they were left out.`;
 }
 
-/** What an undo or redo left alone because someone else changed it since. */
-export function skippedSentence(skipped: readonly { key: string }[], nothingDone: boolean): string {
+/** What pressing Undo or Redo again does after a press that could take nothing back: that step is set aside, so
+ * the next press goes on to the one behind it. Empty when there is none behind it. */
+export function pressAgainSentence(press: 'undo' | 'redo', more: boolean): string {
+  if (!more) return '';
+  return press === 'undo' ? 'Undo again takes back the change you made before it.' : 'Redo again brings back the next one.';
+}
+
+/** What an undo or redo left alone because someone else changed it since. When the press did nothing at all,
+ * `more` says whether another step stands behind the one it tried. `nameOf` names whoever changed it, when one
+ * person changed all of it; without it, or with several people, it is "someone else". */
+export function skippedSentence(
+  skipped: readonly { key: string; by?: string }[],
+  nothingDone: boolean,
+  press: 'undo' | 'redo' = 'undo',
+  more = false,
+  nameOf?: (account: string) => string,
+): string {
   const words = [...new Set(skipped.map((s) => fieldWords(s.key)))];
   const list = words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
   const many = words.length > 1;
-  if (nothingDone) return `Nothing was undone: ${list} ${many ? 'were' : 'was'} changed by someone else since.`;
-  return `${list[0].toUpperCase()}${list.slice(1)} ${many ? 'were' : 'was'} left as ${many ? 'they are' : 'it is'}, because someone else changed ${many ? 'them' : 'it'} since.`;
+  const people = new Set(skipped.map((s) => s.by));
+  const one = people.size === 1 ? [...people][0] : undefined;
+  const who = nameOf !== undefined && one !== undefined ? nameOf(one) : 'someone else';
+  if (nothingDone) {
+    const said = `Nothing was ${press === 'undo' ? 'undone' : 'redone'}: ${list} ${many ? 'were' : 'was'} changed by ${who} since.`;
+    return [said, pressAgainSentence(press, more)].filter(Boolean).join(' ');
+  }
+  return `${list[0].toUpperCase()}${list.slice(1)} ${many ? 'were' : 'was'} left as ${many ? 'they are' : 'it is'}, because ${who} changed ${many ? 'them' : 'it'} since.`;
 }

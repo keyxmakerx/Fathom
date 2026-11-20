@@ -315,7 +315,7 @@ describe('conflict', () => {
     const byBBatch = byB.batches[1];
 
     const result = conflict(byB, createBatchId);
-    expect(result).toEqual({ kind: 'later-change', batchId: byBBatch.id, label: byBBatch.label, actor: ACTOR_B, at: NOW + 1 });
+    expect(result).toEqual({ kind: 'later-change', batchId: byBBatch.id, label: byBBatch.label, actor: ACTOR_B, at: NOW + 1, element: rackId });
 
     expect(() => undo(byB, createBatchId, { actor: ACTOR_A, now: NOW + 2 })).toThrow(UndoConflictError);
   });

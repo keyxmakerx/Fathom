@@ -702,14 +702,22 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
 - **One edit of a cell is one change, and Esc writes nothing** (r151). Enter and Esc hand the keys back to the
   grid, which blurs the editor before the table has drawn again. That blur once committed a second time: on a live
   design an edit finished with Enter was written twice, so the first Undo after it took back nothing anyone could
-  see, and Esc wrote what was typed (`inventory/DataTable.tsx` `closedRef`). `drive-inventory.mjs` drives Esc.
+  see, and Esc wrote what was typed (`inventory/DataTable.tsx` `closedRef`). `drive-inventory.mjs` drives Esc;
+  `drive-first-design.mjs` drives one edit, one Undo, with a server behind it.
 - **Notes** are nodes on a device, port or rack: pasted through the gate or stored as typed, and saying so.
 - **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
   refuses by name. The trail shows sealed and pending, with a comment on the next change. Each Undo goes one
   change further back and each Redo one forward; a new change leaves nothing to redo (`document/undo.ts`
   `undoSteps` reads both lists off the batches in order; `drive-sample.mjs` drags a rack to three places and
   undoes all three). Before r149 an undo was itself the next thing Undo took, so a design went back and forth
-  between its last two states, and Redo could reach behind newer changes for an older undo.
+  between its last two states, and Redo could reach behind newer changes for an older undo. On a live design a
+  field someone else has written since is left as it is and the press says so. A step of which nothing could be
+  taken back, or that was refused, is set aside while the design stays open (`stepsWithout`; r151): the press
+  says why and that the next one goes a change further back, and the next press puts that sentence away. Before
+  r151 the same step was tried at every press and nothing made before it could be reached. Both sentences name
+  the person as every history does (`whoWord`) and the thing by its own name, never an id: a refusal reads
+  "Nothing was undone: R1 was changed by Bob Roe since (added EX4300-48P to R1)" (`design/undoWords.ts`).
+  `drive-first-design.mjs` drives a skipped field and a refused step with two people on one design.
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
   Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.

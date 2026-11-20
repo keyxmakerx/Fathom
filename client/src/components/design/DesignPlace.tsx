@@ -7,8 +7,10 @@ import { useFieldDefinitions } from './useFieldDefinitions';
 import { asString, fieldValue, findNode, isNodeOfKind, type Document } from '../../document/model';
 import { WorkPlaceContext, type WorkPlace } from '../work/WorkFields';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
-import { skippedSentence } from '../../document/liveDoc';
-import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoSteps } from '../../document/undo';
+import { pressAgainSentence, skippedSentence } from '../../document/liveDoc';
+import { whoWord } from '../collab/changesSince';
+import { refusedSentence } from './undoWords';
+import { UndoConflictError, redo as redoBatch, redoSkipping, stepsWithout, undo as undoBatch, undoSkipping, undoSteps } from '../../document/undo';
 import { describeRestore, outlineSelectors } from '../../document/historyDiff';
 import { restoreTo } from '../../document/restore';
 import { viewOf } from '../../document/view';
@@ -148,6 +150,14 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
 const SEAL_SETTLE_MS = 1_500;
 /** Before a design is open, or with nobody signed in: nothing to undo or redo. */
 const NO_STEPS: ReturnType<typeof undoSteps> = { undo: [], redo: [] };
+const NONE_SET_ASIDE: ReadonlySet<string> = new Set();
+
+/** What a failed undo or redo says in the trail. A refusal says who and what stood in the way, then what pressing
+ * again does when a step stands behind the refused one. Any other failure says itself. */
+function failureSaid(doc: Document, error: unknown, press: 'undo' | 'redo', more: boolean, nameOf: (account: string) => string): string {
+  if (error instanceof UndoConflictError) return [refusedSentence(doc, error.conflict, press, nameOf), pressAgainSentence(press, more)].filter(Boolean).join(' ');
+  return error instanceof Error ? error.message : `That ${press} did not complete.`;
+}
 
 export function DesignPlace(props: DesignPlaceProps) {
   const { organisationId, organisationName = '', designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, scanRequest, onOpenScan, ...shellProps } = props;
@@ -380,57 +390,82 @@ export function DesignPlace(props: DesignPlaceProps) {
   // where Racks and Inventory are chosen between) so the bar's Undo/Redo
   // chips work the same in either place — ADR-0046 §2's "one editor"
   // extended to one undo. Undo takes the first of its steps and Redo the
-  // first of its own, so each press goes one change further.
+  // first of its own, so each press goes one change further. A step a press could take nothing of back is set
+  // aside (`stepsWithout`): someone else has changed all of it since, or it was refused. The press says why, and
+  // the next one goes on to the step behind it instead of trying the same one for ever.
   const doc = session.doc;
-  const steps = useMemo(() => (doc != null && accountId != null ? undoSteps(doc, accountId) : NO_STEPS), [doc, accountId]);
+  const [setAside, setSetAside] = useState<ReadonlySet<string>>(NONE_SET_ASIDE);
+  const putAside = useCallback((batchId: string) => setSetAside((was) => new Set(was).add(batchId)), []);
+  const steps = useMemo(() => (doc != null && accountId != null ? stepsWithout(undoSteps(doc, accountId), setAside) : NO_STEPS), [doc, accountId, setAside]);
   const undoCandidates = steps.undo;
   const redoCandidate = steps.redo[0];
   const [undoRefusal, setUndoRefusal] = useState<string | null>(null);
   // The trail starts folded; a refused undo or redo opens it so the refusal is seen.
   const [trailOpen, setTrailOpen] = useState(() => loadResume(accountId, designId).tab === 'trail');
+  // What the last press of Undo or Redo said in the live note. A press with nothing to say puts that note away
+  // if it is still showing: it spoke of the press before, and of what this one has now done.
+  const pressSaidRef = useRef<string | null>(null);
+  // Whoever changed it since, as every history writes them: a name, or "a colleague".
+  const personName = useCallback((account: string) => whoWord(account, accountId, designId), [accountId, designId]);
+  const sayOfPress = useCallback(
+    (sentence: string | null) => {
+      if (sentence != null) session.tell(sentence);
+      else if (pressSaidRef.current != null && session.live.note === pressSaidRef.current) session.dismissNote();
+      pressSaidRef.current = sentence;
+    },
+    [session],
+  );
 
   const handleUndo = useCallback(() => {
     if (!session.canDraw) return; // ADR-0052 §5: a reader undoes nothing, even via a stray Ctrl+Z
     if (doc == null || accountId == null) return;
     const target = undoCandidates[0];
     if (target == null) return;
+    const more = undoCandidates.length > 1;
     try {
       if (session.live.mode !== 'legacy') {
         // Live: a field another person has changed since is left alone, and said so.
         const r = undoSkipping(doc, target.id, { actor: accountId, now: Date.now() });
         if (r.doc !== doc) session.applyDocChange(r.doc);
-        if (r.skipped.length > 0) session.tell(skippedSentence(r.skipped, r.doc === doc));
+        else putAside(target.id);
+        sayOfPress(r.skipped.length > 0 ? skippedSentence(r.skipped, r.doc === doc, 'undo', more, personName) : null);
       } else {
         session.applyDocChange(undoBatch(doc, target.id, { actor: accountId, now: Date.now() }));
       }
       setUndoRefusal(null);
     } catch (error) {
-      setUndoRefusal(error instanceof Error ? error.message : 'That undo did not complete.');
+      // A refused step is set aside, so the next press goes on. Any other failure may pass, and the step stays.
+      setUndoRefusal(failureSaid(doc, error, 'undo', more, personName));
       setTrailOpen(true);
+      sayOfPress(null);
+      if (error instanceof UndoConflictError) putAside(target.id);
     }
-    // `undoCandidates` is recomputed fresh every render from `doc`/`accountId`, both already
-    // listed.
+    // `undoCandidates` is read off `steps`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, accountId, session]);
+  }, [doc, accountId, session, steps, putAside, sayOfPress, personName]);
 
   const handleRedo = useCallback(() => {
     if (!session.canDraw) return; // ADR-0052 §5: a reader redoes nothing, even via a stray Ctrl+Shift+Z
     if (doc == null || accountId == null || redoCandidate == null) return;
+    const more = steps.redo.length > 1;
     try {
       if (session.live.mode !== 'legacy') {
         const r = redoSkipping(doc, redoCandidate.id, { actor: accountId, now: Date.now() });
         if (r.doc !== doc) session.applyDocChange(r.doc);
-        if (r.skipped.length > 0) session.tell(skippedSentence(r.skipped, r.doc === doc));
+        else putAside(redoCandidate.id);
+        sayOfPress(r.skipped.length > 0 ? skippedSentence(r.skipped, r.doc === doc, 'redo', more, personName) : null);
       } else {
         session.applyDocChange(redoBatch(doc, redoCandidate.id, { actor: accountId, now: Date.now() }));
       }
       setUndoRefusal(null);
     } catch (error) {
-      setUndoRefusal(error instanceof Error ? error.message : 'That redo did not complete.');
+      setUndoRefusal(failureSaid(doc, error, 'redo', more, personName));
       setTrailOpen(true);
+      sayOfPress(null);
+      if (error instanceof UndoConflictError) putAside(redoCandidate.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, accountId, session]);
+  }, [doc, accountId, session, steps, putAside, sayOfPress, personName]);
 
   // ------------------------------------------------------------------
   // ADR-0053 §4 — "a comment on a pending change is a batch field." Held

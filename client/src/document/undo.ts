@@ -123,6 +123,15 @@ export function undoSteps(doc: Document, accountId: string): { undo: Batch[]; re
   return { undo: done.reverse(), redo: undone.reverse() };
 }
 
+/** `steps` without those in `setAside`. A step is set aside once Undo or Redo has tried it and could take none of
+ * it back: every part of it was someone else's by then, or it was refused. Left as the next step it would be
+ * tried again at every press, and nothing made before it could be reached. Nothing in the design records this:
+ * whoever is undoing keeps the set, for as long as the design is open. */
+export function stepsWithout(steps: { undo: Batch[]; redo: Batch[] }, setAside: ReadonlySet<string>): { undo: Batch[]; redo: Batch[] } {
+  if (setAside.size === 0) return steps;
+  return { undo: steps.undo.filter((b) => !setAside.has(b.id)), redo: steps.redo.filter((b) => !setAside.has(b.id)) };
+}
+
 /** What Undo takes back for `accountId`, the next one first (`undoSteps`). An undo is not in it: the list once
  * held every batch nothing had reversed, an undo among them, so a second Undo took back the first and the
  * design went back and forth between its last two states, never further. */
@@ -140,15 +149,17 @@ export type UndoConflict =
   | { kind: 'unattributed' }
   /** A later batch by a DIFFERENT actor touched an element this batch also
    * touched — undo refuses rather than silently overwriting a colleague's
-   * change. */
-  | { kind: 'later-change'; batchId: string; label: string; actor: string; at: number }
+   * change. `element` is the first one both touched. */
+  | { kind: 'later-change'; batchId: string; label: string; actor: string; at: number; element: string }
   /** ADR-0053 §3 — "You undo your own changes": the batch is somebody else's,
    * checked against the account asking to undo (or redo) it. */
   | { kind: 'not-yours'; actor: string }
   /** ADR-0053 §1 — reviving this batch's tombstoned element would land it
    * where something else now stands (the same check `check_edge_l0` runs for
-   * an ordinary add, re-run here for the edge kinds this client revives). */
-  | { kind: 'revive-refused'; element: string; reason: string }
+   * an ordinary add, re-run here for the edge kinds this client revives).
+   * `taken` is the rack unit it would go back to and what stands there now;
+   * absent when an end of the edge is gone. */
+  | { kind: 'revive-refused'; element: string; reason: string; taken?: { rack: string; positionU: number; by: string } }
   /** The batch set a field on a recorded plan or one of its steps: a recorded plan is
    * history as written and is never reversed. */
   | { kind: 'recorded-plan'; element: string };
@@ -252,20 +263,21 @@ export function conflict(
     const laterActor = batchActor(doc, later);
     if (laterActor === undefined || laterActor === actor) continue;
     const laterTouched = touchedElements(doc, later, opts?.skipChangedFields === true);
-    let hit = false;
+    let hit: string | undefined;
     for (const el of laterTouched) {
       if (touched.has(el)) {
-        hit = true;
+        hit = el;
         break;
       }
     }
-    if (hit) {
+    if (hit !== undefined) {
       return {
         kind: 'later-change',
         batchId: later.id,
         label: later.label,
         actor: laterActor,
         at: ulidTimestampMs(later.id),
+        element: hit,
       };
     }
   }
@@ -473,6 +485,7 @@ function refuseIfReviveConflicts(doc: Document, edgeId: string): UndoConflict | 
           kind: 'revive-refused',
           element: edgeId,
           reason: `U${fields.positionU} in rack "${edge.to}" is occupied by "${collision.from}"`,
+          taken: { rack: edge.to, positionU: fields.positionU, by: collision.from },
         };
       }
     }
@@ -480,18 +493,23 @@ function refuseIfReviveConflicts(doc: Document, edgeId: string): UndoConflict | 
   return undefined;
 }
 
-/** Whether a later batch by someone else wrote this field. */
-function changedByOther(doc: Document, target: Batch, actor: string, op: Extract<Op, { type: 'set_field' }>): boolean {
-  return doc.batches.slice(doc.batches.indexOf(target) + 1).some((later) => {
+/** Who else wrote this field in a later batch, the last of them; `undefined` when nobody else has. */
+function changedByOther(doc: Document, target: Batch, actor: string, op: Extract<Op, { type: 'set_field' }>): string | undefined {
+  const from = doc.batches.indexOf(target);
+  for (let i = doc.batches.length - 1; i > from; i -= 1) {
+    const later = doc.batches[i]!;
     const by = batchActor(doc, later);
-    if (by === undefined || by === actor) return false;
-    return later.ops.some((o) => o.type === 'set_field' && o.element === op.element && o.key === op.key);
-  });
+    if (by === undefined || by === actor) continue;
+    if (later.ops.some((o) => o.type === 'set_field' && o.element === op.element && o.key === op.key)) return by;
+  }
+  return undefined;
 }
 
 export interface SkippedField {
   element: string;
   key: string;
+  /** The account that last wrote it since. */
+  by: string;
 }
 
 function reverseBatch(
@@ -513,9 +531,12 @@ function reverseBatch(
   const ops: Op[] = [];
   const revivedEdgeIds: string[] = [];
   for (const op of [...target.ops].reverse()) {
-    if (skipped && op.type === 'set_field' && changedByOther(doc, target, actor, op)) {
-      skipped.push({ element: op.element, key: op.key });
-      continue;
+    if (skipped && op.type === 'set_field') {
+      const by = changedByOther(doc, target, actor, op);
+      if (by !== undefined) {
+        skipped.push({ element: op.element, key: op.key, by });
+        continue;
+      }
     }
     const r = reverseOp(working, actor, now, op);
     working = r.doc;
