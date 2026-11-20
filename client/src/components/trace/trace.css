@@ -230,6 +230,12 @@
   font-weight: 700;
 }
 
+/* Above the closet the site or building is drawn over the canvas (ADR-0074). The card is the canvas's, so it
+   waits underneath with it rather than sitting on the page above. */
+.shell__drawing:has(> .places-map) .trace-questions {
+  display: none;
+}
+
 /* Folded: its title row alone, small enough to sit over nothing that matters. */
 .trace-questions--folded {
   width: auto;

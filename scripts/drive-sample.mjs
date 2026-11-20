@@ -428,6 +428,20 @@ try {
     check('with nothing under the folded card, the tool row or the zoom buttons', hidden.length === 0, hidden.join(', '));
     await shot(page, 'SN-07-wide-fit');
 
+    // Out past the whole closet is the site (ADR-0074), drawn over the canvas. The question card is the canvas's:
+    // it once stayed on top of the site's own words.
+    await page.getByRole('button', { name: 'Zoom out' }).click();
+    const wentUp = await page.waitForSelector('.places-map', { timeout: 5_000 }).then(() => true, () => false);
+    check('from the whole closet, - goes up to the site', wentUp);
+    check('the question card is not over the site', !(await page.getByTestId('ready-questions').isVisible()));
+    await shot(page, 'SN-08-wide-site');
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.waitForSelector('.places-map', { state: 'detached', timeout: 5_000 }).catch(() => {});
+    await page.waitForTimeout(600);
+    const down = await seen();
+    check('+ comes back down to the closet as it was left', (await page.locator('.places-map').count()) === 0 && Math.abs(down.zoom - fitted.zoom) < 0.001, `${fitted.zoom} to ${down.zoom}`);
+    check('with its question card back', down.card != null && down.card.right > down.card.x && down.folded);
+
     check('no uncaught page errors (wide screen)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
