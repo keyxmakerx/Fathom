@@ -61,6 +61,7 @@ import { RoutingTab, useRoutingLit } from './RoutingTab';
 import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, takeOutChange, holderOf, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
 import { loadJsonPref, saveJsonPref } from '../../prefs';
 import { InHeadMenu } from '../shell/PanelHead';
+import { openAboveMenu } from '../shell/clickAnswer';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
@@ -2059,6 +2060,41 @@ function elementsOf(selection: Selection, view: ClosetView): string {
   return ids.join(' ');
 }
 
+/**
+ * The ⋯ list in a device panel's head. It is a menu like any other (shell brief, "Under the bar": closed by a press
+ * elsewhere or by Esc). It once was neither: Esc folded the panel around it, and a press elsewhere left it open,
+ * over the next device picked. Open, it is the top thing in the panel: Esc shuts it and nothing behind it, and
+ * the focus goes back to its button.
+ */
+function DeviceMore({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const el = ref.current;
+      if (e.key !== 'Escape' || el == null || !el.open || openAboveMenu(el)) return;
+      el.open = false;
+      el.querySelector('summary')?.focus();
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const onPress = (e: PointerEvent) => {
+      const el = ref.current;
+      if (el != null && el.open && !(e.target instanceof Node && el.contains(e.target))) el.open = false;
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onPress, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onPress, true);
+    };
+  }, []);
+  return (
+    <details className="dev-more" data-testid="device-more" ref={ref}>
+      {children}
+    </details>
+  );
+}
+
 /** A pick from the ⋯ list shuts it; a greyed item leaves it open, its reason showing. */
 function closeMoreOnPick(event: { target: EventTarget; currentTarget: HTMLElement }) {
   const item = (event.target as Element).closest?.('button');
@@ -2330,7 +2366,7 @@ function panelFor(
             <ReadNow deviceId={chassis.deviceId} />
             {actions.onEdit != null || more != null ? (
               <InHeadMenu>
-              <details className="dev-more" data-testid="device-more">
+              <DeviceMore>
                 <summary className="dev-more__button" aria-label="More for this device" title="More for this device">
                   ⋯
                 </summary>
@@ -2348,7 +2384,7 @@ function panelFor(
                     <SupplyAction label={DEVICE_WORDS.remove} onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(chassis.id)) : undefined} />
                   </div>
                 )}
-              </details>
+              </DeviceMore>
               </InHeadMenu>
             ) : null}
             </span>

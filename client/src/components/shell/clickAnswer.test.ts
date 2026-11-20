@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CANVAS_PRESS_MS, clickAnswer, nextEscape, openAbove } from './clickAnswer';
+import { CANVAS_PRESS_MS, clickAnswer, nextEscape, openAbove, openAboveMenu } from './clickAnswer';
 import { cameFromCanvasPress } from './useRightTab';
 
 describe('a click gives one answer (r116)', () => {
@@ -45,5 +45,14 @@ describe('Esc steps out one level (r116)', () => {
     // "nothing is open", and no test here has a page to ask. A menu inside a shut `<details>` is left out: the
     // More list in Details is one, and counted, it sent the Esc for a hover card on to close Details as well.
     expect(asked[0]).toBe('[role="dialog"]:not(.quick-card), [role="menu"]:not(details:not([open]) *)');
+  });
+
+  // The More list in Details takes an Esc for itself, unless something was opened over it since.
+  it('lets an open menu of the page ask the same of everything but itself', () => {
+    const own = { list: {} as Element, contains: (el: unknown) => el === own.list };
+    const page = (...found: Element[]) => ({ querySelectorAll: () => found as unknown as NodeListOf<Element> });
+    expect(openAboveMenu(own, page())).toBe(false);
+    expect(openAboveMenu(own, page(own.list))).toBe(false);
+    expect(openAboveMenu(own, page(own.list, {} as Element))).toBe(true);
   });
 });

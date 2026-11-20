@@ -766,6 +766,25 @@ try {
       await page.waitForTimeout(400);
       check('one Esc puts the hover card away', (await hover.count()) === 0, String(await hover.count()));
       check('and leaves Details open on the switch', (await named()) === 'switch-1', String(await named()));
+
+      // The More list is a menu like any other. Esc shuts it and leaves the panel, and a press elsewhere shuts it:
+      // Esc once folded the panel around it, and a press elsewhere left it open over the next device picked.
+      const more = () => page.evaluate(() => document.querySelector('details.dev-more')?.open ?? null);
+      const openMore = async () => {
+        await page.locator('details.dev-more > summary').click();
+        await page.waitForTimeout(300);
+      };
+      await page.mouse.move(on.x, on.y + 200, { steps: 3 });
+      await openMore();
+      const wasOpen = await more();
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+      check('with the More list open, one Esc shuts the list', wasOpen === true && (await more()) === false, `${wasOpen} then ${await more()}`);
+      check('and leaves Details open on the switch, the focus back on the ⋯', (await named()) === 'switch-1' && (await page.evaluate(() => document.activeElement?.classList.contains('dev-more__button') ?? false)), String(await named()));
+      await openMore();
+      await page.mouse.click(on.x, on.y);
+      await page.waitForTimeout(700);
+      check('a press on another device shuts the list, and Details follows the press', (await more()) === false && (await named()) === 'router-1', `${await more()} ${await named()}`);
     }
 
     check('no uncaught page errors (a pressed question)', pageErrors.length === 0, pageErrors.join(' | '));
