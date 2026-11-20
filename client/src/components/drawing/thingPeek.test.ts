@@ -58,6 +58,11 @@ describe('thingPeek', () => {
     expect(thingPeek(VIEW, { kind: 'device', id: 'o1' })!.title).toBe('modem');
   });
 
+  // "Typed by hand" once stood here, which read as the name of a model.
+  it('says a box with no model has no catalogue model, as its panel does', () => {
+    expect(thingPeek(VIEW, { kind: 'device', id: 'o1' })!.rows.find((r) => r.key === 'Model')).toEqual({ key: 'Model', value: 'No catalogue model', empty: true });
+  });
+
   it('names both ends of a cable, its kind and length', () => {
     const card = thingPeek(VIEW, { kind: 'cable', id: 'k1' })!;
     expect(card.title).toBe('core run');

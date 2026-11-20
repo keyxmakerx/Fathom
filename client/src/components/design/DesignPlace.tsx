@@ -855,8 +855,6 @@ export function DesignPlace(props: DesignPlaceProps) {
         ? [{ id: 'build-lesson', label: builderOpen ? 'Close the lesson builder' : 'Build a lesson', keywords: ['lesson', 'teach', 'course', 'quiz'], run: () => setBuilderOpen(!builderOpen) }]
         : []),
       ...(doc != null && pickedSave == null ? [{ id: 'docs', label: 'Open Docs', keywords: ['documentation', 'notes'], run: () => docs.setView({ kind: 'list' }) }] : []),
-      { id: 'racks', label: 'Show Racks', keywords: ['canvas', 'drawing'], disabled: props.place === 'racks' ? 'Already showing' : undefined, run: () => onPlaceChange('racks') },
-      { id: 'inventory', label: 'Show Inventory', keywords: ['list', 'table'], disabled: props.place === 'inventory' ? 'Already showing' : undefined, run: () => onPlaceChange('inventory') },
       { id: 'shortcuts', label: 'Show keyboard shortcuts', hint: shortcutText('shortcuts'), keywords: ['keys', 'help'], run: () => setShortcutsOpen(true) },
       {
         id: 'theme',

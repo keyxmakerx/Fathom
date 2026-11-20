@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CANVAS_PRESS_MS, clickAnswer, nextEscape } from './clickAnswer';
+import { CANVAS_PRESS_MS, clickAnswer, nextEscape, openAbove } from './clickAnswer';
 import { cameFromCanvasPress } from './useRightTab';
 
 describe('a click gives one answer (r116)', () => {
@@ -28,5 +28,19 @@ describe('Esc steps out one level (r116)', () => {
     expect(nextEscape({ peek: false, card: false, opened: true, selected: true })).toBe('leave');
     expect(nextEscape({ peek: false, card: false, opened: false, selected: true })).toBe('clear');
     expect(nextEscape({ peek: false, card: false })).toBeNull();
+  });
+
+  // Search, a sheet or a panel opened over the canvas is the top level: its Esc must not put the card away first.
+  it('answers nothing on the canvas while something floats over the page', () => {
+    expect(nextEscape({ above: true, peek: true, card: true, opened: true, selected: true })).toBeNull();
+    expect(nextEscape({ above: false, peek: false, card: true })).toBe('card');
+  });
+
+  it('counts any dialog as floating over the page, except the canvas\'s own card', () => {
+    const asked: string[] = [];
+    const page = (found: boolean) => ({ querySelector: (selector: string) => (asked.push(selector), found ? ({} as Element) : null) });
+    expect(openAbove(page(true))).toBe(true);
+    expect(openAbove(page(false))).toBe(false);
+    expect(asked[0]).toBe('[role="dialog"]:not(.quick-card)');
   });
 });

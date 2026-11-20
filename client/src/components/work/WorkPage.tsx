@@ -17,9 +17,11 @@ import {
   whoOf,
   loadFilters,
   saveFilters,
+  WORK_EMPTY,
   type Filters,
   type KindFilter,
 } from './workModel';
+import { EmptyState } from '../ui/EmptyState';
 import './work.css';
 
 /** How often the list asks again while it is in view: "rows change as the work moves" (r74). */
@@ -150,8 +152,15 @@ export function WorkPage({
         </label>
       </div>
 
-      <WorkSection title="Now" note="updates live" rows={now} answer={answer} today={today} currentDesign={currentDesign} empty="Nothing under way." />
-      <WorkSection title="Coming up and waiting" rows={coming} answer={answer} today={today} currentDesign={currentDesign} empty="Nothing planned or waiting." />
+      {answer.rows.length === 0 ? (
+        // No work at any site: say what gathers here and how the first piece starts.
+        <EmptyState title="Nothing under way or planned.">{WORK_EMPTY}</EmptyState>
+      ) : (
+        <>
+          <WorkSection title="Now" note="updates live" rows={now} answer={answer} today={today} currentDesign={currentDesign} empty="Nothing under way." />
+          <WorkSection title="Coming up and waiting" rows={coming} answer={answer} today={today} currentDesign={currentDesign} empty="Nothing planned or waiting." />
+        </>
+      )}
 
       {!done.open ? (
         <button type="button" className="btn-quiet" onClick={showDone}>

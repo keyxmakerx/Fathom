@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 import '../../styles/canvas-aids.css';
 
 import type { Document } from '../../document/model';
+import { openAbove } from '../shell/clickAnswer';
 import type { ClosetView } from './contract';
 import { portPeek } from './portPeek';
 import { thingPeek, type PeekTarget } from './thingPeek';
@@ -180,8 +181,9 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      // A card in view is the top thing: Escape puts it away and nothing else (sign-off r60).
-      if (document.querySelector('.port-peek') != null) {
+      // A card in view is the top thing: Escape puts it away and nothing else (sign-off r60). Under Search or
+      // a sheet it still goes, but the Escape is theirs.
+      if (document.querySelector('.port-peek') != null && !openAbove()) {
         e.preventDefault();
         e.stopPropagation();
       }

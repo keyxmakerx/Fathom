@@ -317,6 +317,23 @@ describe('EditorFor', () => {
     );
   });
 
+  // The two words alone told a new person nothing, so the first mark a panel shows says why (ADR-0041's sentence).
+  it('says why beside the first "Stored as typed." of a panel, and only there', () => {
+    const WHY = 'Stored as typed.</strong> Fathom does not redact what you type, only what you paste.';
+    const count = (markup: string, part: string) => markup.split(part).length - 1;
+    const device = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS) as never);
+    expect(count(device, WHY)).toBe(1);
+
+    const rackWith = (row: string | null, bay: number | null): ClosetView => ({ ...VIEW, racks: [{ ...VIEW.racks[0]!, row, bay }] });
+    const both = renderToStaticMarkup(EditorFor({ kind: 'rack', id: 'rack-1' }, rackWith('A', 4), NOOP_ACTIONS) as never);
+    expect(count(both, 'Stored as typed.')).toBe(2);
+    expect(count(both, WHY)).toBe(1);
+    expect(both.indexOf(WHY)).toBe(both.indexOf('Stored as typed.</strong>'));
+    const bayOnly = renderToStaticMarkup(EditorFor({ kind: 'rack', id: 'rack-1' }, rackWith(null, 4), NOOP_ACTIONS) as never);
+    expect(count(bayOnly, 'Stored as typed.')).toBe(1);
+    expect(count(bayOnly, WHY)).toBe(1);
+  });
+
   it('renders absence as absence — no invented values, no typed mark', () => {
     const markup = renderToStaticMarkup(
       EditorFor({ kind: 'chassis', id: 'chassis-1' }, BARE_VIEW, NOOP_ACTIONS) as never,
@@ -358,17 +375,21 @@ describe('EditorFor', () => {
     expect(readerMarkup).not.toContain('Duplicate');
   });
 
-  it('renders a sketch chassis with "no catalogue entry", its typed ports and "+ add a port" — a catalogued chassis shows neither', () => {
+  it('renders a sketch chassis with "no catalogue model", its typed ports and "+ add a port" — a catalogued chassis shows neither', () => {
     const sketchMarkup = renderToStaticMarkup(
       EditorFor({ kind: 'chassis', id: 'chassis-2' }, SKETCH_VIEW, NOOP_ACTIONS) as never,
     );
-    expect(sketchMarkup).toContain('No catalogue entry.');
+    // ADR-0051 §1: it still says its ports are typed by hand. The tag names what the box lacks, once.
+    expect(sketchMarkup).toContain('<span class="dev-tag">No catalogue model</span>');
+    expect(sketchMarkup).toContain('Its ports are typed by hand.');
+    expect(sketchMarkup).not.toContain('No catalogue model.');
     expect(sketchMarkup).toContain('eth0');
     expect(sketchMarkup).toContain('typed');
     expect(sketchMarkup).toContain('+ Add a port');
 
     const catalogued = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS) as never);
-    expect(catalogued).not.toContain('No catalogue entry.');
+    expect(catalogued).not.toContain('No catalogue model');
+    expect(catalogued).not.toContain('typed by hand');
     expect(catalogued).not.toContain('+ Add a port');
   });
 
@@ -383,7 +404,7 @@ describe('EditorFor', () => {
   it('renders a shelf occupant: label, sketch mark, shelf/slot, typed ports and "+ add a port", and PLACED ON', () => {
     const markup = renderToStaticMarkup(EditorFor({ kind: 'occupant', id: 'nuc-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
     expect(markup).toContain('nuc-01');
-    expect(markup).toContain('No catalogue entry.');
+    expect(markup).toContain('No catalogue model.');
     expect(markup).toContain('shelf-a01');
     expect(markup).toContain('A-01');
     expect(markup).toContain('eth0');
@@ -497,7 +518,8 @@ describe('EditorFor', () => {
       ],
     };
     const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-3' }, view, NOOP_ACTIONS) as never);
-    expect(markup).toContain('No catalogue entry.');
+    expect(markup).toContain('<span class="dev-tag">No catalogue model</span>');
+    expect(markup).toContain('Its ports are typed by hand.');
     expect(markup).toContain('+ Add a port');
   });
 
@@ -517,7 +539,7 @@ describe('EditorFor', () => {
       ],
     };
     const markup = renderToStaticMarkup(EditorFor({ kind: 'occupant', id: 'nuc-2' }, view, NOOP_ACTIONS) as never);
-    expect(markup).toContain('No catalogue entry.');
+    expect(markup).toContain('No catalogue model.');
     expect(markup).toContain('+ Add a port');
   });
 });

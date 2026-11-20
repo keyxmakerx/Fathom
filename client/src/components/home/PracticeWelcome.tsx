@@ -11,6 +11,12 @@ import {
   type PreparedOwnNetwork,
 } from './ownNetwork';
 import { downloadRecoveryKey } from '../claim/ClaimOrganisation';
+import { HOME_SAMPLE } from './sampleModels';
+import { sample } from './sampleNetwork';
+
+/** Sign-off r147: the first card opens the sample home lab, so it says so, in the words Home's sample card uses
+ * afterwards. "Practice lab" is the other sample only, the one with mistakes planted (ADR-0069 decision 6). */
+export const FIRST_SAMPLE_WORDS = { title: 'Open the sample home lab', open: 'Open sample' } as const;
 
 export interface PracticeOffer {
   /** Makes the practice space and answers its organisation id, or null when it could not (the error says why). */
@@ -55,13 +61,13 @@ export function PracticeWelcome({
       <div className="home-sample practice-welcome__card">
         <div className="home-sample__text">
           <div className="home__label home-sample__kicker">Look around first</div>
-          <h2 className="home-sample__title">Open the practice home lab</h2>
+          <h2 className="home-sample__title">{FIRST_SAMPLE_WORDS.title}</h2>
           <p className="home-sample__body">
-            A router, two switches, Wi-Fi, a NAS and two cameras, already cabled. It lives in your own practice space: no
-            organisation to run, nothing to manage, and only you can see it. Break anything you like.
+            {sample(HOME_SAMPLE).summary} It opens in a practice space of your own: no organisation to run, nothing to
+            manage, and only you can see it. Break anything you like.
           </p>
           <button type="button" className="home__btn home-sample__open" onClick={onOpen} disabled={offer.busy}>
-            {offer.busy ? 'Making your practice space…' : 'Open practice lab'}
+            {offer.busy ? 'Making your practice space…' : FIRST_SAMPLE_WORDS.open}
           </button>
           {offer.codePrompt}
           {offer.error && <p className="home__error">{offer.error}</p>}

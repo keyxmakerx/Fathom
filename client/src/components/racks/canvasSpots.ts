@@ -8,7 +8,7 @@ import { BOX_H, BOX_W, moveFree } from '../../document/freeform';
 import type { Document } from '../../document/model';
 import { viewOf, type ClosetView } from '../../document/view';
 import { nextFreeSpot } from '../drawing/freeLayout';
-import { RACK_NODE_WIDTH, U_PX } from '../drawing/geometry';
+import { RACK_NODE_WIDTH, SURFACE_HEADER_PX, U_PX, rackHeightPx } from '../drawing/geometry';
 import { closetRightPx } from '../drawing/rows';
 
 type Actor = Parameters<typeof moveFree>[2];
@@ -20,7 +20,7 @@ export function openCanvasSpots(view: Pick<ClosetView, 'free' | 'labels' | 'rack
     ...view.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })),
     ...view.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 })),
   ];
-  const right = view.racks.length > 0 || view.surfaces.length > 0 ? closetRightPx(view, RACK_NODE_WIDTH, U_PX) : 0;
+  const right = view.racks.length > 0 || view.surfaces.length > 0 ? closetRightPx(view, RACK_NODE_WIDTH, rackHeightPx, U_PX, SURFACE_HEADER_PX) : 0;
   const spots: { x: number; y: number }[] = [];
   for (let i = 0; i < n; i += 1) {
     const spot = right > 0 ? nextFreeSpot(taken, undefined, undefined, { x: right + 96, y: 0 }) : nextFreeSpot(taken);

@@ -762,7 +762,7 @@ button.shell-admin-pill {
   max-height: calc(100dvh - 120px);
 }
 /* Look's widest row is the cable colour pair; it scrolls down, never sideways. */
-.shell-show[aria-label='Look of the drawing'] {
+.shell-show.shell-show--look {
   width: 344px;
 }
 .shell-canvas-bar .shell-popover {
@@ -1049,19 +1049,19 @@ button.shell-admin-pill {
   height: var(--control-h-sm);
 }
 /* Four cable styles do not fit the menu's width in one row: two by two, inside the menu. */
-.shell-show__style[aria-label='Cable style'] .btn-group {
+.shell-show__style.shell-show__style--cables .btn-group {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   flex-basis: 100%;
   height: auto;
 }
-.shell-show__style[aria-label='Cable style'] .btn-group > button {
+.shell-show__style.shell-show__style--cables .btn-group > button {
   min-height: var(--control-h-sm);
 }
-.shell-show__style[aria-label='Cable style'] .btn-group > :nth-child(2n + 1) {
+.shell-show__style.shell-show__style--cables .btn-group > :nth-child(2n + 1) {
   border-left: 0;
 }
-.shell-show__style[aria-label='Cable style'] .btn-group > :nth-child(n + 3) {
+.shell-show__style.shell-show__style--cables .btn-group > :nth-child(n + 3) {
   border-top: var(--rule-hair) solid var(--control-line);
 }
 .shell-show__style .shell-show__hint {
@@ -1142,14 +1142,24 @@ button.shell-admin-pill {
   font-size: var(--t-small);
 }
 
-/* A menu that opens upward (the zoom pill's stops). */
+/* A menu that opens upward (the zoom pill's stops). Centred with `translate`, which leaves `transform` to the
+   arriving animation: centred with `transform`, the menu arrived half its width to one side and then jumped. */
 .shell-popover.shell-popover--above {
   top: auto;
   bottom: 100%;
   left: 50%;
   margin-top: 0;
   margin-bottom: 6px;
-  transform: translateX(-50%);
+  translate: -50% 0;
+  animation-name: fathom-pop-up;
+}
+.shell-popover.shell-popover--above[data-ghost] {
+  animation-name: fathom-pop-out-down !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-popover.shell-popover--above {
+    animation-name: none;
+  }
 }
 
 /* r31-bar A: the drawing's tools, top left on the drawing. Select and Pan (drawn by the canvas) and the Back trail are
@@ -1216,6 +1226,50 @@ button.shell-admin-pill {
 }
 .shell-canvas-bar .jump-trail:empty {
   display: none;
+}
+/* Sign-off r147: Back makes room for itself. The row opens for it and closes up behind it, so the tools beside it
+   slide along instead of jumping. One column that grows from nothing to Back's own width; the gap the row keeps
+   after it grows with it. Its still copy (`shell/ghost.ts`) is what the row closes up behind. */
+.shell-canvas-bar .jump-trail {
+  display: grid;
+  grid-template-columns: 1fr;
+  animation: jump-trail-in var(--m-layout) var(--m-ease) backwards;
+}
+.shell-canvas-bar .jump-trail .jump-trail__bar {
+  animation: jump-trail-clip var(--m-layout);
+}
+.shell-canvas-bar .jump-trail[data-ghost] {
+  animation: jump-trail-out var(--m-pop) var(--m-ease) both !important;
+}
+.shell-canvas-bar .jump-trail[data-ghost] .jump-trail__bar {
+  overflow: hidden;
+}
+@keyframes jump-trail-in {
+  from {
+    grid-template-columns: 0fr;
+    margin-right: calc(-1 * var(--s2));
+    opacity: 0;
+  }
+}
+@keyframes jump-trail-out {
+  to {
+    grid-template-columns: 0fr;
+    margin-right: calc(-1 * var(--s2));
+    opacity: 0;
+  }
+}
+/* Only while the column grows are the buttons cut at its edge; after that their focus rings are whole again. */
+@keyframes jump-trail-clip {
+  from,
+  to {
+    overflow: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-canvas-bar .jump-trail,
+  .shell-canvas-bar .jump-trail .jump-trail__bar {
+    animation: none;
+  }
 }
 .shell-canvas-bar__group:has(> .shell-canvas-bar__slot[data-slot='canvas-tools']:empty) {
   padding-left: var(--s2);

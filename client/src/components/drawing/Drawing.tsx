@@ -51,6 +51,7 @@ import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, getDraggedUnits, PALETTE_DRAG_MIME } from './dnd';
 import {
   CAMERA_STOPS,
+  FIT_PADDING,
   MAX_ZOOM,
   MIN_ZOOM,
   RACK_HEADER_PX,
@@ -60,11 +61,16 @@ import {
   cameraStopAt,
   openingFit,
   overlapsRack,
+  paddingClearOf,
   rackAtPoint,
+  rackHeightPx,
+  restoredZoomAwaited,
   snapDropToU,
+  wheelFloor,
   zoomAboutPaneCentre,
   zoomBandAt,
   type CameraStop,
+  type FitSides,
   type ZoomBand,
 } from './geometry';
 import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
@@ -107,6 +113,7 @@ import { groupBundles } from './bundles';
 import { litPathFor } from './paths';
 import { powerLeadHandle, type Facing } from './elevation';
 import {
+  closetFootprint,
   layoutRow,
   layoutSurfaces,
   mirroredRackX,
@@ -224,21 +231,22 @@ function surfaceDropAt(clientX: number, clientY: number, zoom: number): { surfac
   return null;
 }
 
-/** Fit every rack: used on mount, landing at the rack stop. */
-function rackFitViewOptions(racks: readonly { id: string }[], free: readonly { id: string }[] = []) {
+/** Fit every rack, and `also` what stands with them: used on mount, landing at the rack stop. */
+function rackFitViewOptions(racks: readonly { id: string }[], also: readonly { id: string }[] = []) {
   return {
-    nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...free],
-    padding: 0.1,
+    nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...also],
+    padding: FIT_PADDING as number | FitSides,
+    minZoom: MIN_ZOOM,
     maxZoom: CAMERA_STOPS.rack / 100,
   };
 }
 
 /** Fit every rack AND surface: the bar's own "Fit to view" — the whole
  * closet. `minZoom` goes below `MIN_ZOOM` to match the bar's own +/- floor. */
-function closetFitViewOptions(racks: readonly { id: string }[], surfaces: readonly { id: string }[], free: readonly { id: string }[] = []) {
+function closetFitViewOptions(racks: readonly { id: string }[], surfaces: readonly { id: string }[], also: readonly { id: string }[] = []) {
   return {
-    nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...surfaces.map((s) => ({ id: surfaceNodeId(s.id) })), ...free],
-    padding: 0.1,
+    nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...surfaces.map((s) => ({ id: surfaceNodeId(s.id) })), ...also],
+    padding: FIT_PADDING as number | FitSides,
     minZoom: 0.1,
     maxZoom: CAMERA_STOPS.rack / 100,
   };
@@ -364,6 +372,9 @@ export interface DrawingProps extends DrawingActions {
   /** The first fit takes in every surface too, not only the racks: the sample, whose walls and desk would
    * otherwise open off screen. */
   fitWholeOnOpen?: boolean;
+  /** What floats over the pane now: the tool row, the zoom buttons, and on a sample its question card. The opening
+   * fit and Fit to view keep what they frame clear of all three. */
+  covers?: () => { tools: Element | null; zoom: Element | null; card: Element | null };
   /** Called with the camera when a pan or zoom ends. */
   onViewportSettled?: (vp: Viewport) => void;
   /** The place's handle on the camera, for the Views menu. */
@@ -446,6 +457,7 @@ function DrawingInner({
   lookSwitched,
   initialViewport,
   fitWholeOnOpen = false,
+  covers,
   onViewportSettled,
   cameraHub,
   onPlace,
@@ -542,6 +554,8 @@ function DrawingInner({
   const startPct = initialViewport != null ? Math.round(initialViewport.zoom * 100) : Math.max(zoom, 1);
   const [cameraStop, setCameraStop] = useState<CameraStop>(() => cameraStopAt(startPct));
   const [zoomBand, setZoomBand] = useState<ZoomBand>(() => zoomBandAt(startPct));
+  // How far out the wheel and a pinch go: `MIN_ZOOM`, or as far out as the camera has been on this visit.
+  const [zoomFloor, setZoomFloor] = useState(() => wheelFloor(MIN_ZOOM, initialViewport?.zoom ?? MIN_ZOOM));
   useCameraHub(cameraHub);
   // Whether the restored camera is still in use: true until the first fit decides it shows nothing.
   const restoredCameraRef = useRef(initialViewport != null);
@@ -899,6 +913,36 @@ function DrawingInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowLayouts]);
 
+  // What a fit frames besides racks and surfaces: the free things, and the trays over and under the racks.
+  const alsoFramed = () => [...free.fitIds, ...rf.getNodes().filter((n) => n.type === 'tray').map((n) => ({ id: n.id }))];
+
+  // A fit with room left for what floats over the pane; unchanged where nothing does.
+  const clearOfCovers = <T extends { nodes: { id: string }[]; maxZoom: number; padding: number | FitSides }>(options: T): T => {
+    const pane = containerRef.current;
+    const over = covers?.();
+    if (pane == null || over == null || pane.clientWidth === 0 || pane.clientHeight === 0) return options;
+    const paneBox = pane.getBoundingClientRect();
+    // One that is not on the page has no box, and so no reach.
+    const boxOf = (el: Element | null) => {
+      const box = el?.getBoundingClientRect();
+      return box != null && box.width > 0 && box.height > 0 ? box : null;
+    };
+    const tools = boxOf(over.tools);
+    const zoomButtons = boxOf(over.zoom);
+    const card = boxOf(over.card);
+    const sides = paddingClearOf(
+      {
+        top: tools != null ? tools.bottom - paneBox.top : 0,
+        bottom: zoomButtons != null ? paneBox.bottom - zoomButtons.top : 0,
+        corner: card != null && card.right > paneBox.left && card.bottom > paneBox.top ? { width: card.right - paneBox.left, height: card.bottom - paneBox.top } : null,
+      },
+      rf.getNodesBounds(options.nodes.map((n) => n.id)),
+      { width: pane.clientWidth, height: pane.clientHeight },
+      options.maxZoom,
+    );
+    return sides == null ? options : { ...options, padding: sides };
+  };
+
   // Fits every rack, no closer than the rack stop, on mount and when the set of
   // racks changes, once every rack has its position (a new one lands a render later).
   const rackIdsKey = view.racks.map((r) => r.id).join('|');
@@ -927,7 +971,7 @@ function DrawingInner({
     }
     const whole = isFirstRun && fitWholeOnOpen;
     const raf = requestAnimationFrame(() => {
-      const wholeOptions = closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds);
+      const wholeOptions = clearOfCovers(closetFitViewOptions(view.racks, view.surfaces ?? [], alsoFramed()));
       const pane = containerRef.current;
       // The whole closet only when its names can still be read; otherwise the racks, at their own stop.
       let useWhole = whole;
@@ -936,7 +980,7 @@ function DrawingInner({
         const fit = getViewportForBounds(bounds, pane.clientWidth, pane.clientHeight, wholeOptions.minZoom, wholeOptions.maxZoom, wholeOptions.padding);
         useWhole = openingFit(fit.zoom) === 'whole';
       }
-      void rf.fitView(useWhole ? wholeOptions : rackFitViewOptions(view.racks, free.fitIds));
+      void rf.fitView(useWhole ? wholeOptions : clearOfCovers(rackFitViewOptions(view.racks, alsoFramed())));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is
@@ -958,7 +1002,7 @@ function DrawingInner({
   useEffect(() => {
     if (fitRequest == null || fitRequest === prevFitRequestRef.current) return;
     prevFitRequestRef.current = fitRequest;
-    void rf.fitView(closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds));
+    void rf.fitView(clearOfCovers(closetFitViewOptions(view.racks, view.surfaces ?? [], alsoFramed())));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a press of the button refits
   }, [fitRequest, rf, view.racks, view.surfaces]);
 
@@ -1044,6 +1088,7 @@ function DrawingInner({
     (event, vp) => {
       personMovingRef.current = false;
       followCamera(vp);
+      setZoomFloor((floor) => wheelFloor(floor, vp.zoom));
       settled.settle(vp);
       onViewportSettledRef.current?.(vp);
       const pct = Math.round(vp.zoom * 100);
@@ -1222,23 +1267,9 @@ function DrawingInner({
   // (`rowLayouts`, above) never moves a surface: "positions stable across
   // flips," `rows.ts`'s own file header on why.
   //
-  // The row block's own width is the widest row's own rack count at the
-  // rack layout's own pitch (`RACK_NODE_WIDTH + RACK_GAP_PX`, one gap
-  // narrower than the count since there is no trailing gap); its height is
-  // every row band stacked, `rowBandY`'s own sum carried one row past the
-  // last. `panelHeightPx` — drawn at the height of a rack
-  // (`design/places/renders/Surfaces.png`, ADR-0051 §1/§2) — reads the
-  // TALLEST rack this closet actually holds (42U, this
-  // drawing's own reference height per `geometry.ts`'s file header, when
-  // there is none to read), so a wall lines up with whichever rack stands
-  // tallest beside it rather than an arbitrary one.
-  const rowsWidthPx = Math.max(
-    0,
-    ...rowLayouts.map((layout) => (layout.racks.length > 0 ? layout.racks.length * (RACK_NODE_WIDTH + RACK_GAP_PX) - RACK_GAP_PX : 0)),
-  );
-  const rowsHeightPx = rowBandY(rowLayouts, rowLayouts.length);
-  const tallestRackHeightU = Math.max(42, ...view.racks.map((r) => r.heightU));
-  const panelHeightPx = rackNodeHeight({ heightU: tallestRackHeightU });
+  // The row block's own footprint, and the least a panel is drawn (the height of the tallest rack here), are
+  // `closetFootprint`'s: the same numbers `closetRightPx` lays the panels out from.
+  const { rowsWidthPx, rowsHeightPx, panelHeightPx } = closetFootprint(view, RACK_NODE_WIDTH, rackHeightPx);
   const surfacesLayout = useMemo(
     () => layoutSurfaces(view.surfaces ?? [], rowsWidthPx, rowsHeightPx, panelHeightPx, U_PX, undefined, SURFACE_HEADER_PX),
     [view.surfaces, rowsWidthPx, rowsHeightPx, panelHeightPx],
@@ -1296,12 +1327,18 @@ function DrawingInner({
   // else about the pane centre. A person's own move reports its zoom at its end.
   useEffect(() => {
     if (personMovingRef.current) return;
+    // A restored camera tells the bar its zoom (on mount) rather than being reset to the bar's. Once the bar
+    // shows it the bar leads again; left waiting, + and - changed the number and never the drawing.
+    const awaited = restoredPctRef.current;
+    restoredPctRef.current = restoredZoomAwaited(awaited, zoom);
+    if (restoredPctRef.current != null) return;
     const live = rf.getViewport();
     if (Math.round(live.zoom * 100) === zoom) return;
-    if (restoredPctRef.current != null) {
-      // A restored camera tells the bar its zoom (on mount) rather than being reset to the bar's.
-      if (zoom !== restoredPctRef.current) return;
-      restoredPctRef.current = null;
+    if (awaited != null && initialViewport != null) {
+      // The canvas opens no further out than the wheel goes, so a camera left further out than that (a fit of
+      // a big closet) opened short of it. Put it where it was left, at once.
+      void rf.setViewport(initialViewport);
+      return;
     }
     const nextZoom = zoom / 100;
     if (GLIDE.duration > 0) barGlideRef.current = zoom;
@@ -1732,7 +1769,7 @@ function DrawingInner({
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
       // r116: a double-click on a rack fits that rack to the view.
-      if (parsed?.kind === 'rack' && doubleClickAnswer('rack') === 'fit') void rf.fitView({ nodes: [{ id: node.id }], padding: 0.1, maxZoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
+      if (parsed?.kind === 'rack' && doubleClickAnswer('rack') === 'fit') void rf.fitView({ nodes: [{ id: node.id }], padding: 0.1, minZoom: MIN_ZOOM, maxZoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
     },
     [openChassis, onOpenDevice, onOpenShelf, openPanelFor, free.onNodeDoubleClick, rf],
   );
@@ -2178,7 +2215,7 @@ function DrawingInner({
         proOptions={PRO_OPTIONS}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
-        minZoom={MIN_ZOOM}
+        minZoom={zoomFloor}
         maxZoom={MAX_ZOOM}
         // Left-drag on empty canvas pans (Shift+drag is the marquee); the middle button, Space+drag, the wheel or a trackpad pan too (pinch zooms).
         panOnDrag={tool === 'pan' ? PAN_BUTTONS : MIDDLE_ONLY}

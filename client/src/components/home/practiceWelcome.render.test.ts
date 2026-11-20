@@ -7,10 +7,11 @@ import { PracticeWelcome } from './PracticeWelcome';
 const offer = { onMake: async () => null, busy: false, error: null, codePrompt: null, justMade: null, onOpened: () => {} };
 
 describe('PracticeWelcome (ADR-0069)', () => {
-  it('offers the practice lab and never asks for an organisation', () => {
+  it('offers the sample in a practice space and never asks for an organisation', () => {
     const html = renderToStaticMarkup(createElement(PracticeWelcome, { address: 'sam@example.com', offer, onOpen: () => {} }));
     expect(html).toContain('You set this server up.');
-    expect(html).toContain('Open practice lab');
+    expect(html).toContain('Open sample');
+    expect(html).toContain('practice space of your own');
     expect(html).toContain('only you can see it');
     expect(html).toContain('Nothing here asks you to do it.');
     expect(html).not.toContain('Waiting for a steward');
@@ -28,10 +29,12 @@ describe('PracticeWelcome (ADR-0069)', () => {
 describe('PracticeWelcome with "Start your own network" (sign-off r123)', () => {
   const own = { onMake: async () => false, busy: false, error: null, codePrompt: null };
 
-  it('offers its own network beside the practice lab, which keeps its place and words', () => {
+  it('offers its own network beside the sample, which keeps its place', () => {
     const html = renderToStaticMarkup(createElement(PracticeWelcome, { address: 'sam@example.com', offer, onOpen: () => {}, own }));
-    expect(html.indexOf('Open the practice home lab')).toBeLessThan(html.indexOf('Start your own network'));
-    expect(html).toContain('Open practice lab');
+    expect(html.indexOf('Open the sample home lab')).toBeLessThan(html.indexOf('Start your own network'));
+    expect(html).toContain('Open sample');
+    // Sign-off r147: "practice lab" names the sample with mistakes planted, never this one.
+    expect(html).not.toMatch(/practice (home )?lab/i);
     expect(html).toContain('value="Home network"');
     expect(html).toContain('Start drawing');
     expect(html).toContain('Running this for a team?');

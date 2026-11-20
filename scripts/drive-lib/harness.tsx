@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 
 import './index.css';
 import App from './App';
+import { Hints } from './components/shell/Hints';
 import { concatBytes, lp, u64LE } from './crypto/bytes';
 import { generateKeyPair } from './crypto/keys';
 import { readPlain, SCHEMA_VERSION, writePlain } from './document/plain';
@@ -521,9 +522,11 @@ async function main() {
   // `StrictMode` in dev a count is up to twice a production one.
   (window as unknown as { __cn: number }).__cn = 0;
 
+  // The same two the client's own entry draws (`main.tsx`): the app, and the one hint card for the page.
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />
+      <Hints />
     </StrictMode>,
   );
 }

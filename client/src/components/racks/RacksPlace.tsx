@@ -35,6 +35,8 @@ import { openCanvasSpots } from './canvasSpots';
 import { requestRename } from '../drawing/NameEdit';
 import type { PaletteAction } from '../shell/palette';
 import { usePaletteActions } from '../shell/paletteRegistry';
+import { viewActions } from '../shell/viewActions';
+import { canvasToolRow, zoomButtons } from '../shell/CanvasBar';
 import { shortcutText } from '../shell/shortcuts';
 import { createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
@@ -113,7 +115,7 @@ import { sample as sampleSpec } from '../home/sampleNetwork';
 import { SampleChip } from '../home/SampleChip';
 import { restoreTo } from '../../document/restore';
 import { readyQuestions } from '../home/sampleQuestions';
-import { PracticeNote, ReadyQuestions } from '../trace/ReadyQuestions';
+import { PracticeNote, ReadyQuestions, sampleCard } from '../trace/ReadyQuestions';
 import { TieCard } from '../ties/TieCard';
 import { PlanBand } from '../plans/PlanBand';
 import { STAGE_WORD } from '../plans/plansModel';
@@ -164,6 +166,7 @@ import { useJumpBack } from './useJumpBack';
 import { levelsFor } from './jumpTree';
 import { EMPTY_HINT, autoOpenEquipment } from './emptyHints';
 import { cameraStopAt } from '../drawing/geometry';
+import { cameraForStop } from './zoomAim';
 import { siteLinkTouching } from '../../document/siteLinks';
 import { useSiteLinkFindings } from '../checks/siteLinkChecks';
 
@@ -367,6 +370,9 @@ function tidySentence(text: string): string {
 }
 
 const NO_TARGETS: ReadonlySet<string> = new Set();
+
+/** What floats over the drawing: a fit keeps the closet clear of all three. */
+const fitCovers = () => ({ tools: canvasToolRow(), zoom: zoomButtons(), card: sampleCard() });
 
 /** Other words Ctrl K finds a device's actions by. */
 const PALETTE_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
@@ -1960,7 +1966,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       id: 'rename',
       label: named('Rename', deviceName || rackName),
       keywords: ['name', 'hostname', 'label'],
-      disabled: renameTarget === null ? 'Select a device or rack first' : look === 'diagram' ? 'Switch to the Rack look to rename on the canvas' : undefined,
+      disabled: renameTarget === null ? 'Select a device or rack first' : look === 'diagram' ? 'Switch to the Canvas view to rename' : undefined,
       run: () => renameTarget !== null && requestRename(renameTarget),
     };
     if (chassisId !== null) {
@@ -2147,6 +2153,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       shellProps.onPlaceChange('inventory');
     },
   };
+  usePaletteActions('views', () => viewActions(mainView));
   // The Doing ▾ menu: what you can set about from here. A job that needs a device says so until one is chosen.
   const needsDevice = selectedChassis == null ? 'select a device first' : undefined;
   const doing: NonNullable<ShellProps['doing']> = [
@@ -2154,7 +2161,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     { id: 'down', label: DEVICE_WORDS.itsDown, onSelect: canDraw && selectedChassis != null ? () => trouble.start(selectedChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
     { id: 'trace', label: DEVICE_WORDS.trace, onSelect: selectedChassis != null ? () => trace.openFrom(selectedChassis) : undefined, hint: needsDevice },
   ];
-  // The zoom stops the bottom pill opens upward with: the camera keeps its middle and takes the stop's zoom.
+  // The zoom stops the bottom pill opens upward with: the camera takes the stop's zoom and lands on what is
+  // selected, or on the nearest thing when the middle of the view is empty (`zoomAim.ts`).
   const zoomStops: ShellProps['zoomStops'] = {
     stops: [
       { id: 'closet', label: 'Closet' },
@@ -2165,13 +2173,10 @@ export function RacksPlace(props: RacksPlaceProps) {
     current: cameraStopAt(shellProps.zoom),
     onGo: (id) => {
       const control = cameraHub.control;
-      const box = document.querySelector('.shell__drawing .react-flow')?.getBoundingClientRect();
-      if (control == null || box == null) return;
-      const vp = control.get();
+      if (control == null) return;
       const zoom = CAMERA_STOPS[id as keyof typeof CAMERA_STOPS] / 100;
-      const cx = (box.width / 2 - vp.x) / vp.zoom;
-      const cy = (box.height / 2 - vp.y) / vp.zoom;
-      control.set({ x: box.width / 2 - cx * zoom, y: box.height / 2 - cy * zoom, zoom }, true);
+      const camera = cameraForStop(document.querySelector('.shell__drawing .react-flow'), control.get(), zoom, id === 'faceplate' || id === 'inside');
+      if (camera != null) control.set(camera, true);
     },
   };
 
@@ -2295,6 +2300,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onEdit={canDraw ? handleEdit : undefined}
           initialViewport={resumeView.initialViewport}
           fitWholeOnOpen={isSample}
+          covers={fitCovers}
           onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
           onMove={handleMove}
@@ -2354,7 +2360,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       )}
       {doc != null && look === 'rack' && shellProps.lens === 'links' ? (
         <div className="drawing-lens-key" data-testid="links-lens-rack-note">
-          <span>The Links lens draws in the Diagram look</span>
+          <span>The Links lens draws in the Diagram view</span>
           <button type="button" className="drawing-lens-key__go" onClick={() => changeLook('diagram')}>
             Show Diagram
           </button>
@@ -2470,8 +2476,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} />
         </InSideSlot>
       ) : null}
-      {doc != null && jot == null && !trace.open ? <ReadyQuestions folded={look === 'diagram'} questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
-      {doc != null && jot == null && !trace.open && !checks.open && planted > 0 ? <PracticeNote count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
+      {/* Both stay mounted while an open device or a trace has the canvas, so Hide and the fold last the visit. */}
+      {doc != null ? <ReadyQuestions away={jot != null || trace.open} folded={look === 'diagram'} questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
+      {doc != null && planted > 0 ? <PracticeNote away={jot != null || trace.open || checks.open} count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
       {doc != null && jot == null ? (
         <InSideSlot id="trace">
           <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} continueIn={traceContinuation} elsewhere={traceElsewhere} />

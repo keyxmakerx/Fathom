@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { hint } from '../shell/hints';
+import { BAR_HINT } from '../shell/hintWords';
 import { Popover, usePopoverClose } from '../shell/Popover';
 
 /** The bar's "Sample" chip (r30-small): says this design is the sample, a copy of the person's own, and offers to
@@ -18,6 +20,7 @@ export function SampleChip({ onReset }: { onReset?: () => Promise<void> }) {
             triggerRef.current = el;
           }}
           {...triggerProps}
+          {...hint('Sample', BAR_HINT.sample)}
         >
           Sample
         </button>

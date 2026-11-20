@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 
+import { useGhostRef } from '../shell/ghost';
 import type { MenuItem } from './contextMenuItems';
 
 export interface ContextMenuProps {
@@ -19,6 +20,8 @@ export interface ContextMenuProps {
  */
 export function ContextMenu({ x, y, items, onClose, title }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
+  // Closed, the menu leaves a still copy that fades out (`ghost.ts`).
+  const menuRef = useGhostRef(ref);
 
   // Placed here rather than through `style`, so a re-render never undoes the
   // nudge that keeps a menu opened near an edge inside the drawing.
@@ -74,7 +77,7 @@ export function ContextMenu({ x, y, items, onClose, title }: ContextMenuProps) {
 
   return (
     <div
-      ref={ref}
+      ref={menuRef}
       className="drawing-context-menu"
       role="menu"
       onKeyDown={handleKeyDown}

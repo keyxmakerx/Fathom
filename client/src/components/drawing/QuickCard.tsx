@@ -14,7 +14,8 @@ import '../../styles/canvas-aids.css';
 
 import { copyText } from '../firmware/parts';
 import type { Document } from '../../document/model';
-import { clickAnswer, nextEscape, useDetailsOpen } from '../shell/clickAnswer';
+import { clickAnswer, nextEscape, openAbove, useDetailsOpen } from '../shell/clickAnswer';
+import { useGhostRef } from '../shell/ghost';
 import { SHOW_DETAILS_EVENT } from '../shell/useRightTab';
 import type { ClosetView } from './contract';
 import { thingOf } from './PortPeek';
@@ -92,6 +93,8 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
     if (detailsOpen) setPinned(null);
   }, [detailsOpen]);
   const cardRef = useRef<HTMLDivElement>(null);
+  // Put away, the card leaves a still copy that fades out (`ghost.ts`).
+  const cardGhostRef = useGhostRef(cardRef);
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -133,8 +136,8 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       // The card is the top thing after a peek: Escape puts it away and nothing else, so a second Esc is the one
-      // that leaves an opened device (sign-off r60, r116).
-      if (nextEscape({ peek: document.querySelector('.port-peek') != null, card: pinnedRef.current != null }) !== 'card') return;
+      // that leaves an opened device (sign-off r60, r116). Search or a sheet opened over it goes first.
+      if (nextEscape({ above: openAbove(), peek: document.querySelector('.port-peek') != null, card: pinnedRef.current != null }) !== 'card') return;
       e.preventDefault();
       e.stopPropagation();
       close();
@@ -222,7 +225,7 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
         </svg>
       )}
       <div
-        ref={cardRef}
+        ref={cardGhostRef}
         className="quick-card"
         role="dialog"
         aria-label={`${facts.title}, in short`}

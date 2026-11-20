@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { fetchAccess, setShare } from '../api/share';
 import type { AccessPerson, ShareChoice, Standing } from '../api/share';
+import { useGhostRef } from '../components/shell/ghost';
 import './share.css';
 
 const LABEL: Record<'steward' | 'firmware' | 'draw' | 'read', string> = { steward: 'Steward', firmware: 'Firmware', draw: 'Draw', read: 'View' };
@@ -79,6 +80,7 @@ export interface SharePanelProps {
 /** Share a scope with people already in the organisation. Stewards only; the
  * server decides, this just doesn't offer it to anyone else. */
 export function SharePanel({ organisationId, scopeId, title, onClose }: SharePanelProps) {
+  const panelRef = useGhostRef<HTMLDivElement>();
   const [people, setPeople] = useState<AccessPerson[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -119,7 +121,7 @@ export function SharePanel({ organisationId, scopeId, title, onClose }: SharePan
   }
 
   return (
-    <div className="share-panel" role="dialog" aria-label={`Share ${title}`} data-testid="share-panel">
+    <div ref={panelRef} className="share-panel" role="dialog" aria-label={`Share ${title}`} data-testid="share-panel">
       <div className="share-panel__head">
         <span>Share {title}</span>
         <button type="button" className="share-panel__close" onClick={onClose} aria-label="Close">

@@ -171,8 +171,10 @@ try {
       await page.mouse.move(sx, sy);
       await page.mouse.down();
       const whileDragging = new Set();
+      // Straight down, where there is room. Fitted, the rack stands by the left edge of the drawing, and a drag
+      // to the left would run off the window.
       for (let i = 1; i <= 10; i++) {
-        await page.mouse.move(sx - i * 12, sy + i * 6);
+        await page.mouse.move(sx, sy + i * 12);
         await page.waitForTimeout(16);
         whileDragging.add(await cablePaths());
       }
@@ -195,6 +197,28 @@ try {
       check('the rack is on the canvas to drag', false);
     }
 
+    // Leave the sample at the Rack stop, so the visit below reopens it there. A stop lands on what is selected,
+    // so the rack is clicked first: with nothing selected it lands on the middle of the view, which is the wall,
+    // and a view with no rack in it is not the one a reopened design returns to.
+    const camera = () =>
+      page.evaluate(() => {
+        const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform);
+        return { x: m.e, y: m.f, zoom: m.a };
+      });
+    const dropped = await rackNode.boundingBox();
+    if (dropped != null) await page.mouse.click(dropped.x + 6, dropped.y + dropped.height - 8);
+    await page.locator('.shell-pill__value').click();
+    await page.locator('.shell-pill__stop', { hasText: 'Rack' }).click();
+    await page.waitForTimeout(1200);
+    const leftCamera = await camera();
+    const rackAtStop = await rackNode.boundingBox();
+    const paneAtStop = await page.locator('.react-flow__pane').boundingBox();
+    check(
+      'the Rack stop lands on the selected rack',
+      rackAtStop != null && paneAtStop != null && rackAtStop.x >= paneAtStop.x && rackAtStop.y >= paneAtStop.y && rackAtStop.x + rackAtStop.width <= paneAtStop.x + paneAtStop.width && rackAtStop.y + rackAtStop.height <= paneAtStop.y + paneAtStop.height,
+      JSON.stringify(rackAtStop),
+    );
+
     await page.locator('.shell-bar__brand').first().click();
     await page.waitForSelector('.first-steps, .home__help', { timeout: 10_000 });
     await page.waitForTimeout(500);
@@ -210,7 +234,215 @@ try {
     await shot(page, 'SN-05-hidden');
     await page.locator('.home__panel').getByRole('button', { name: 'Getting started' }).click();
     check('Getting started comes back from Help', (await page.locator('.first-steps').count()) === 1);
+
+    // A design reopened where it was left: the bar's + and - still move the drawing. They once changed the
+    // number and nothing else for the whole visit, because the camera waited on a zoom the bar already showed.
+    await page.getByText('Sample home lab', { exact: true }).first().click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(1500);
+    const cameraZoom = () => page.evaluate(() => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform).a);
+    const leftAt = await cameraZoom();
+    const reopened = await camera();
+    check(
+      'the sample reopens where it was left, at the Rack stop',
+      Math.abs(leftAt - 1) < 0.01 && Math.abs(reopened.x - leftCamera.x) < 1 && Math.abs(reopened.y - leftCamera.y) < 1,
+      `${JSON.stringify(reopened)}, left at ${JSON.stringify(leftCamera)}`,
+    );
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.waitForTimeout(900);
+    const nearer = await cameraZoom();
+    check('reopened, + moves the drawing and not only the number', nearer > leftAt + 0.05, `${leftAt} to ${nearer}`);
+    await page.getByRole('button', { name: 'Zoom out' }).click();
+    await page.waitForTimeout(900);
+    const back = await cameraZoom();
+    check('and - moves it back', Math.abs(back - leftAt) < 0.01, `${nearer} to ${back}`);
+
+    // Hide on the question card lasts the visit. It once came back each time a device was opened and left.
+    const questionCard = page.getByTestId('ready-questions');
+    check('the reopened sample offers its questions', (await questionCard.count()) === 1);
+    if ((await questionCard.count()) === 1) {
+      await questionCard.getByRole('button', { name: 'Hide' }).click();
+      await page.locator('.react-flow__node-chassis', { hasText: 'router-1' }).first().dispatchEvent('contextmenu', { button: 2, clientX: 0, clientY: 0 });
+      await page.locator('.drawing-context-menu__item', { hasText: /^Open$/ }).click();
+      await page.waitForSelector('[data-testid=jot]', { timeout: 10_000 });
+      await page.getByTestId('jump-back').click();
+      await page.waitForSelector('[data-testid=jot]', { state: 'detached', timeout: 10_000 });
+      await page.waitForTimeout(400);
+      check('a hidden question card stays hidden after a device is opened and left', (await questionCard.count()) === 0);
+    }
+
+    // A hint is for a control someone pointed at. When Back leaves the tool row a tool slides under the pointer
+    // at rest, and it once explained itself unasked.
+    const routerBox = await page.locator('.react-flow__node-chassis', { hasText: 'router-1' }).first().boundingBox();
+    if (routerBox != null) await page.mouse.click(routerBox.x + routerBox.width / 2, routerBox.y + routerBox.height / 2);
+    await page.waitForTimeout(600);
+    const backNow = page.getByTestId('jump-back');
+    check('Back is in the tool row while the router is selected', (await backNow.count()) === 1);
+    if ((await backNow.count()) === 1) {
+      await backNow.click();
+      await page.waitForSelector('[data-testid=jump-back]', { state: 'detached', timeout: 5_000 });
+      await page.waitForTimeout(1500);
+      check('a tool that slides under a pointer at rest shows no hint', (await page.getByTestId('hint').count()) === 0);
+    }
+    await page.getByTestId('shell-show').hover();
+    await page.waitForTimeout(900);
+    const hintSays = await page.getByTestId('hint').innerText().catch(() => '');
+    check('pointing at Layers shows its hint', /Layers/.test(hintSays), hintSays.slice(0, 80));
+
+    // Search over a device's card. Esc is Search's first and the card's second: it once closed the card hidden
+    // behind Search and left Search open. A press on the sheet's foot once took the focus out of the box, and no
+    // key answered after it.
+    const card = page.getByTestId('quick-card');
+    if ((await card.count()) === 0 && routerBox != null) {
+      await page.mouse.click(routerBox.x + routerBox.width / 2, routerBox.y + routerBox.height / 2);
+      await page.waitForTimeout(600);
+    }
+    check("the router's card is showing before Search opens", (await card.count()) === 1);
+    // Closed, Search leaves the way it came: a still copy of its sheet fades where it hung. The page keeps a note
+    // of every copy as it is made, so nothing here depends on catching one in the 120ms it lasts.
+    await page.evaluate(() => {
+      window.__copies = [];
+      new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (!(node instanceof HTMLElement) || !node.hasAttribute('data-ghost')) continue;
+            const texts = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+            let words = 0;
+            for (let t = texts.nextNode(); t != null; t = texts.nextNode()) if (t.data.trim() !== '') words += 1;
+            const sheet = node.querySelector('.float-sheet');
+            window.__copies.push({
+              kind: node.classList.item(0),
+              inert: node.inert,
+              hidden: node.getAttribute('aria-hidden'),
+              words,
+              named: node.querySelectorAll('[role], [aria-label], [data-testid], [tabindex], :not(svg *)[id]').length,
+              typed: node.querySelector('input')?.value ?? null,
+              sheetLeaves: sheet ? getComputedStyle(sheet).animationName : null,
+            });
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette', { timeout: 5_000 });
+    await page.keyboard.type('switch');
+    await page.waitForTimeout(300);
+    await page.locator('.palette__keys').click();
+    const focusAt = await page.evaluate(() => document.activeElement?.className ?? '');
+    check('a press on the foot of Search leaves the focus in its box', focusAt === 'palette__input', focusAt);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(600);
+    check('one Esc closes Search', (await page.locator('.palette').count()) === 0);
+    check('and leaves the card under it showing', (await card.count()) === 1);
+    const copies = (await page.evaluate(() => window.__copies)).filter((c) => c.kind === 'float-scrim');
+    check('closed, Search leaves one still copy of its sheet', copies.length === 1, JSON.stringify(copies));
+    check('the copy cannot be pressed, read or found', copies.length === 1 && copies[0].inert && copies[0].hidden === 'true' && copies[0].words === 0 && copies[0].named === 0, JSON.stringify(copies));
+    check('it shows what was typed, and its sheet goes back the way it came', copies[0]?.typed === 'switch' && copies[0]?.sheetLeaves === 'float-sheet-out', JSON.stringify(copies));
+    check('the copy is gone a moment later', (await page.locator('.float-scrim').count()) === 0);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    check('a second Esc closes the card', (await card.count()) === 0);
+
     check(`no uncaught page errors (${scheme})`, pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
+  // On a screen with room for it the sample opens whole. Its wall, ceiling and desk once stood in one column
+  // three screens tall, so the whole of it fitted at 32% and the first view was the rack alone. The question
+  // card sits over the top left of the drawing: the first view and Fit to view keep what they frame clear of
+  // it, of the tool row and of the zoom buttons.
+  {
+    const context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=home`);
+    await page.waitForSelector('.home-sample', { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Open sample' }).click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(2000);
+    const seen = () =>
+      page.evaluate(() => {
+        const box = (el) => {
+          const b = el.getBoundingClientRect();
+          return { x: b.x, y: b.y, right: b.right, bottom: b.bottom };
+        };
+        const one = (selector) => {
+          const el = document.querySelector(selector);
+          return el == null ? null : box(el);
+        };
+        return {
+          zoom: new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform).a,
+          pane: one('.react-flow__pane'),
+          card: one('[data-testid=ready-questions]'),
+          folded: document.querySelector('.trace-questions--folded') != null,
+          tools: one('.shell-canvas-bar__group'),
+          pill: one('[data-testid=shell-pill]'),
+          drawn: [...document.querySelectorAll('.react-flow__node-rack, .react-flow__node-surface, .react-flow__node-tray')].map((el) => ({ name: el.textContent.trim().slice(0, 12), ...box(el) })),
+        };
+      });
+    const under = (cover, drawn) => (cover == null ? ['(not on the page)'] : drawn.filter((d) => d.x < cover.right && d.right > cover.x && d.y < cover.bottom && d.bottom > cover.y).map((d) => d.name));
+    const outside = (pane, drawn) => drawn.filter((d) => d.x < pane.x || d.y < pane.y || d.right > pane.right || d.bottom > pane.bottom).map((d) => d.name);
+    const named = (drawn, start) => drawn.find((d) => d.name.startsWith(start));
+
+    const first = await seen();
+    check('the wide screen draws the rack, its tray and three surfaces', first.drawn.length === 5, first.drawn.map((d) => d.name).join(', '));
+    check('on a wide screen the sample opens whole, nothing off the screen', outside(first.pane, first.drawn).length === 0, outside(first.pane, first.drawn).join(', '));
+    check('at 60% or more, so its names can be read', first.zoom >= 0.6, String(first.zoom));
+    check('with its question card open', first.card != null && !first.folded);
+    check('nothing drawn is under the question card', under(first.card, first.drawn).length === 0, under(first.card, first.drawn).join(', '));
+    check('nor under the tool row', under(first.tools, first.drawn).length === 0, under(first.tools, first.drawn).join(', '));
+    const [rack, wall, ceiling, desk] = ['Rack 1', 'Outside wall', 'Hall ceiling', 'Office desk'].map((start) => named(first.drawn, start));
+    check(
+      'the wall stands next to the rack, with the ceiling over the desk beside it',
+      rack != null && wall != null && ceiling != null && desk != null && Math.abs(wall.y - rack.y) < 1 && wall.x > rack.right && ceiling.x > wall.right && Math.abs(ceiling.x - desk.x) < 1 && Math.abs(ceiling.y - wall.y) < 1 && desk.y > ceiling.bottom && desk.bottom <= wall.bottom + 1,
+      JSON.stringify({ rack, wall, ceiling, desk }),
+    );
+    await shot(page, 'SN-06-wide-open');
+
+    // The whole lab is further out than the wheel goes by itself. A pinch from there starts where the drawing is:
+    // it once put the drawing at the wheel's own floor in one step, whichever way the fingers moved.
+    const pinch = async (deltaY) => {
+      await page.mouse.move(first.pane.x + (first.pane.right - first.pane.x) / 2, first.pane.y + (first.pane.bottom - first.pane.y) / 2);
+      await page.keyboard.down('Control');
+      await page.mouse.wheel(0, deltaY);
+      await page.keyboard.up('Control');
+      await page.waitForTimeout(500);
+      return (await seen()).zoom;
+    };
+    const pinchedOut = await pinch(20);
+    check('a pinch out from the whole view leaves it where it is', Math.abs(pinchedOut - first.zoom) < 0.001, `${first.zoom} to ${pinchedOut}`);
+    const pinchedIn = await pinch(-20);
+    check('a pinch in from there zooms in a step, not straight to the closet stop', pinchedIn > first.zoom * 1.005 && pinchedIn < first.zoom * 1.06, `${first.zoom} to ${pinchedIn}`);
+    const pinchedBack = await pinch(20);
+    check('and a pinch back out returns to the whole view', Math.abs(pinchedBack - first.zoom) < 0.002, `${pinchedIn} to ${pinchedBack}`);
+    check('the pinches leave the question card open', (await seen()).folded === false);
+
+    await page.getByRole('button', { name: 'Fit to view' }).click();
+    await page.waitForTimeout(900);
+    const fitted = await seen();
+    check('a press on Fit to view folds the question card', fitted.card != null && fitted.folded);
+    check('Fit to view frames the sample whole', outside(fitted.pane, fitted.drawn).length === 0, outside(fitted.pane, fitted.drawn).join(', '));
+    check('larger than it opened, the folded card taking less room', fitted.zoom > first.zoom, `${first.zoom} to ${fitted.zoom}`);
+    const hidden = [...under(fitted.card, fitted.drawn), ...under(fitted.tools, fitted.drawn), ...under(fitted.pill, fitted.drawn)];
+    check('with nothing under the folded card, the tool row or the zoom buttons', hidden.length === 0, hidden.join(', '));
+    await shot(page, 'SN-07-wide-fit');
+
+    // Out past the whole closet is the site (ADR-0074), drawn over the canvas. The question card is the canvas's:
+    // it once stayed on top of the site's own words.
+    await page.getByRole('button', { name: 'Zoom out' }).click();
+    const wentUp = await page.waitForSelector('.places-map', { timeout: 5_000 }).then(() => true, () => false);
+    check('from the whole closet, - goes up to the site', wentUp);
+    check('the question card is not over the site', !(await page.getByTestId('ready-questions').isVisible()));
+    await shot(page, 'SN-08-wide-site');
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.waitForSelector('.places-map', { state: 'detached', timeout: 5_000 }).catch(() => {});
+    await page.waitForTimeout(600);
+    const down = await seen();
+    check('+ comes back down to the closet as it was left', (await page.locator('.places-map').count()) === 0 && Math.abs(down.zoom - fitted.zoom) < 0.001, `${fitted.zoom} to ${down.zoom}`);
+    check('with its question card back', down.card != null && down.card.right > down.card.x && down.folded);
+
+    check('no uncaught page errors (wide screen)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
 

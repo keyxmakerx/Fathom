@@ -17,6 +17,8 @@ import { paletteFromCatalogue } from '../racks/palette';
 import type { InventoryPrintable } from '../../print/inventoryTable';
 import { Shell } from '../Shell';
 import type { ShellProps } from '../shell/types';
+import { usePaletteActions } from '../shell/paletteRegistry';
+import { viewActions } from '../shell/viewActions';
 import { DataTable } from './DataTable';
 import { ItemPage } from './ItemPage';
 import type { FieldFor, FieldType } from '../../api/fieldDefinitions';
@@ -918,6 +920,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       shellProps.onPlaceChange('racks');
     },
   };
+  usePaletteActions('views', () => viewActions(mainView));
 
   // r116: the same bar as the canvas. Doing here acts on the device whose page is open and hands it to the canvas, the
   // way this place's device menu does (r58); the Sample chip is the design's, not the canvas's.

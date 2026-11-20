@@ -224,11 +224,11 @@ async function runDrive(tab) {
   await tab.screenshot({ path: `${SHOTS}own-network-1-home.png` });
 
   // -------------------------------------------------------------------
-  // 3. The card: beside the practice lab, the name filled in.
+  // 3. The card: beside the sample, the name filled in.
   // -------------------------------------------------------------------
   const card = tab.locator('[data-testid="own-network"]');
-  check('3. Home offers "Start your own network" beside the practice lab', (await card.count()) === 1);
-  check('3. the practice lab is still offered', (await tab.getByRole('button', { name: 'Open practice lab' }).count()) === 1);
+  check('3. Home offers "Start your own network" beside the sample', (await card.count()) === 1);
+  check('3. the sample is still offered', (await tab.getByRole('button', { name: 'Open sample' }).count()) === 1);
   check('3. the name is filled in', (await tab.locator('#own-network-name').inputValue()) === 'Home network');
   const orgName = 'Weekend Lab';
   await tab.fill('#own-network-name', orgName);

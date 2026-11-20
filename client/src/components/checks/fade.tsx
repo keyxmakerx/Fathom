@@ -7,6 +7,7 @@ import type { Edge, Node } from '@xyflow/react';
 
 import { matchShown, showPadding } from './checksModel';
 import { useChecksApi, useChecksShow } from './checksStore';
+import { MIN_ZOOM } from '../drawing/geometry';
 
 // `checksFaded` in the data tells the item not to add its own dimming on top of this one.
 const withFade = <T extends { className?: string; data?: unknown }>(item: T): T => ({
@@ -43,7 +44,7 @@ export function ChecksCanvasBridge() {
       // Keep what is shown clear of the panel when it is open and docked on the right.
       const { width, height } = flow.getState();
       const padding = showPadding(api.store.get().panelInset, width, height);
-      void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding, maxZoom: 1.25, duration: 400 });
+      void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding, minZoom: MIN_ZOOM, maxZoom: 1.25, duration: 400 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one move per Show click
   }, [show?.token]);

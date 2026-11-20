@@ -36,7 +36,8 @@ design), and the empty canvas has an **Add equipment** button.
    names where it goes, and its **▾** opens a tree of where you are inside the design.
 
 At the canvas, hover a cable bundle to fan it open; a selected cable lights its whole path through
-panels. The **Rack | Diagram** switch in the bar changes the look: faceplates, or plain boxes and lines.
+panels. The **Diagram** and **Canvas** tabs in the bar change the view: plain boxes and lines, or the racks
+with their faceplates. Search (Ctrl+K) goes to any view by name.
 
 ## 3. Checks that say why
 

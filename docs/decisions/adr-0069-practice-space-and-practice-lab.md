@@ -42,6 +42,13 @@ operator cannot grant themselves into an organisation. Any fix has to keep that.
 key shown once as the recovery key before anything is sent (ADR-0057 decision 5), then a site and an empty design.
 It is an offer, never a step; decision 5 stands.
 
+**Changed 2026-11-19 (sign-off r147, built on its recommended pick; the owner overrules it on the card).** The
+first card's title is "Open the sample home lab" and its button "Open sample": it opens the sample home lab, and
+"practice lab" is decision 6's sample only, so one name no longer means two things. The card sits under Home's
+tabs, as what the Designs tab holds. Once the practice space exists that welcome is gone, so the rail keeps "Start
+your own network" on offer until the account has an organisation of its own. Decision 5's one press, its rail
+sentence and the two acts are unchanged.
+
 ## Not decided
 
 - Deleting or resetting a practice space. Today it stays.

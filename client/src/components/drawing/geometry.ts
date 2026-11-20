@@ -132,6 +132,14 @@ export const RACK_NODE_WIDTH = RAIL_PX * 2 + RACK_INNER_PX;
  * `text y="-1"` sitting above the frame's `y="0"`). */
 export const RACK_HEADER_PX = 16;
 
+/** A rack's drawn height: its label row, then its units. Here for the same reason as its width. */
+export function rackHeightPx(heightU: number): number {
+  return RACK_HEADER_PX + heightU * U_PX;
+}
+
+/** A surface panel's label row. Here, not in SurfaceNode, for the same reason. */
+export const SURFACE_HEADER_PX = 16;
+
 /**
  * Camera stops, as percentages matching the shell's `zoom` convention (the
  * bar shows `100%` — `design/shell/Main.dc.html`). This drawing spans four
@@ -173,6 +181,61 @@ export const READABLE_ZOOM = 0.6;
 export function openingFit(wholeZoom: number): 'whole' | 'racks' {
   return wholeZoom >= READABLE_ZOOM ? 'whole' : 'racks';
 }
+
+/** The share of the pane a fit leaves empty round what it frames. */
+export const FIT_PADDING = 0.1;
+
+/** How far something reaches over the pane from its top left corner, in pane pixels. */
+export interface CornerCover {
+  width: number;
+  height: number;
+}
+
+/** What floats over the pane, in pane pixels: the tool row along its top edge and the zoom buttons along its foot
+ * (how far each reaches in, 0 for none), and on a sample the question card under the tool row. */
+export interface FitCovers {
+  top: number;
+  bottom: number;
+  corner: CornerCover | null;
+}
+
+/** A fit's padding side by side, as React Flow reads it. */
+export type FitSides = Record<'top' | 'right' | 'bottom' | 'left', `${number}px`>;
+
+/** Between a cover and the nearest thing drawn. */
+const COVER_GAP_PX = 12;
+
+/**
+ * A fit's padding with room left for `covers`. What is framed sits between the tool row and the zoom buttons, and
+ * beside the card, or under it where that draws it larger (a folded card is short and wide). A side no cover
+ * reaches keeps the margin `FIT_PADDING` gives it, and something already clear of them all does not move. Null
+ * where there is nothing to clear, or no room to clear it in: the plain fit stands.
+ */
+export function paddingClearOf(
+  covers: FitCovers,
+  bounds: { width: number; height: number },
+  pane: { width: number; height: number },
+  maxZoom: number,
+): FitSides | null {
+  // React Flow's own reading of a numeric padding, so an untouched side sits where a plain fit puts it.
+  const margin = (size: number) => Math.floor((size - size / (1 + FIT_PADDING)) / 2);
+  const clearOf = (reach: number, plain: number) => (reach > 0 ? Math.max(plain, Math.ceil(reach) + COVER_GAP_PX) : plain);
+  const x = margin(pane.width);
+  const y = margin(pane.height);
+  const bottom = clearOf(covers.bottom, y);
+  const zoomWith = (l: number, t: number) => Math.min(maxZoom, (pane.width - l - x) / bounds.width, (pane.height - t - bottom) / bounds.height);
+  let left = x;
+  let top = clearOf(covers.top, y);
+  if (covers.corner != null) {
+    const beside = clearOf(covers.corner.width, x);
+    const under = Math.max(top, clearOf(covers.corner.height, y));
+    if (zoomWith(x, under) > zoomWith(beside, top)) top = under;
+    else left = beside;
+  }
+  if ((left === x && top === y && bottom === y) || zoomWith(left, top) <= 0) return null;
+  const px = (n: number): `${number}px` => `${n}px`;
+  return { top: px(top), right: px(x), bottom: px(bottom), left: px(left) };
+}
 const STOP_ORDER: CameraStop[] = ['closet', 'rack', 'faceplate', 'inside'];
 
 /**
@@ -191,6 +254,16 @@ const STOP_ORDER: CameraStop[] = ['closet', 'rack', 'faceplate', 'inside'];
 export const MIN_ZOOM = CAMERA_STOPS.closet / 100 - 0.1;
 /** The last stop: zoom only magnifies, and stops here. */
 export const MAX_ZOOM = 4;
+
+/**
+ * How far out the wheel and a pinch go on this visit: `MIN_ZOOM`, or as far out as the camera has already been
+ * if that is further (a fit of a big closet, or the bar's own -, lands under `MIN_ZOOM`). From there the first
+ * turn of the wheel used to jump the drawing in to `MIN_ZOOM`, whichever way it was turned. `floor` is the answer
+ * so far; it only ever moves out.
+ */
+export function wheelFloor(floor: number, cameraZoom: number): number {
+  return Math.min(floor, cameraZoom);
+}
 /** The diagram look never magnifies past this, so one device cannot fill the screen; only the rack look reaches the faceplate. */
 export const DIAGRAM_MAX_ZOOM = 1.5;
 
@@ -433,6 +506,12 @@ export function rackAtPoint<R extends { id: string; heightU: number }>(
     }
   }
   return null;
+}
+
+/** A camera restored on open speaks first: the bar still shows an older zoom, which must not pull the camera to
+ * it. Returns the restored zoom (percent) still waited on, or null once the bar shows it and leads again. */
+export function restoredZoomAwaited(restoredPct: number | null, barPct: number): number | null {
+  return restoredPct != null && barPct !== restoredPct ? restoredPct : null;
 }
 
 /** The viewport after zooming to `nextZoom` with the pane's centre held still. */

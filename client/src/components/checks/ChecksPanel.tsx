@@ -8,6 +8,8 @@ import { anchorName, clampOffset, findingKey, panelNotes, SEVERITY, sourceView, 
 import type { ChecksController } from './useChecksController';
 import { RefusalCard } from './RefusalCard';
 import { Glossed } from '../learn/Glossed';
+import { hint } from '../shell/hints';
+import { DOCK_HINT } from '../shell/hintWords';
 import { PanelHead } from '../shell/PanelHead';
 import { InSideSlot, InSlot } from '../shell/sideSlot';
 import { ThingName } from '../shell/ThingName';
@@ -22,6 +24,7 @@ export function ChecksBarChip({ controller }: { controller: ChecksController }) 
       className="shell-chip shell-chip--ink checks-chip"
       aria-pressed={controller.open}
       aria-label={n > 0 ? `Checks, ${n}` : 'Checks'}
+      {...hint('Checks', n > 0 ? `${n} ${n === 1 ? 'thing' : 'things'} to look at. ${DOCK_HINT.Checks}` : DOCK_HINT.Checks)}
       title={controller.open ? 'Fold the Checks panel' : 'Open the Checks panel'}
       onClick={() => controller.setOpen(!controller.open)}
       data-testid="checks-chip"

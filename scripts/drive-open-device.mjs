@@ -271,6 +271,25 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     await page.locator('.shell-bar__path-label').nth(-2).click();
     await page.waitForTimeout(300);
     check('the path leads back out', (await page.locator('[data-testid=jot]').count()) === 0);
+
+    // The templates list of a box typed by hand. Esc closes the list and leaves the box open: with the focus on
+    // the list's button it once left the box as well.
+    await boxes(page).first().dblclick();
+    await page.waitForSelector('[data-testid=jot]');
+    const templates = page.locator('.plate-templates > button');
+    check('a box typed by hand offers Templates', (await templates.count()) === 1);
+    if ((await templates.count()) === 1) {
+      await templates.click();
+      check('Templates opens its list', (await page.locator('.plate-templates__pop').count()) === 1);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+      check('Esc closes the list', (await page.locator('.plate-templates__pop').count()) === 0);
+      check('and leaves the box open', (await page.locator('[data-testid=jot]').count()) === 1);
+      check('with the focus back on Templates', await templates.evaluate((el) => el === document.activeElement).catch(() => false));
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      check('a second Esc leaves the box', (await page.locator('[data-testid=jot]').count()) === 0);
+    }
     check('no uncaught page errors (open device)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }

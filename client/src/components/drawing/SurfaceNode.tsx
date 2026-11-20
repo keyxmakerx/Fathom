@@ -16,6 +16,7 @@ import { portKindFor } from './portGlyph';
 import { isOneFitted, isSingleFed, pduUsage, pduUsageLabel } from './power';
 import type { SurfacePlacement } from './rows';
 import { mmRailTicks, mmToPx } from './rows';
+import { SURFACE_HEADER_PX } from './geometry';
 import { isLoosePort, portHandleFlags } from './missingLinks';
 import { SHEATH_VAR } from './sheath';
 
@@ -88,9 +89,9 @@ function useSurfaceLiveData(myCableIds: ReadonlySet<string>) {
   return { litCableId, liveDrag };
 }
 
-const HEADER_PX = 16;
 /** The panel's label row, for whatever draws beside a wall (its cable runs). */
-export const SURFACE_HEADER_PX = HEADER_PX;
+export { SURFACE_HEADER_PX };
+const HEADER_PX = SURFACE_HEADER_PX;
 const RAIL_GUTTER_PX = 26;
 const FIXTURE_WIDTH_PX = 92;
 const FIXTURE_MIN_HEIGHT_PX = 34;

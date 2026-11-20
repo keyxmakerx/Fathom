@@ -71,7 +71,7 @@ export function SiteLinkPicker({ portId, actions }: { portId: string; actions: E
         (answer) => {
           if (!live) return;
           setHits(linkCandidates(answer.hits, here).slice(0, 8));
-          setNote(answer.behind > 0 ? `${answer.behind} sites are still being brought up to date.` : null);
+          setNote(answer.behind > 0 ? `${answer.behind} ${answer.behind === 1 ? 'site is' : 'sites are'} still being brought up to date.` : null);
         },
         () => {
           if (live) setNote('Search across sites is not answering right now.');

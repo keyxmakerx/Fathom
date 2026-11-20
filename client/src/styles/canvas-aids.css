@@ -116,6 +116,11 @@
   animation: aid-in var(--m-pop, 160ms) var(--aid-ease) both;
 }
 
+/* Closed, its still copy sinks back the way the card rose (`shell/ghost.ts`). */
+.quick-card[data-ghost] {
+  animation-name: fathom-pop-out-down !important;
+}
+
 .quick-card__head {
   display: flex;
   align-items: center;

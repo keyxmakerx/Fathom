@@ -116,3 +116,10 @@ export function describeOwnNetworkFailure(error: unknown, refusal: string | null
   }
   return `Your network could not be made. Nothing was changed on the server.${why}`;
 }
+
+/** Sign-off r147: whether Home's rail offers "Start your own network". First Home offers it as a card beside the
+ * sample; once the practice space is made that welcome is gone, so the rail keeps the offer until the person has an
+ * organisation of their own. Never for someone who waits on an invitation. */
+export function ownNetworkLater(offered: boolean, waitingInvitee: boolean, organisationsOfTheirOwn: number, practiceSpaces: number): boolean {
+  return offered && !waitingInvitee && organisationsOfTheirOwn === 0 && practiceSpaces > 0;
+}

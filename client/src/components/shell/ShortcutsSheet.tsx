@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 
+import { useGhostRef } from './ghost';
 import { SHORTCUTS, SHORTCUT_GROUPS, capsFor, isMac } from './shortcuts';
 import '../../styles/palette.css';
 import { useModal } from './useModal';
@@ -7,12 +8,13 @@ import { useModal } from './useModal';
 /** "Keyboard shortcuts": every shortcut in the one table, grouped. Esc or a click outside closes it. */
 export function ShortcutsSheet({ onClose }: { onClose: () => void }) {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const scrimRef = useGhostRef<HTMLDivElement>();
   const mac = isMac();
 
   useModal(sheetRef, onClose, { focus: 'container' });
 
   return (
-    <div className="float-scrim" onPointerDown={onClose}>
+    <div ref={scrimRef} className="float-scrim" onPointerDown={onClose}>
       <div
         ref={sheetRef}
         className="float-sheet shortcuts-sheet"

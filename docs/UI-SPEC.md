@@ -234,7 +234,17 @@ Panels and buttons cast none, and the drawing stays flat (`--radius: 0`, `--shad
 
 Motion for controls is two more tokens beside Motion above: `--m-hover` (120 ms) for a change under
 the pointer and `--m-pop` (160 ms) for a pop-over fading and dropping 4px into place; side panels
-slide in by `--m-pane`. All are off when the computer asks for reduced motion.
+slide in by `--m-pane`. **A thing that closes leaves the way it came, in `--m-hover`** (sign-off r147):
+a menu, a right-click menu or the quick card is gone the instant it closes, and a still copy of it
+fades back (`shell/ghost.ts`; the copy cannot be pressed, read or found). Back opens the tool row for
+itself and the row closes up behind it, and the line under Home's tabs slides to the chosen tab as the
+bar's does. All are off when the computer asks for reduced motion.
+
+**Every control says what it is for** (sign-off r147). Resting the pointer on a control in the bar, the
+tool row, the zoom pill or the dock, or reaching it with Tab, shows a small card: its name, one plain
+sentence and its key. The sentences are kept together in `shell/hintWords.ts`, and a test holds each to
+one short sentence a person new to networks could follow. The card never takes a click and goes at the
+first press, key or scroll.
 
 **Colour is "look here".** The interface is black and white. Colour appears only where the eye should
 go, and subtly: a hairline ring around a button, a bordered wash with words, a notice in the top right
