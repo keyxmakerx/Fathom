@@ -14,7 +14,7 @@ import { viewOf } from '../../document/view';
 import { applyEditorChange } from '../design/applyChange';
 import { DEVICE_WORDS, deviceMenuItems, type MenuActions } from '../drawing/contextMenuItems';
 import { takeOutChange } from '../drawing/editorChanges';
-import { U_PX } from '../drawing/geometry';
+import { SURFACE_HEADER_PX, U_PX, rackHeightPx } from '../drawing/geometry';
 import { RACK_NODE_WIDTH } from '../drawing/RackNode';
 import { closetRightPx } from '../drawing/rows';
 import { addThing } from '../inventory/kinds';
@@ -57,7 +57,7 @@ describe('a device with no known rack spot', () => {
     expect(edgesOut(out, a, 'MountedIn').filter((e) => e.absentSince === undefined)).toEqual([]);
     const view = viewOf(out, []);
     expect(view.free.map((f) => f.id)).toEqual([a]);
-    expect(pinOf(out, a)!.x).toBeGreaterThan(closetRightPx(view, RACK_NODE_WIDTH, U_PX));
+    expect(pinOf(out, a)!.x).toBeGreaterThan(closetRightPx(view, RACK_NODE_WIDTH, rackHeightPx, U_PX, SURFACE_HEADER_PX));
     // Its cable still has both ends: one in the rack, one on the canvas.
     const cable = view.cables.find((c) => c.ends.length === 2)!;
     expect(cable.ends.map((e) => ('chassisId' in e ? e.chassisId : null)).sort()).toEqual([a, b].sort());

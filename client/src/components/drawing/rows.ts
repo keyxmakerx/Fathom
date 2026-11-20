@@ -135,11 +135,11 @@ export interface SurfacePlacement {
 }
 
 export interface SurfacesLayout {
-  /** Every non-floor surface (wall, desk, ceiling), stacked top to bottom —
-   * `design/places/renders/Surfaces.png` (ADR-0051 §1/§2): walls draw to
-   * the right of their premises' rows. One `ClosetView` is one premises'
-   * worth of rows, so "to the right" resolves to exactly one column, never
-   * a per-row choice. */
+  /** Every non-floor surface (wall, desk, ceiling), in columns to the right of
+   * its premises' rows (`design/places/renders/Surfaces.png`, ADR-0051
+   * §1/§2). One `ClosetView` is one premises' worth of rows, so "to the
+   * right" is one block of columns, never a per-row choice. `panelColumns`
+   * says how the columns are chosen. */
   panels: SurfacePlacement[];
   /** The one `form: 'floor'` surface this closet draws, spanning beneath
    * both the rows and the panels above — `null` when this view carries
@@ -185,19 +185,15 @@ export const SURFACE_GAP_PX = 64;
  * flips" is then simply true by construction, the same way it is for
  * `mirroredRackX`'s own reflection.
  *
- * `panelHeightPx` is every non-floor surface's own drawn height — drawn at
- * the height of a rack (`design/places/renders/Surfaces.png`, ADR-0051
- * §1/§2) — one session constant every wall/desk/ceiling shares (a caller's
- * own choice of which rack's height
- * that is; `Drawing.tsx` reads it off the tallest rack this closet holds),
- * never read off `SurfaceView.heightMm` — that stays a fact used instead to
- * scale a panel's OWN fixtures once it is drawn this tall
- * (`SurfaceNode.tsx`'s own job). `uPx` is `geometry.ts`'s own `U_PX`, handed
- * in for the same "stay plain pixel arithmetic" reason every other
- * pixel-shaped parameter in this module is (`mirroredRackX`'s own
- * `rackWidthPx`) — only reached when a panel actually carries a
- * `Surface.width_mm` (`mmToPx`, above); `DEFAULT_PANEL_WIDTH_PX` covers
- * every panel that does not.
+ * `panelHeightPx` is the least a wall, desk or ceiling is drawn: the height
+ * of a rack (`design/places/renders/Surfaces.png`, ADR-0051 §1/§2), which
+ * `closetFootprint` reads off the tallest rack the closet holds. A panel is
+ * taller when its surface is, or when something is fixed higher up it.
+ * `uPx` is `geometry.ts`'s own `U_PX`, handed in for the same "stay plain
+ * pixel arithmetic" reason every other pixel-shaped parameter in this
+ * module is (`mirroredRackX`'s own `rackWidthPx`) — only reached when a
+ * panel actually carries a `Surface.width_mm` (`mmToPx`, above);
+ * `DEFAULT_PANEL_WIDTH_PX` covers every panel that does not.
  */
 export function layoutSurfaces(
   surfaces: readonly SurfaceView[],
@@ -211,20 +207,30 @@ export function layoutSurfaces(
   const panelSurfaces = surfaces.filter((s) => s.form !== 'floor');
   const floorSurfaces = surfaces.filter((s) => s.form === 'floor');
 
-  const panelX = rowsWidthPx + gapPx;
-  const panels: SurfacePlacement[] = [];
-  let y = 0;
-  for (const surface of panelSurfaces) {
-    const widthPx = surface.widthMm != null ? mmToPx(surface.widthMm, uPx) : DEFAULT_PANEL_WIDTH_PX;
+  const sized = panelSurfaces.map((surface) => ({
+    surface,
+    widthPx: surface.widthMm != null ? mmToPx(surface.widthMm, uPx) : DEFAULT_PANEL_WIDTH_PX,
     // Taller than a rack when the wall is, or when something is fixed higher up than a rack reaches:
     // a camera 2.2 m up a 2.4 m wall was drawn above the panel, behind whatever sat there.
-    const heightPx = Math.max(panelHeightPx, headerPx + mmToPx(surfaceReachMm(surface), uPx));
-    panels.push({ surface, x: panelX, y, widthPx, heightPx });
-    y += heightPx + gapPx;
+    heightPx: Math.max(panelHeightPx, headerPx + mmToPx(surfaceReachMm(surface), uPx)),
+  }));
+  // Tallest first, then widest; two the same size keep the order they were made in. The columns pack best that
+  // way, and a sample draws the same for everyone: its surfaces are made in one instant, in no order anyone chose.
+  const tallestFirst = [...sized].sort((a, b) => b.heightPx - a.heightPx || b.widthPx - a.widthPx);
+  const panels: SurfacePlacement[] = [];
+  let x = rowsWidthPx + gapPx;
+  let panelsBottom = 0;
+  for (const column of panelColumns(tallestFirst, rowsWidthPx, rowsHeightPx, gapPx)) {
+    let y = 0;
+    for (const panel of column) {
+      panels.push({ ...panel, x, y });
+      y += panel.heightPx + gapPx;
+    }
+    panelsBottom = Math.max(panelsBottom, y - gapPx);
+    x += Math.max(...column.map((panel) => panel.widthPx)) + gapPx;
   }
 
   const panelsRight = panels.length > 0 ? Math.max(...panels.map((p) => p.x + p.widthPx)) : rowsWidthPx;
-  const panelsBottom = panels.length > 0 ? y - gapPx : 0;
   const floorWidth = Math.max(rowsWidthPx, panelsRight);
   const floorY = Math.max(rowsHeightPx, panelsBottom) + gapPx;
 
@@ -234,6 +240,52 @@ export function layoutSurfaces(
       : null;
 
   return { panels, floor };
+}
+
+/** The shape the columns are chosen for: a laptop's canvas, wider than it is tall. */
+const SCREEN_ASPECT = 1.6;
+/** Past this many panels every way of cutting them is too many to try, and they fill columns as they come. */
+const MAX_CUT_PANELS = 12;
+
+/**
+ * The panels in columns, in the order given. One column of three walls beside a home rack is a strip
+ * three screens tall, fitted at a third of its size with the screen either side of it empty. So of every
+ * way to cut the list into columns, this takes the one that fits a screen-shaped box largest, rows and
+ * all. Equal fits keep the fewer cuts. A closet with one panel, or with rows wider than a screen, comes
+ * out as it always did: one column.
+ */
+export function panelColumns<T extends { widthPx: number; heightPx: number }>(panels: readonly T[], rowsWidthPx: number, rowsHeightPx: number, gapPx: number): T[][] {
+  if (panels.length === 0) return [];
+  const heightOf = (column: readonly T[]) => column.reduce((h, panel) => h + panel.heightPx, 0) + (column.length - 1) * gapPx;
+  if (panels.length > MAX_CUT_PANELS) {
+    // No column taller than the tallest thing already there.
+    const limit = Math.max(rowsHeightPx, ...panels.map((panel) => panel.heightPx));
+    const columns: T[][] = [[]];
+    for (const panel of panels) {
+      const last = columns[columns.length - 1]!;
+      if (last.length > 0 && heightOf([...last, panel]) > limit) columns.push([panel]);
+      else last.push(panel);
+    }
+    return columns;
+  }
+  let best: T[][] = [];
+  let bestFit = -1;
+  // Bit i of `cuts` set: a new column starts before panel i + 1.
+  for (let cuts = 0; cuts < 1 << (panels.length - 1); cuts += 1) {
+    const columns: T[][] = [[]];
+    panels.forEach((panel, i) => {
+      if (i > 0 && ((cuts >> (i - 1)) & 1) === 1) columns.push([]);
+      columns[columns.length - 1]!.push(panel);
+    });
+    const width = rowsWidthPx + columns.reduce((w, column) => w + gapPx + Math.max(...column.map((panel) => panel.widthPx)), 0);
+    const height = Math.max(rowsHeightPx, ...columns.map(heightOf));
+    const fit = Math.min(SCREEN_ASPECT / width, 1 / height);
+    if (fit > bestFit * (1 + 1e-9) || (fit >= bestFit * (1 - 1e-9) && columns.length < best.length)) {
+      best = columns;
+      bestFit = Math.max(fit, bestFit);
+    }
+  }
+  return best;
 }
 
 /** Room above the highest fixture, for its own box. */
@@ -262,13 +314,37 @@ export function mmRailTicks(heightPx: number, uPx: number, stepMm: number = 300)
   return ticks;
 }
 
+/** The height of the rack a wall is drawn beside when the closet has no rack to read it from. */
+export const REFERENCE_RACK_U = 42;
+
+/** What `layoutSurfaces` needs to know of the rows: their block's width and height, and the least a panel is
+ * drawn, which is the height of the tallest rack there. From the view alone, so that the canvas and
+ * anything asking where the panels end (`closetRightPx`) lay them out from the same numbers. A wall beside
+ * a 12U rack was once given a 42U rack's height: three of them made a strip three screens tall. */
+export function closetFootprint(
+  view: Pick<ClosetView, 'rows' | 'racks'>,
+  rackWidthPx: number,
+  rackHeightPx: (heightU: number) => number,
+): { rowsWidthPx: number; rowsHeightPx: number; panelHeightPx: number } {
+  const rows = rowsOf(view);
+  const rowsWidthPx = Math.max(0, ...rows.map((row) => (row.racks.length > 0 ? row.racks.length * (rackWidthPx + RACK_GAP_PX) - RACK_GAP_PX : 0)));
+  const rowsHeightPx = rowBandY(rows.map((row) => layoutRow(row, 'front')), rows.length, (rack) => rackHeightPx(rack.heightU), ROW_GAP_PX);
+  const tallestU = view.racks.length > 0 ? Math.max(...view.racks.map((rack) => rack.heightU)) : REFERENCE_RACK_U;
+  return { rowsWidthPx, rowsHeightPx, panelHeightPx: rackHeightPx(tallestU) };
+}
+
 /** How far right the closet's racks and surfaces reach in flow pixels, as
  * `Drawing.tsx` first lays them out (a rack dragged this session aside):
  * the widest row, then the wall/desk/ceiling panels to its right, then the
- * floor band under both. Pure; `rackWidthPx` and `uPx` are `RackNode.tsx`'s
- * and `geometry.ts`'s own. */
-export function closetRightPx(view: Pick<ClosetView, 'rows' | 'racks'> & { surfaces?: readonly SurfaceView[] }, rackWidthPx: number, uPx: number): number {
-  const rowsWidthPx = Math.max(0, ...rowsOf(view).map((row) => (row.racks.length > 0 ? row.racks.length * (rackWidthPx + RACK_GAP_PX) - RACK_GAP_PX : 0)));
-  const { panels, floor } = layoutSurfaces(view.surfaces ?? [], rowsWidthPx, 0, 0, uPx);
+ * floor band under both. Pure; the sizes are `geometry.ts`'s own, handed in. */
+export function closetRightPx(
+  view: Pick<ClosetView, 'rows' | 'racks'> & { surfaces?: readonly SurfaceView[] },
+  rackWidthPx: number,
+  rackHeightPx: (heightU: number) => number,
+  uPx: number,
+  headerPx: number,
+): number {
+  const { rowsWidthPx, rowsHeightPx, panelHeightPx } = closetFootprint(view, rackWidthPx, rackHeightPx);
+  const { panels, floor } = layoutSurfaces(view.surfaces ?? [], rowsWidthPx, rowsHeightPx, panelHeightPx, uPx, SURFACE_GAP_PX, headerPx);
   return Math.max(rowsWidthPx, ...panels.map((p) => p.x + p.widthPx), floor != null ? floor.x + floor.widthPx : 0);
 }

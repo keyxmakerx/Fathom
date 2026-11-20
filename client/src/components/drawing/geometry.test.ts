@@ -1,10 +1,13 @@
+import { getViewportForBounds } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
 
 import {
   CABLE_SAG_MAX_PX,
   CAMERA_STOPS,
+  FIT_PADDING,
   READABLE_ZOOM,
   openingFit,
+  paddingClearOf,
   MAX_GLYPH_TRUE_HEIGHT_PX,
   MAX_ZOOM,
   MIN_ZOOM,
@@ -458,5 +461,76 @@ describe('openingFit (the sample opens readable)', () => {
   });
   it('falls back to the racks when the whole closet would shrink to 32%', () => {
     expect(openingFit(0.32)).toBe('racks');
+  });
+});
+
+describe('paddingClearOf (a fit keeps clear of the tool row, the zoom buttons and the question card)', () => {
+  // A 1440 by 900 window: the drawing's pane, how far the tool row and the zoom buttons reach into it, and
+  // "Try a question" open and folded.
+  const PANE = { width: 1412, height: 856 };
+  const TOOLS = 42;
+  const ZOOM = 45;
+  const CARD = { width: 288, height: 222 };
+  const FOLDED = { width: 194, height: 98 };
+  // The sample home lab, from its rack's tray to the far edge of its desk.
+  const HOME_LAB = { width: 1724, height: 958 };
+  const MAX = CAMERA_STOPS.rack / 100;
+  const GAP = 12;
+
+  /** Where React Flow itself puts `bounds` given `padding`: its edges in pane pixels, and the zoom. It floors as
+   * it goes, so an edge may sit a pixel inside what was asked. */
+  function framed(bounds: { width: number; height: number }, padding: Parameters<typeof getViewportForBounds>[5]) {
+    const at = getViewportForBounds({ x: 0, y: 0, ...bounds }, PANE.width, PANE.height, 0.1, MAX, padding);
+    return { zoom: at.zoom, left: at.x, top: at.y, right: at.x + bounds.width * at.zoom, bottom: at.y + bounds.height * at.zoom };
+  }
+
+  it('sets the sample beside the open card, between the tool row and the zoom buttons, still readable', () => {
+    const padding = paddingClearOf({ top: TOOLS, bottom: ZOOM, corner: CARD }, HOME_LAB, PANE, MAX);
+    expect(padding).toEqual({ top: '54px', right: '64px', bottom: '57px', left: '300px' });
+    const at = framed(HOME_LAB, padding!);
+    expect(at.left).toBeGreaterThan(CARD.width + GAP - 1);
+    expect(at.top).toBeGreaterThan(TOOLS + GAP - 1);
+    expect(at.right).toBeLessThan(PANE.width - 63);
+    expect(at.bottom).toBeLessThan(PANE.height - ZOOM - GAP + 1);
+    expect(openingFit(at.zoom)).toBe('whole');
+  });
+
+  it('where the plain fit had the rack under the card', () => {
+    const at = framed(HOME_LAB, FIT_PADDING);
+    expect(at.left).toBeLessThan(CARD.width);
+    expect(at.top).toBeLessThan(CARD.height);
+  });
+
+  it('sets it under a folded card, which is short and wide', () => {
+    const padding = paddingClearOf({ top: TOOLS, bottom: ZOOM, corner: FOLDED }, HOME_LAB, PANE, MAX);
+    expect(padding).toEqual({ top: '110px', right: '64px', bottom: '57px', left: '64px' });
+    const at = framed(HOME_LAB, padding!);
+    expect(at.top).toBeGreaterThan(FOLDED.height + GAP - 1);
+    expect(at.bottom).toBeLessThan(PANE.height - ZOOM - GAP + 1);
+    expect(at.zoom).toBeGreaterThan(0.71);
+  });
+
+  it('holds a tall closet between the tool row and the zoom buttons, where the plain fit ran behind both', () => {
+    const tall = { width: 300, height: 1500 };
+    const padding = paddingClearOf({ top: TOOLS, bottom: ZOOM, corner: null }, tall, PANE, MAX);
+    expect(padding).toEqual({ top: '54px', right: '64px', bottom: '57px', left: '64px' });
+    const plain = framed(tall, FIT_PADDING);
+    expect(plain.top).toBeLessThan(TOOLS);
+    expect(plain.bottom).toBeGreaterThan(PANE.height - ZOOM);
+    const at = framed(tall, padding!);
+    expect(at.top).toBeGreaterThan(TOOLS + GAP - 1);
+    expect(at.bottom).toBeLessThan(PANE.height - ZOOM - GAP + 1);
+  });
+
+  it('does not move one rack that is already clear of them all', () => {
+    const rack = { width: 300, height: 250 };
+    const padding = paddingClearOf({ top: TOOLS, bottom: ZOOM, corner: CARD }, rack, PANE, MAX);
+    expect(framed(rack, padding!)).toEqual(framed(rack, FIT_PADDING));
+  });
+
+  it('leaves the plain fit alone where nothing is in the way, or where there is no room to clear it', () => {
+    expect(paddingClearOf({ top: 0, bottom: 0, corner: null }, HOME_LAB, PANE, MAX)).toBeNull();
+    expect(paddingClearOf({ top: 20, bottom: 20, corner: null }, HOME_LAB, PANE, MAX)).toBeNull();
+    expect(paddingClearOf({ top: TOOLS, bottom: ZOOM, corner: { width: 1500, height: 900 } }, HOME_LAB, PANE, MAX)).toBeNull();
   });
 });

@@ -36,6 +36,7 @@ import { requestRename } from '../drawing/NameEdit';
 import type { PaletteAction } from '../shell/palette';
 import { usePaletteActions } from '../shell/paletteRegistry';
 import { viewActions } from '../shell/viewActions';
+import { canvasToolRow, zoomButtons } from '../shell/CanvasBar';
 import { shortcutText } from '../shell/shortcuts';
 import { createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
@@ -114,7 +115,7 @@ import { sample as sampleSpec } from '../home/sampleNetwork';
 import { SampleChip } from '../home/SampleChip';
 import { restoreTo } from '../../document/restore';
 import { readyQuestions } from '../home/sampleQuestions';
-import { PracticeNote, ReadyQuestions } from '../trace/ReadyQuestions';
+import { PracticeNote, ReadyQuestions, sampleCard } from '../trace/ReadyQuestions';
 import { TieCard } from '../ties/TieCard';
 import { PlanBand } from '../plans/PlanBand';
 import { STAGE_WORD } from '../plans/plansModel';
@@ -369,6 +370,9 @@ function tidySentence(text: string): string {
 }
 
 const NO_TARGETS: ReadonlySet<string> = new Set();
+
+/** What floats over the drawing: a fit keeps the closet clear of all three. */
+const fitCovers = () => ({ tools: canvasToolRow(), zoom: zoomButtons(), card: sampleCard() });
 
 /** Other words Ctrl K finds a device's actions by. */
 const PALETTE_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
@@ -2296,6 +2300,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onEdit={canDraw ? handleEdit : undefined}
           initialViewport={resumeView.initialViewport}
           fitWholeOnOpen={isSample}
+          covers={fitCovers}
           onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
           onMove={handleMove}

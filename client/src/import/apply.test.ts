@@ -21,7 +21,7 @@ import { viewOf } from '../document/view';
 import { undrawnDevices } from '../components/racks/canvasSpots';
 import { closetRightPx } from '../components/drawing/rows';
 import { RACK_NODE_WIDTH } from '../components/drawing/RackNode';
-import { U_PX } from '../components/drawing/geometry';
+import { SURFACE_HEADER_PX, U_PX, rackHeightPx } from '../components/drawing/geometry';
 import { devicesByName } from './existing';
 import { buildPlan, choiceKey } from './plan';
 import { ACTOR, CATALOGUE, COST_CENTRE, NOW, addDevice, docWithRack, fixture, freshDefs, fullMapping, gated, miniXml, readImport } from './testkit';
@@ -90,7 +90,7 @@ describe('importing the NetBox CSV', () => {
     const view = viewOf(out.doc, []);
     const undrawn = undrawnDevices(view);
     for (const n of ['core-01', 'wifi-ap-3', 'core-switch-2']) expect(undrawn).not.toContain(d.get(n)!.chassisId);
-    const rackRight = closetRightPx(view, RACK_NODE_WIDTH, U_PX);
+    const rackRight = closetRightPx(view, RACK_NODE_WIDTH, rackHeightPx, U_PX, SURFACE_HEADER_PX);
     const spots = ['core-01', 'wifi-ap-3', 'core-switch-2'].map((n) => pinOf(out.doc, d.get(n)!.chassisId)!);
     for (const p of spots) expect(p.x).toBeGreaterThan(rackRight);
     expect(new Set(spots.map((p) => `${p.x},${p.y}`)).size).toBe(spots.length);

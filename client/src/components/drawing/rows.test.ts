@@ -5,6 +5,8 @@ import type { SurfaceView } from '../../document/view';
 import {
   DEFAULT_PANEL_WIDTH_PX,
   RACK_GAP_PX,
+  ROW_GAP_PX,
+  closetFootprint,
   closetRightPx,
   FLOOR_BAND_HEIGHT_PX,
   SURFACE_GAP_PX,
@@ -13,6 +15,7 @@ import {
   mirroredRackX,
   mmRailTicks,
   mmToPx,
+  panelColumns,
   pxPerMm,
   rowKey,
 } from './rows';
@@ -137,16 +140,61 @@ describe('layoutSurfaces — ADR-0051 §1: surfaces after the rows', () => {
     const tall = { ...surface('wall-1', 'wall'), heightMm: 2400 };
     const camera = { id: 'cam', kind: 'chassis' as const, label: 'camera-1', model: null, form: null, xMm: 300, yMm: 2600, ports: [], psuInlets: [], fixtures: [] };
     const layout = layoutSurfaces([tall, { ...surface('wall-2', 'wall'), fixtures: [camera] }, surface('desk-1', 'desk')], ROWS_WIDTH, ROWS_HEIGHT, 300, U_PX, SURFACE_GAP_PX, 20);
-    expect(layout.panels[0]!.heightPx).toBeCloseTo(20 + mmToPx(2400, U_PX), 6);
-    expect(layout.panels[1]!.heightPx).toBeCloseTo(20 + mmToPx(2900, U_PX), 6);
-    expect(layout.panels[2]!.heightPx).toBe(300);
-    expect(layout.panels[1]!.y).toBeCloseTo(layout.panels[0]!.heightPx + SURFACE_GAP_PX, 6);
+    const heightOf = (id: string) => layout.panels.find((p) => p.surface.id === id)!.heightPx;
+    expect(heightOf('wall-1')).toBeCloseTo(20 + mmToPx(2400, U_PX), 6);
+    expect(heightOf('wall-2')).toBeCloseTo(20 + mmToPx(2900, U_PX), 6);
+    expect(heightOf('desk-1')).toBe(300);
   });
 
-  it('a second panel stacks below the first, same x, panelHeightPx + gap down', () => {
+  it('a second panel goes beside the first where that fits a screen better than under it', () => {
     const layout = layoutSurfaces([surface('wall-1', 'wall'), surface('desk-1', 'desk')], ROWS_WIDTH, ROWS_HEIGHT, 688, U_PX);
+    expect(layout.panels[1]!.y).toBe(0);
+    expect(layout.panels[1]!.x).toBe(layout.panels[0]!.x + DEFAULT_PANEL_WIDTH_PX + SURFACE_GAP_PX);
+  });
+
+  it('and under it, same x and a gap down, where the rows are already wider than a screen', () => {
+    const layout = layoutSurfaces([surface('wall-1', 'wall'), surface('desk-1', 'desk')], 3000, ROWS_HEIGHT, 688, U_PX);
     expect(layout.panels[1]!.x).toBe(layout.panels[0]!.x);
     expect(layout.panels[1]!.y).toBe(688 + SURFACE_GAP_PX);
+  });
+
+  // The sample home lab: a 12U rack, a 2.4 m wall with cameras high on it, a ceiling and a desk. In one column
+  // it was a strip 2,420 px tall beside a 208 px rack, fitted at 32%.
+  it('sets a home lab\'s wall, ceiling and desk in two columns, no taller than the wall', () => {
+    const camera = { id: 'cam', kind: 'chassis' as const, label: 'camera-1', model: null, form: null, xMm: 300, yMm: 2200, ports: [], psuInlets: [], fixtures: [] };
+    const wall = { ...surface('wall', 'wall', 2000), heightMm: 2400, fixtures: [camera] };
+    const ceiling = { ...surface('ceiling', 'ceiling', 1200), heightMm: 1200 };
+    const desk = { ...surface('desk', 'desk', 1600), heightMm: 750 };
+    const drawn = (surfaces: SurfaceView[]) =>
+      layoutSurfaces(surfaces, 300, 208 + ROW_GAP_PX, 208, U_PX, SURFACE_GAP_PX, 16).panels.map((p) => [p.surface.id, Math.round(p.x), Math.round(p.y), Math.round(p.widthPx), Math.round(p.heightPx)]);
+    const picture = [
+      ['wall', 364, 0, 720, 916],
+      ['ceiling', 1148, 0, 432, 448],
+      ['desk', 1148, 512, 576, 286],
+    ];
+    expect(drawn([wall, ceiling, desk])).toEqual(picture);
+    // A copy of the sample lists its surfaces in whatever order they were minted: each draws the same picture.
+    for (const order of [[wall, desk, ceiling], [ceiling, wall, desk], [ceiling, desk, wall], [desk, wall, ceiling], [desk, ceiling, wall]]) {
+      expect(drawn(order)).toEqual(picture);
+    }
+  });
+
+  it('puts the tallest panel next to the rows, and of two as tall the wider', () => {
+    const low = { ...surface('low', 'desk', 1000), heightMm: 750 };
+    const wide = { ...surface('wide', 'desk', 2400), heightMm: 750 };
+    const tall = { ...surface('tall', 'wall', 1000), heightMm: 2400 };
+    const layout = layoutSurfaces([low, wide, tall], 300, 272, 208, U_PX);
+    expect(layout.panels.map((p) => p.surface.id)).toEqual(['tall', 'wide', 'low']);
+    expect(layout.panels[0]!.x).toBe(300 + SURFACE_GAP_PX);
+  });
+
+  it('keeps panels of one size in the order they were made, down each column and then across', () => {
+    const layout = layoutSurfaces(['a', 'b', 'c', 'd'].map((id) => surface(id, 'wall')), 300, 272, 208, U_PX);
+    expect(layout.panels.map((p) => p.surface.id)).toEqual(['a', 'b', 'c', 'd']);
+    for (let i = 1; i < layout.panels.length; i += 1) {
+      const [before, here] = [layout.panels[i - 1]!, layout.panels[i]!];
+      expect(here.x > before.x || (here.x === before.x && here.y > before.y)).toBe(true);
+    }
   });
 
   it('every non-floor panel draws the same height — "the height of a rack," never its own heightMm', () => {
@@ -222,20 +270,72 @@ describe('mmRailTicks', () => {
   });
 });
 
+describe('panelColumns', () => {
+  const box = (widthPx: number, heightPx: number) => ({ widthPx, heightPx });
+  const GAP = 64;
+
+  it('is nothing for no panels, and one column for one', () => {
+    expect(panelColumns([], 300, 272, GAP)).toEqual([]);
+    expect(panelColumns([box(340, 688)], 300, 272, GAP)).toEqual([[box(340, 688)]]);
+  });
+
+  it('keeps the fewer columns when more would fit no larger', () => {
+    // Beside rows 1,000 tall, three small panels fit the same in one column or three: the rows set the height.
+    expect(panelColumns([box(100, 100), box(100, 100), box(100, 100)], 300, 1000, GAP)).toHaveLength(1);
+  });
+
+  it('fills columns no taller than the tallest thing there once there are too many panels to try every cut', () => {
+    const many = Array.from({ length: 13 }, () => box(340, 400));
+    const columns = panelColumns(many, 852, 688, GAP);
+    expect(columns.flat()).toHaveLength(13);
+    for (const column of columns) expect(column.length * 400 + (column.length - 1) * GAP).toBeLessThanOrEqual(688);
+    expect(columns).toHaveLength(13);
+    expect(panelColumns(Array.from({ length: 13 }, () => box(340, 300)), 852, 688, GAP)).toHaveLength(7);
+  });
+});
+
+describe('closetFootprint', () => {
+  const W = 100;
+  const tall = (heightU: number) => 16 + heightU * 16;
+
+  it('draws a panel no shorter than the tallest rack there, and no taller for a rack that is not there', () => {
+    expect(closetFootprint({ rows: [], racks: [rack('a', 1, 12)] }, W, tall).panelHeightPx).toBe(tall(12));
+    expect(closetFootprint({ rows: [], racks: [{ ...rack('a', 1, 12), row: 'A' }, { ...rack('b', 2, 24), row: 'A' }] }, W, tall).panelHeightPx).toBe(tall(24));
+  });
+
+  it('takes the reference rack\'s height where there is no rack to read', () => {
+    expect(closetFootprint({ rows: [], racks: [] }, W, tall).panelHeightPx).toBe(tall(42));
+  });
+
+  it('is as wide as its widest row and as tall as its rows stacked', () => {
+    const view = { rows: [], racks: [{ ...rack('a', 1, 12), row: 'A' }, { ...rack('b', 2, 24), row: 'A' }, { ...rack('c', 1, 42), row: 'B' }] };
+    expect(closetFootprint(view, W, tall)).toMatchObject({ rowsWidthPx: 2 * W + RACK_GAP_PX, rowsHeightPx: tall(24) + ROW_GAP_PX + tall(42) + ROW_GAP_PX });
+  });
+});
+
 describe('closetRightPx', () => {
   const W = 100;
+  const tall = (heightU: number) => 16 + heightU * 16;
 
   it('is the widest row when there are no surfaces', () => {
     const view = { rows: [], racks: [{ ...rack('a', 1), row: 'A' }, { ...rack('b', 2), row: 'A' }, { ...rack('c', 1), row: 'B' }] };
-    expect(closetRightPx(view, W, 16)).toBe(2 * W + RACK_GAP_PX);
+    expect(closetRightPx(view, W, tall, 16, 16)).toBe(2 * W + RACK_GAP_PX);
   });
 
   it('reaches past a wall drawn to the right of the racks', () => {
     const view = { rows: [], racks: [rack('a', 1)], surfaces: [surface('w', 'wall')] };
-    expect(closetRightPx(view, W, 16)).toBe(W + SURFACE_GAP_PX + DEFAULT_PANEL_WIDTH_PX);
+    expect(closetRightPx(view, W, tall, 16, 16)).toBe(W + SURFACE_GAP_PX + DEFAULT_PANEL_WIDTH_PX);
+  });
+
+  it('reaches past the last column of panels, laid out as the canvas lays them', () => {
+    const view = { rows: [], racks: [rack('a', 1, 12)], surfaces: [{ ...surface('wall', 'wall', 2000), heightMm: 2400 }, { ...surface('ceiling', 'ceiling', 1200), heightMm: 1200 }, { ...surface('desk', 'desk', 1600), heightMm: 750 }] };
+    const { rowsWidthPx, rowsHeightPx, panelHeightPx } = closetFootprint(view, W, tall);
+    const drawn = layoutSurfaces(view.surfaces, rowsWidthPx, rowsHeightPx, panelHeightPx, 16, SURFACE_GAP_PX, 16);
+    expect(new Set(drawn.panels.map((p) => p.x)).size).toBe(2);
+    expect(closetRightPx(view, W, tall, 16, 16)).toBe(Math.max(...drawn.panels.map((p) => p.x + p.widthPx)));
   });
 
   it('is zero for an empty closet', () => {
-    expect(closetRightPx({ rows: [], racks: [] }, W, 16)).toBe(0);
+    expect(closetRightPx({ rows: [], racks: [] }, W, tall, 16, 16)).toBe(0);
   });
 });

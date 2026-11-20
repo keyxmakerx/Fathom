@@ -256,6 +256,11 @@ export interface CanvasStripProps extends LensGroupProps {
   slotRef: (id: string) => (el: HTMLElement | null) => void;
 }
 
+/** The tool row as it is on the page now, or null: a fit of the drawing starts under it. */
+export function canvasToolRow(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('.shell-canvas-bar__group');
+}
+
 /** The tool row on the drawing, top left: Back, Select and Pan, the lens, Layers, Look and the saved views. */
 export function CanvasStrip({ layers, look, layersExtra, views, hiddenCablesCount, onShowAllHiddenCables, slotRef, ...lens }: CanvasStripProps) {
   return (
@@ -283,6 +288,11 @@ export function CanvasStrip({ layers, look, layersExtra, views, hiddenCablesCoun
 export interface BottomPillProps {
   /** Absent where there is nothing to zoom. */
   zoom?: { value: number; onIn: () => void; onOut: () => void; onFit?: () => void; stops?: ShellProps['zoomStops'] };
+}
+
+/** The zoom buttons as they are on the page now, or null: a fit of the drawing ends above them. */
+export function zoomButtons(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('.shell-pill');
 }
 
 /** The camera, in a pill at the bottom of the drawing: zoom out, the stop or percentage (it opens the stops upward),

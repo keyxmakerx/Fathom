@@ -5,6 +5,12 @@ import type { JSX } from "react";
 
 import type { ReadyQuestion } from "../home/sampleQuestions";
 
+/** The card on the page now ("Try a question" or the practice note), or null. Both sit over the top left of the
+ * drawing, so a fit of the drawing keeps clear of whichever is there. */
+export function sampleCard(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(".trace-questions");
+}
+
 /** The card sits over the top left of the drawing, so it folds to its title row once the person clicks on the
  * drawing (the card itself, and a Diagram look, start folded when `folded` says so). Show opens it again.
  * `away` takes it off the page while something else has the canvas (an open device, a trace) without forgetting

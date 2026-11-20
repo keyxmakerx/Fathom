@@ -171,8 +171,10 @@ try {
       await page.mouse.move(sx, sy);
       await page.mouse.down();
       const whileDragging = new Set();
+      // Straight down, where there is room. Fitted, the rack stands by the left edge of the drawing, and a drag
+      // to the left would run off the window.
       for (let i = 1; i <= 10; i++) {
-        await page.mouse.move(sx - i * 12, sy + i * 6);
+        await page.mouse.move(sx, sy + i * 12);
         await page.waitForTimeout(16);
         whileDragging.add(await cablePaths());
       }
@@ -195,10 +197,27 @@ try {
       check('the rack is on the canvas to drag', false);
     }
 
-    // Leave the sample at the Rack stop, so the visit below reopens it there.
+    // Leave the sample at the Rack stop, so the visit below reopens it there. A stop lands on what is selected,
+    // so the rack is clicked first: with nothing selected it lands on the middle of the view, which is the wall,
+    // and a view with no rack in it is not the one a reopened design returns to.
+    const camera = () =>
+      page.evaluate(() => {
+        const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform);
+        return { x: m.e, y: m.f, zoom: m.a };
+      });
+    const dropped = await rackNode.boundingBox();
+    if (dropped != null) await page.mouse.click(dropped.x + 6, dropped.y + dropped.height - 8);
     await page.locator('.shell-pill__value').click();
     await page.locator('.shell-pill__stop', { hasText: 'Rack' }).click();
     await page.waitForTimeout(1200);
+    const leftCamera = await camera();
+    const rackAtStop = await rackNode.boundingBox();
+    const paneAtStop = await page.locator('.react-flow__pane').boundingBox();
+    check(
+      'the Rack stop lands on the selected rack',
+      rackAtStop != null && paneAtStop != null && rackAtStop.x >= paneAtStop.x && rackAtStop.y >= paneAtStop.y && rackAtStop.x + rackAtStop.width <= paneAtStop.x + paneAtStop.width && rackAtStop.y + rackAtStop.height <= paneAtStop.y + paneAtStop.height,
+      JSON.stringify(rackAtStop),
+    );
 
     await page.locator('.shell-bar__brand').first().click();
     await page.waitForSelector('.first-steps, .home__help', { timeout: 10_000 });
@@ -223,7 +242,12 @@ try {
     await page.waitForTimeout(1500);
     const cameraZoom = () => page.evaluate(() => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform).a);
     const leftAt = await cameraZoom();
-    check('the sample reopens where it was left, at the Rack stop', Math.abs(leftAt - 1) < 0.01, String(leftAt));
+    const reopened = await camera();
+    check(
+      'the sample reopens where it was left, at the Rack stop',
+      Math.abs(leftAt - 1) < 0.01 && Math.abs(reopened.x - leftCamera.x) < 1 && Math.abs(reopened.y - leftCamera.y) < 1,
+      `${JSON.stringify(reopened)}, left at ${JSON.stringify(leftCamera)}`,
+    );
     await page.getByRole('button', { name: 'Zoom in' }).click();
     await page.waitForTimeout(900);
     const nearer = await cameraZoom();
@@ -320,6 +344,73 @@ try {
     check('a second Esc closes the card', (await card.count()) === 0);
 
     check(`no uncaught page errors (${scheme})`, pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
+  // On a screen with room for it the sample opens whole. Its wall, ceiling and desk once stood in one column
+  // three screens tall, so the whole of it fitted at 32% and the first view was the rack alone. The question
+  // card sits over the top left of the drawing: the first view and Fit to view keep what they frame clear of
+  // it, of the tool row and of the zoom buttons.
+  {
+    const context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=home`);
+    await page.waitForSelector('.home-sample', { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Open sample' }).click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(2000);
+    const seen = () =>
+      page.evaluate(() => {
+        const box = (el) => {
+          const b = el.getBoundingClientRect();
+          return { x: b.x, y: b.y, right: b.right, bottom: b.bottom };
+        };
+        const one = (selector) => {
+          const el = document.querySelector(selector);
+          return el == null ? null : box(el);
+        };
+        return {
+          zoom: new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform).a,
+          pane: one('.react-flow__pane'),
+          card: one('[data-testid=ready-questions]'),
+          folded: document.querySelector('.trace-questions--folded') != null,
+          tools: one('.shell-canvas-bar__group'),
+          pill: one('[data-testid=shell-pill]'),
+          drawn: [...document.querySelectorAll('.react-flow__node-rack, .react-flow__node-surface, .react-flow__node-tray')].map((el) => ({ name: el.textContent.trim().slice(0, 12), ...box(el) })),
+        };
+      });
+    const under = (cover, drawn) => (cover == null ? ['(not on the page)'] : drawn.filter((d) => d.x < cover.right && d.right > cover.x && d.y < cover.bottom && d.bottom > cover.y).map((d) => d.name));
+    const outside = (pane, drawn) => drawn.filter((d) => d.x < pane.x || d.y < pane.y || d.right > pane.right || d.bottom > pane.bottom).map((d) => d.name);
+    const named = (drawn, start) => drawn.find((d) => d.name.startsWith(start));
+
+    const first = await seen();
+    check('the wide screen draws the rack, its tray and three surfaces', first.drawn.length === 5, first.drawn.map((d) => d.name).join(', '));
+    check('on a wide screen the sample opens whole, nothing off the screen', outside(first.pane, first.drawn).length === 0, outside(first.pane, first.drawn).join(', '));
+    check('at 60% or more, so its names can be read', first.zoom >= 0.6, String(first.zoom));
+    check('with its question card open', first.card != null && !first.folded);
+    check('nothing drawn is under the question card', under(first.card, first.drawn).length === 0, under(first.card, first.drawn).join(', '));
+    check('nor under the tool row', under(first.tools, first.drawn).length === 0, under(first.tools, first.drawn).join(', '));
+    const [rack, wall, ceiling, desk] = ['Rack 1', 'Outside wall', 'Hall ceiling', 'Office desk'].map((start) => named(first.drawn, start));
+    check(
+      'the wall stands next to the rack, with the ceiling over the desk beside it',
+      rack != null && wall != null && ceiling != null && desk != null && Math.abs(wall.y - rack.y) < 1 && wall.x > rack.right && ceiling.x > wall.right && Math.abs(ceiling.x - desk.x) < 1 && Math.abs(ceiling.y - wall.y) < 1 && desk.y > ceiling.bottom && desk.bottom <= wall.bottom + 1,
+      JSON.stringify({ rack, wall, ceiling, desk }),
+    );
+    await shot(page, 'SN-06-wide-open');
+
+    await page.getByRole('button', { name: 'Fit to view' }).click();
+    await page.waitForTimeout(900);
+    const fitted = await seen();
+    check('a press on Fit to view folds the question card', fitted.card != null && fitted.folded);
+    check('Fit to view frames the sample whole', outside(fitted.pane, fitted.drawn).length === 0, outside(fitted.pane, fitted.drawn).join(', '));
+    check('larger than it opened, the folded card taking less room', fitted.zoom > first.zoom, `${first.zoom} to ${fitted.zoom}`);
+    const hidden = [...under(fitted.card, fitted.drawn), ...under(fitted.tools, fitted.drawn), ...under(fitted.pill, fitted.drawn)];
+    check('with nothing under the folded card, the tool row or the zoom buttons', hidden.length === 0, hidden.join(', '));
+    await shot(page, 'SN-07-wide-fit');
+
+    check('no uncaught page errors (wide screen)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
 
