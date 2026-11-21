@@ -314,6 +314,14 @@ export function historyWordsOf(doc: Document): (batch: Batch) => string {
   };
 }
 
+/** The note's words for an undo or a redo: "Undone: port added". Read from the change it goes back to, as History
+ * reads it, and not from its own label: a label is cut at sixty bytes (`document/undo.ts`), so after a few rounds
+ * of undo and redo it has lost the end that says what the change was. */
+function reversalWords(doc: Document, batch: Batch, redone: boolean): string {
+  const change = changeBehind(batch, new Map(doc.batches.map((b) => [b.id, b])));
+  return change === null ? toastWords(batch.label) : `${redone ? 'Redone' : 'Undone'}: ${lowerFirst(toastWords(change.label))}`;
+}
+
 export interface FreshChange {
   batchId: string;
   words: string;
@@ -339,7 +347,7 @@ export function freshOwnChange(prev: Document | null, next: Document, accountId:
     if (batchActor(next, batch) !== accountId) continue;
     const reversal = /^(undo|redo) of /.exec(batch.label);
     const kind = batch.reverses === undefined ? 'change' : reversal?.[1] === 'redo' ? 'redo' : 'undo';
-    return { batchId: batch.id, words: kind === 'change' ? namedWords(next, batch) : toastWords(batch.label), kind };
+    return { batchId: batch.id, words: kind === 'change' ? namedWords(next, batch) : reversalWords(next, batch, kind === 'redo'), kind };
   }
   return null;
 }

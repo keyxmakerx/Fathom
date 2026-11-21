@@ -76,6 +76,31 @@ describe('freshOwnChange', () => {
     expect(freshOwnChange(next, undone, ME)).toMatchObject({ words: 'Undone: port added', kind: 'undo' });
   });
 
+  it('still says what was undone after so many rounds that the label has lost its end', () => {
+    const deviceId = base.nodes.find((n) => n.id.startsWith('device:'))!.id;
+    let doc = setDeviceField(base, deviceId, 'management_address', '10.0.0.2', { actor: ME, now: 2_000 });
+    const said: string[] = [];
+    for (let round = 0; round < 6; round += 1) {
+      const target = doc.batches[doc.batches.length - 1]!;
+      const opts = { actor: ME, now: 3_000 + round };
+      const next = round % 2 === 0 ? undo(doc, target.id, opts) : redo(doc, target.id, opts);
+      said.push(freshOwnChange(doc, next, ME)!.words);
+      doc = next;
+    }
+    // A label is cut at sixty bytes, so by now it no longer ends with the change.
+    expect(doc.batches[doc.batches.length - 1]!.label.endsWith('set Device.management_address')).toBe(false);
+    expect(said).toEqual(['Undone: address changed', 'Redone: address changed', 'Undone: address changed', 'Redone: address changed', 'Undone: address changed', 'Redone: address changed']);
+  });
+
+  it('keeps to the words for the label when the change behind an undo is no longer held', () => {
+    const deviceId = base.nodes.find((n) => n.id.startsWith('device:'))!.id;
+    const addressed = setDeviceField(base, deviceId, 'management_address', '10.0.0.2', { actor: ME, now: 2_000 });
+    const target = addressed.batches[addressed.batches.length - 1]!;
+    const undone = undo(addressed, target.id, { actor: ME, now: 3_000 });
+    const withoutIt = { ...undone, batches: undone.batches.filter((b) => b.id !== target.id) };
+    expect(freshOwnChange(base, withoutIt, ME)).toMatchObject({ words: 'Undone: address changed', kind: 'undo' });
+  });
+
   it('shows nothing for someone signed out', () => {
     expect(freshOwnChange(emptyDocument(), base, null)).toBeNull();
   });
