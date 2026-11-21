@@ -2,7 +2,7 @@
 // plain sentence a person who has never drawn a network could follow. `hints.test.ts` holds them to that.
 
 import type { Lens } from './lens';
-import type { MainView } from './types';
+import type { EditsOff, MainView } from './types';
 
 /** The four views in the bar's order, the word on each tab, and what each is. Work sits beside them. */
 export const VIEWS: readonly MainView[] = ['diagram', 'canvas', 'inventory', 'sheet'];
@@ -28,6 +28,16 @@ export const BAR_HINT = {
   sample: 'This design is the sample. Change anything: it is a copy of your own, and you can put it back.',
   viewOnly: 'You can look at this design but not change it. Someone who looks after it can let you.',
 } as const;
+
+/** Why Undo and Redo cannot be pressed just now. `hint` is the sentence on the bar's card. `short` is the line a
+ * menu or Search puts beside the greyed command, worded as those already are ("Select a device first"). */
+export const EDITS_OFF: Record<EditsOff, { hint: string; short: string }> = {
+  viewOnly: { hint: 'You can look at this design but not change it.', short: 'View only' },
+  phoneCanvas: { hint: 'On a phone the Canvas is to look at. Changes are made in Find.', short: 'The Canvas is to look at on a phone' },
+  save: { hint: 'You are looking at a save, not the design as it is now. Press Back to now in History.', short: 'Press Back to now in History first' },
+  nothingToUndo: { hint: 'Nothing to undo.', short: 'Nothing to undo' },
+  nothingToRedo: { hint: 'Nothing to redo.', short: 'Nothing to redo' },
+};
 
 /** The lenses, where they change the drawing. A lens changes marks and colours; it never moves or hides a box. */
 export const LENS_HINT: Record<Lens, string> = {

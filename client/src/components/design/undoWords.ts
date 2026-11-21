@@ -4,6 +4,7 @@
 import { elementName, NO_NAME } from '../../document/liveDoc';
 import type { Document } from '../../document/model';
 import type { UndoConflict } from '../../document/undo';
+import type { EditsOff } from '../shell/types';
 
 import { namedWords } from './changeToast';
 
@@ -36,4 +37,27 @@ export function refusedSentence(doc: Document, c: UndoConflict, press: 'undo' | 
     case 'unattributed':
       return `${nothing}: that change has no one person it belongs to.`;
   }
+}
+
+/** Why Undo or Redo cannot be pressed just now, or null when it can. The first that holds is the one said: a
+ * person who may not change the design is told that, not that there is nothing to undo. The bar, its folded menu
+ * and Search all ask here, so the three never disagree. */
+export function notOffered(
+  press: 'undo' | 'redo',
+  now: {
+    /** This person may change the design (ADR-0052 §5). */
+    canDraw: boolean;
+    /** The drawing on a phone, which is to look at (ADR-0075 decision 1). */
+    phoneCanvas: boolean;
+    /** A save from History is drawn in place of the design as it is now. */
+    lookingBack: boolean;
+    /** There is a step of this person's own to take. */
+    any: boolean;
+  },
+): EditsOff | null {
+  if (!now.canDraw) return 'viewOnly';
+  if (now.phoneCanvas) return 'phoneCanvas';
+  if (now.lookingBack) return 'save';
+  if (!now.any) return press === 'undo' ? 'nothingToUndo' : 'nothingToRedo';
+  return null;
 }

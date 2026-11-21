@@ -51,6 +51,8 @@ export function Shell({
   onZoomFit,
   canUndo,
   canRedo,
+  undoOff,
+  redoOff,
   onUndo,
   onRedo,
   onPrint,
@@ -75,6 +77,7 @@ export function Shell({
   onTrailOpenChange,
   children,
   viewOnly,
+  viewOnlyWhy,
   barExtra,
   band,
   menu,
@@ -276,6 +279,8 @@ export function Shell({
         presence={presence}
         canUndo={canUndo}
         canRedo={canRedo}
+        undoOff={undoOff}
+        redoOff={redoOff}
         onUndo={onUndo}
         onRedo={onRedo}
         onPrint={onPrint}
@@ -283,6 +288,7 @@ export function Shell({
         onShortcuts={onShortcuts}
         account={account}
         viewOnly={viewOnly}
+        viewOnlyWhy={viewOnlyWhy}
         barExtra={barExtra}
         menu={menu}
         adminPill={adminPill}

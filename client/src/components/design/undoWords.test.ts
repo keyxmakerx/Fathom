@@ -9,7 +9,8 @@ import { edgesIn, emptyDocument, formatNodeId, type Document } from '../../docum
 import { addNote, removeNote } from '../../document/notes';
 import { newUlid } from '../../document/ulid';
 import { UndoConflictError, conflict, undo, type UndoConflict } from '../../document/undo';
-import { refusedSentence } from './undoWords';
+import { EDITS_OFF } from '../shell/hintWords';
+import { notOffered, refusedSentence } from './undoWords';
 
 const T = 1_700_000_000_000;
 const ME = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -111,5 +112,44 @@ describe('what a refused undo says', () => {
   it('says a recorded plan stays as written', () => {
     const { doc } = rackDoc();
     expect(refusedSentence(doc, { kind: 'recorded-plan', element: 'maintenance-plan:x' }, 'undo', bob)).toBe('Nothing was undone: a recorded plan is history as written.');
+  });
+});
+
+describe('why Undo or Redo is greyed', () => {
+  const free = { canDraw: true, phoneCanvas: false, lookingBack: false, any: true };
+
+  it('is offered when this person may change the design and has a step to take', () => {
+    expect(notOffered('undo', free)).toBeNull();
+    expect(notOffered('redo', free)).toBeNull();
+  });
+
+  it('with no step to take, says there is nothing to undo or to redo', () => {
+    expect(notOffered('undo', { ...free, any: false })).toBe('nothingToUndo');
+    expect(notOffered('redo', { ...free, any: false })).toBe('nothingToRedo');
+  });
+
+  it('while a save is on show, says so, whether or not there is a step to take', () => {
+    expect(notOffered('undo', { ...free, lookingBack: true })).toBe('save');
+    expect(notOffered('redo', { ...free, lookingBack: true, any: false })).toBe('save');
+  });
+
+  it('with the list of saves open and none chosen, nothing is in the way', () => {
+    // The drawing is the design as it is now and can be changed, so a change can be taken back.
+    expect(notOffered('undo', { ...free, lookingBack: false })).toBeNull();
+  });
+
+  it('tells a person who may only look that first, and the phone drawing before a save', () => {
+    expect(notOffered('undo', { canDraw: false, phoneCanvas: true, lookingBack: true, any: false })).toBe('viewOnly');
+    expect(notOffered('undo', { ...free, phoneCanvas: true, lookingBack: true })).toBe('phoneCanvas');
+  });
+
+  it('has a sentence for the card and a short line for a menu, for every reason', () => {
+    for (const [why, said] of Object.entries(EDITS_OFF)) {
+      expect(said.hint, why).toMatch(/^[A-Z].*\.$/);
+      expect(said.hint.length, why).toBeLessThanOrEqual(120);
+      // A menu's reason is a line, not a sentence: "Select a device first".
+      expect(said.short, why).toMatch(/^[A-Z].*[^.]$/);
+      expect(said.short.length, why).toBeLessThanOrEqual(40);
+    }
   });
 });

@@ -156,14 +156,19 @@ try {
   await page.waitForTimeout(800);
   check('canvas: the drawing tools are folded away', !(await shown('.shell-canvas-bar__group')));
   // r116: Undo is in the bar on every view (the bottom pill is the camera only); a narrow bar folds it into More.
+  // Greyed, it says why: in the bar as its tip, in More beside its name.
   const undoOff = async () => {
-    if ((await page.locator('[data-testid="bar-undo"]').count()) > 0) return page.locator('[data-testid="bar-undo"]').isDisabled();
+    const inBar = page.locator('[data-testid="bar-undo"]');
+    if ((await inBar.count()) > 0) return { off: await inBar.isDisabled(), why: await inBar.getAttribute('data-hint-more') };
     await page.locator('[data-testid="shell-more"]').click();
-    const off = await page.locator('.shell-popover__row', { hasText: /^Undo$/ }).first().isDisabled();
+    const row = page.locator('[data-testid="more-undo"]');
+    const found = { off: await row.isDisabled(), why: (await row.innerText()).replace(/\s+/g, ' ').replace(/^Undo\s*/, '').trim() };
     await page.keyboard.press('Escape');
-    return off;
+    return found;
   };
-  check('canvas: the bar says View only and Undo is off', (await page.getByText('View only').count()) > 0 && (await undoOff()));
+  const undoNow = await undoOff();
+  check('canvas: the bar says View only and Undo is off', (await page.getByText('View only').count()) > 0 && undoNow.off);
+  check('canvas: the greyed Undo says the Canvas is to look at on a phone', /Canvas is to look at/.test(undoNow.why ?? ''), JSON.stringify(undoNow));
   check('canvas: the minimap is folded away', !(await shown('.canvas-minimap')));
   await shot('phone-05-canvas.png');
   await context.close();

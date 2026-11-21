@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { HintCard } from './Hints';
 import { HINT_DELAY_MS, HINT_EDGE, HINT_FOCUS_DELAY_MS, HINT_GAP, HINT_STIR_PX, HINT_WARM_DELAY_MS, HINT_WARM_FOR_MS, hint, hintDelay, keyCaps, placeHint, pointerAtRest, readHint } from './hints';
-import { BAR_HINT, DOCK_HINT, LENS_HINT, LENS_HINT_INVENTORY, TOOL_HINT, VIEW_HINT, WORK_HINT, ZOOM_HINT } from './hintWords';
+import { BAR_HINT, DOCK_HINT, EDITS_OFF, LENS_HINT, LENS_HINT_INVENTORY, TOOL_HINT, VIEW_HINT, WORK_HINT, ZOOM_HINT } from './hintWords';
 
 describe('a control that explains itself', () => {
   it('carries its name, its sentence and its shortcut, and says the same in its title', () => {
@@ -99,12 +99,18 @@ describe('the hint card', () => {
 });
 
 describe('the words', () => {
-  const all = [...Object.values(VIEW_HINT), WORK_HINT, ...Object.values(BAR_HINT), ...Object.values(LENS_HINT), ...Object.values(LENS_HINT_INVENTORY), ...Object.values(TOOL_HINT), ...Object.values(ZOOM_HINT), ...Object.values(DOCK_HINT)];
+  const all = [...Object.values(VIEW_HINT), WORK_HINT, ...Object.values(BAR_HINT), ...Object.values(LENS_HINT), ...Object.values(LENS_HINT_INVENTORY), ...Object.values(TOOL_HINT), ...Object.values(ZOOM_HINT), ...Object.values(DOCK_HINT), ...Object.values(EDITS_OFF).map((w) => w.hint)];
 
   it('are whole sentences, short enough to read at a glance', () => {
     for (const s of all) {
       expect(s, s).toMatch(/^[A-Z].*\.$/);
       expect(s.length, s).toBeLessThanOrEqual(120);
     }
+  });
+
+  it('say the way out where a greyed Undo has one', () => {
+    expect(EDITS_OFF.save.hint).toContain('Back to now');
+    expect(EDITS_OFF.save.short).toContain('Back to now');
+    expect(EDITS_OFF.phoneCanvas.hint).toContain('Find');
   });
 });

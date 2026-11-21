@@ -952,6 +952,15 @@ every save is intact", "Broken at save N"), lists saves newest first, shows any 
 changes outlined, and **Restore this version** (Draw) makes a new save. It opens beside whichever view is on
 screen, Inventory included. A past save is drawn on the canvas only: choosing one from another view goes there,
 and leaving the canvas with one showing goes back to now. The field view has no History (`DesignPlace.tsx`).
+Undo and Redo follow the key: they are greyed while a save is on show, and not while the list of saves is open
+with none chosen. Greyed, each says why, as its tip in the bar and beside its name in the folded More menu and in
+Search: view only, the phone's Canvas, a save on show, or nothing to undo (`design/undoWords.ts` `notOffered`,
+`shell/hintWords.ts` `EDITS_OFF`). The View only chip says the same while a save is on show. The note that
+follows a change of your own shows with the list open as with it closed, and goes when a save comes on show: its
+Undo or Redo would act on the design as it is now, behind the save (`design/ChangeToast.tsx`). For an undo or a
+redo the note says the change behind it, as History does, and does not read its own label, which is cut at sixty
+bytes and loses its end after a few rounds (`design/changeToast.ts` `reversalWords`; `drive-first-design.mjs`
+drives both).
 
 **Round 15 quality of life** (r15-qol; schema 0.21, field key 462). A sketch port's name field takes a
 pattern (`ge-0/0/{0-23}` is 24 ports, `document/portPattern.ts`). A port has a MAC (`PhysicalPort.mac`),

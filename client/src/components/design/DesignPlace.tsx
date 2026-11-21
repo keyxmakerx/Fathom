@@ -9,7 +9,7 @@ import { WorkPlaceContext, type WorkPlace } from '../work/WorkFields';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { pressAgainSentence, skippedSentence } from '../../document/liveDoc';
 import { whoWord } from '../collab/changesSince';
-import { refusedSentence } from './undoWords';
+import { notOffered, refusedSentence } from './undoWords';
 import { UndoConflictError, redo as redoBatch, redoSkipping, stepsWithout, undo as undoBatch, undoSkipping, undoSteps } from '../../document/undo';
 import { describeRestore, outlineSelectors } from '../../document/historyDiff';
 import { restoreTo } from '../../document/restore';
@@ -58,6 +58,7 @@ import { useGhostRef } from '../shell/ghost';
 import type { PaletteAction } from '../shell/palette';
 import { PaletteRegistryContext, createPaletteRegistry } from '../shell/paletteRegistry';
 import { ShortcutsSheet } from '../shell/ShortcutsSheet';
+import { EDITS_OFF } from '../shell/hintWords';
 import { isTypingTarget, matches, shortcutText } from '../shell/shortcuts';
 import { createThingsFinder } from '../shell/thingsSearch';
 import { applyTheme, getStoredTheme } from '../../theme';
@@ -727,6 +728,12 @@ export function DesignPlace(props: DesignPlaceProps) {
   // ADR-0075: the field view. A scanned label opens its item's ordinary Inventory page, the way
   // openFirmwareModel lands on a model; anything that is not a label is looked up in Find.
   const phone = usePhone();
+  // Undo and Redo are greyed for one of a few reasons, and say which (`notOffered`). The list of saves open with
+  // none chosen is not one of them: the drawing is the design as it is and can be changed, so a change can be
+  // taken back, as Ctrl+Z on the drawing always could.
+  const editsNow = { canDraw: session.canDraw, phoneCanvas: phone && props.place === 'racks', lookingBack: pickedSave != null };
+  const undoOff = notOffered('undo', { ...editsNow, any: undoCandidates.length > 0 });
+  const redoOff = notOffered('redo', { ...editsNow, any: redoCandidate != null });
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const goToInventory = useCallback(
@@ -876,14 +883,14 @@ export function DesignPlace(props: DesignPlaceProps) {
               label: 'Undo',
               hint: shortcutText('undo'),
               keywords: ['back', 'revert'],
-              disabled: undoCandidates.length === 0 || historyOpen ? 'Nothing to undo' : undefined,
+              disabled: undoOff != null ? EDITS_OFF[undoOff].short : undefined,
               run: handleUndo,
             },
             {
               id: 'redo',
               label: 'Redo',
               hint: shortcutText('redo'),
-              disabled: redoCandidate == null || historyOpen ? 'Nothing to redo' : undefined,
+              disabled: redoOff != null ? EDITS_OFF[redoOff].short : undefined,
               run: handleRedo,
             },
           ]
@@ -1013,8 +1020,12 @@ export function DesignPlace(props: DesignPlaceProps) {
     resume: { accountId, designId },
     trailOpen,
     onTrailOpenChange: setTrailOpen,
-    canUndo: session.canDraw && !(phone && props.place === 'racks') && undoCandidates.length > 0 && !historyOpen,
-    canRedo: session.canDraw && !(phone && props.place === 'racks') && redoCandidate != null && !historyOpen,
+    canUndo: undoOff == null,
+    canRedo: redoOff == null,
+    undoOff,
+    redoOff,
+    // The chip beside them says the same reason, where it would say this person may only look.
+    viewOnlyWhy: undoOff === 'save' || undoOff === 'phoneCanvas' ? undoOff : null,
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,
@@ -1372,7 +1383,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         redoBatchId={redoCandidate?.id ?? null}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        suppressed={historyOpen || !session.canDraw}
+        suppressed={pickedSave != null || !session.canDraw}
       />
       {sharing && (
         <SharePanel organisationId={organisationId} scopeId={scopeId} title={designLabel} onClose={() => setSharing(false)} />
