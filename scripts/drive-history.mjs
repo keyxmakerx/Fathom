@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { barAction } from './drive-lib/bar.mjs';
-import { check, fails, waitForServer } from './drive-lib/kit.mjs';
+import { check, fails, lieOver, waitForServer } from './drive-lib/kit.mjs';
 import { openTheTrail } from './drive-lib/trail.mjs';
 
 const pw = await import(
@@ -112,6 +112,22 @@ try {
   await page.waitForSelector('[data-testid="history-banner"]', { timeout: 10_000 });
   await page.waitForTimeout(800);
   check('a past save shows the banner', (await page.locator('[data-testid="history-banner"]').innerText()).startsWith('Showing the design just after'));
+  // The banner is what says a save is on show. The canvas tools lay over half of it: it shares their line where
+  // both fit, and takes the line under them in a narrower window.
+  for (const width of [1440, 1100]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(400);
+    const clear = await lieOver(page, '[data-testid="history-banner"]', '.shell-canvas-bar__group');
+    check(`the banner is clear of the canvas tools in a window ${width} wide`, clear != null && !clear.over, clear?.said ?? 'the banner or the tools are not on the page');
+    const inDrawing = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="history-banner"]')?.getBoundingClientRect();
+      const d = document.querySelector('.shell__drawing')?.getBoundingClientRect();
+      return b != null && d != null && b.left >= d.left && b.right <= d.right && b.top >= d.top;
+    });
+    check(`and it is whole inside the drawing in a window ${width} wide`, inDrawing);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(400);
   check('what changed is outlined', (await page.locator('.history-changed').count()) >= 1, String(await page.locator('.history-changed').count()));
   check('the picked row is marked', (await page.locator('.history__row--on').count()) === 1);
   check('Restore is offered on an older save', (await page.getByRole('button', { name: 'Restore this version' }).count()) === 1);

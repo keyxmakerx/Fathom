@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -74,5 +77,50 @@ describe('Layers and Look (r116: two buttons, two pop-overs)', () => {
     const markup = renderToStaticMarkup(createElement(LookPanel, { layers: { ...layers, cables: undefined } }));
     expect(markup).toContain('aria-label="Device style"');
     expect(markup).not.toContain('aria-label="Cable style"');
+  });
+});
+
+const sheet = (path: string): string => readFileSync(fileURLToPath(new URL(`../../${path}`, import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+
+/** What a selector's own rule declares: the first rule that names it alone. */
+function ruleOf(css: string, selector: string): string {
+  const at = css.search(new RegExp(`(^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{`));
+  return at < 0 ? '' : (css.slice(at).split('{')[1]?.split('}')[0] ?? '');
+}
+
+describe('the note of what is on show (the banner that names a save lay half under the tool row)', () => {
+  const shell = sheet('styles/shell.css');
+  const history = sheet('components/history/history.css');
+
+  it('has its place in the bar, after the tool row and outside it', () => {
+    const markup = renderToStaticMarkup(createElement(CanvasStrip, { place: 'racks', lens: 'cables', onLensChange: noop, layers, slotRef: () => noop }));
+    const row = markup.indexOf('class="shell-canvas-bar__group"');
+    const note = markup.indexOf('class="shell-canvas-bar__note" data-slot="canvas-note"');
+    expect(row).toBeGreaterThan(0);
+    expect(note).toBeGreaterThan(row);
+    // The tool row is closed before the note starts: two things side by side, not one inside the other.
+    const between = markup.slice(row, note);
+    expect((between.match(/<div/g) ?? []).length).toBe((between.match(/<\/div>/g) ?? []).length);
+  });
+
+  it('shares the tools\' line where both fit and takes the next line where they do not', () => {
+    expect(ruleOf(shell, '.shell-canvas-bar')).toMatch(/flex-wrap:\s*wrap/);
+    const note = ruleOf(shell, '.shell-canvas-bar__note');
+    expect(note).toMatch(/margin-left:\s*auto/);
+    expect(note).toMatch(/max-width:\s*100%/);
+    expect(ruleOf(shell, '.shell-canvas-bar__note:empty')).toMatch(/display:\s*none/);
+  });
+
+  it('is placed by the bar: the banner has no place of its own over the drawing', () => {
+    const banner = ruleOf(history, '.history-banner');
+    expect(banner).not.toBe('');
+    expect(banner).not.toMatch(/position:|top:|left:|transform:|z-index:/);
+  });
+
+  it('stays as it is while something is dragged: only the tools and the zoom buttons step back', () => {
+    const stepBack = /([^{}]*)\{\s*opacity:\s*0\.25;?\s*\}/.exec(shell)?.[1] ?? '';
+    expect(stepBack).toContain('.shell-canvas-bar__group');
+    expect(stepBack).toContain('.shell-pill');
+    expect(stepBack).not.toMatch(/\.shell-canvas-bar(,|\s*$)/m);
   });
 });

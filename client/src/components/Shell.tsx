@@ -199,7 +199,7 @@ export function Shell({
     }
     return ref;
   }, []);
-  const slotIds = [...(sideTabs ?? []).map((t) => t.id), ...(toolsOnCanvas ? ['canvas-tools', 'jump-trail'] : [])];
+  const slotIds = [...(sideTabs ?? []).map((t) => t.id), ...(toolsOnCanvas ? ['canvas-tools', 'jump-trail', 'canvas-note'] : [])];
   const slots = sideTabs == null && !toolsOnCanvas ? null : Object.fromEntries(slotIds.map((id) => [id, sideEls[id] ?? null]));
   const chooseRight = useCallback(
     (t: RightTab) => {

@@ -2255,9 +2255,11 @@ export function RacksPlace(props: RacksPlaceProps) {
       <ChecksContext.Provider value={checks.api}>
       <NoteAuthorsContext.Provider value={noteAuthors}>
       {historyView?.banner != null ? (
-        <div className="history-banner" role="status" data-testid="history-banner">
-          {historyView.banner}
-        </div>
+        <InSideSlot id="canvas-note">
+          <div className="history-banner" role="status" data-testid="history-banner">
+            {historyView.banner}
+          </div>
+        </InSideSlot>
       ) : null}
       <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
       <PlansContext.Provider value={plans.store}>

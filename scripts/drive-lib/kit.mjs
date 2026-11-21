@@ -10,6 +10,25 @@ export function check(name, ok, detail) {
   if (!ok) fails.push(name);
 }
 
+/** Whether two things on the page lie over each other: `over` is true when their boxes share any area, and `said`
+ * gives both boxes for the line a failed check prints. `null` when either is not on the page. */
+export async function lieOver(page, a, b) {
+  return page.evaluate(
+    ([a, b]) => {
+      const box = (sel) => {
+        const r = document.querySelector(sel)?.getBoundingClientRect();
+        return r != null && r.width > 0 && r.height > 0 ? r : null;
+      };
+      const p = box(a);
+      const q = box(b);
+      if (p == null || q == null) return null;
+      const say = (r) => `${Math.round(r.left)}..${Math.round(r.right)} across, ${Math.round(r.top)}..${Math.round(r.bottom)} down`;
+      return { over: p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom, said: `${say(p)} and ${say(q)}` };
+    },
+    [a, b],
+  );
+}
+
 /** True once `url` answers 2xx, false after `timeoutMs`. */
 export async function waitForServer(url, timeoutMs) {
   const start = Date.now();

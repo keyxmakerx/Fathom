@@ -57,7 +57,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
-import { check, fails } from './drive-lib/kit.mjs';
+import { check, fails, lieOver } from './drive-lib/kit.mjs';
 import { openTheTrail } from './drive-lib/trail.mjs';
 
 const pw = await import(
@@ -991,6 +991,8 @@ async function runProof(browser, seed) {
   const bannerShown = await one.locator('[data-testid="history-banner"]').waitFor({ timeout: 15000 }).then(() => true, () => false);
   const noteOverSave = await note(one);
   check('browser one (steward): that note goes when a save comes on show, and its Redo with it', bannerShown && noteOverSave === null, `banner: ${bannerShown}, note: ${JSON.stringify(noteOverSave)}`);
+  const bannerClear = await lieOver(one, '[data-testid="history-banner"]', '.shell-canvas-bar__group');
+  check('browser one (steward): the banner that names the save is clear of the canvas tools', bannerClear != null && !bannerClear.over, bannerClear?.said ?? 'the banner or the tools are not on the page');
   check(
     'browser one (steward): choosing a save there goes to the canvas, which draws it',
     bannerShown && (await one.locator('.react-flow__pane').count()) === 1 && (await one.locator('.history__row--on').count()) === 1,

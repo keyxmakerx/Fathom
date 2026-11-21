@@ -1172,10 +1172,25 @@ button.shell-admin-pill {
   /* Over an opened device (--z-modal + 1): the tool row, with its Back, stays where it is inside one (r116). */
   z-index: calc(var(--z-modal) + 2);
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--s2);
   pointer-events: none;
-  transition: opacity var(--m-layout, 260ms) var(--m-ease, ease);
+}
+/* What the drawing shows when that is not the design as it is now. At the right of the tools' line where the two
+   fit side by side, and on a line of its own under them where they do not: the tools never lie over it. */
+.shell-canvas-bar__note {
+  margin-left: auto;
+  align-self: center;
+  max-width: 100%;
+}
+.shell-canvas-bar__note:empty {
+  display: none;
+}
+/* A sample's card holds the left of the line under the tools (`trace.css`: "Try a question", the practice note). The
+   note keeps to the rest of that line, over two lines of its own where the drawing is narrow. */
+.shell__drawing:has(.trace-questions) .shell-canvas-bar__note {
+  max-width: calc(100% - min(280px, 60%) - var(--s2));
 }
 .shell-canvas-bar__group {
   display: flex;
@@ -1187,6 +1202,7 @@ button.shell-admin-pill {
   border-radius: var(--radius-pop);
   box-shadow: var(--shadow-pop);
   pointer-events: auto;
+  transition: opacity var(--m-layout, 260ms) var(--m-ease, ease);
 }
 .shell-canvas-bar__slot {
   display: contents;
@@ -1371,15 +1387,16 @@ button.shell-admin-pill {
   background: var(--ink);
 }
 
-/* r31-motion: the tools step back while something is dragged on the drawing. */
-.shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-canvas-bar,
+/* r31-motion: the tools step back while something is dragged on the drawing. The note of what is on show is not a
+   tool, and stays as it is. */
+.shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-canvas-bar__group,
 .shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-pill {
   opacity: 0.25;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .shell-bar__tabs-mark,
-  .shell-canvas-bar,
+  .shell-canvas-bar__group,
   .shell-pill {
     transition: none;
   }

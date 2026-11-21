@@ -103,19 +103,16 @@
   margin: 0 0 var(--s2);
 }
 
-/* Over the canvas while a past save is shown. */
+/* Over the canvas while a past save is shown. The canvas bar places it (`.shell-canvas-bar__note`). */
 .history-banner {
-  position: absolute;
-  top: var(--s3);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
   background: var(--page);
   border: var(--rule-hair) solid var(--hairline);
   padding: var(--s1) var(--s3);
   font-size: var(--t-small);
   color: var(--ink);
   pointer-events: none;
+  /* Over two lines on a narrow drawing, no last word left alone. */
+  text-wrap: pretty;
 }
 /* What the picked save changed: dashed ink, never a colour. */
 .history-changed {

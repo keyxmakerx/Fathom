@@ -252,7 +252,7 @@ export interface CanvasStripProps extends LensGroupProps {
   views?: ReactNode;
   hiddenCablesCount?: number;
   onShowAllHiddenCables?: () => void;
-  /** Where the canvas's own Select and Pan, and the one Back, are drawn into. */
+  /** Where the canvas's own Select and Pan, the one Back, and the note of what is on show are drawn into. */
   slotRef: (id: string) => (el: HTMLElement | null) => void;
 }
 
@@ -281,6 +281,8 @@ export function CanvasStrip({ layers, look, layersExtra, views, hiddenCablesCoun
         {layers != null && <LookMenu layers={layers} extra={layersExtra} />}
         {views}
       </div>
+      {/* What the drawing shows when that is not the design as it is now: the save chosen in History. */}
+      <div className="shell-canvas-bar__note" data-slot="canvas-note" ref={slotRef('canvas-note')} />
     </div>
   );
 }
