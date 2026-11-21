@@ -726,7 +726,12 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   What changed says the change and what it was made to, "Address changed · switch-2", "Cable connected · core-01
   and acc-01", "Undone: added sw-01" (`design/changeToast.ts` `historyPartsOf`). The whole account id and the
   label as recorded ("undo of set Device.management_address") show on hover, and a comment sits under its
-  change. A save that drew nothing different is listed in those words, and one that edited one thing names it.
+  change. A press on a row opens the record behind it, for a keyboard and a touch screen: the whole moment with
+  how far the clock is from UTC, the name or the reader's own address, the account id and the label as recorded
+  (`racks/trail.ts` `recordLines`). The rows are one stop for Tab; the arrow keys, Home and End move between them
+  and do not reach the drawing, which would move a selected device. A drag over a row still selects its words
+  (`drive-undo-notes.mjs`). A save that drew nothing different is listed in those words, and one that edited one
+  thing names it.
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
   Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.

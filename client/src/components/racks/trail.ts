@@ -76,3 +76,49 @@ export function trailRows(doc: Document, nameOf: (account: string) => string, se
     };
   });
 }
+
+/** One line of a row's record: what it is, and its value. */
+export interface RecordLine {
+  label: string;
+  value: string;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** How far a clock is from UTC, as a log or another time zone needs it said: "UTC-06:00", "UTC+05:30", "UTC". */
+export function utcOffset(minutesAhead: number): string {
+  if (minutesAhead === 0) return 'UTC';
+  const two = (n: number) => String(n).padStart(2, '0');
+  const m = Math.abs(minutesAhead);
+  return `UTC${minutesAhead < 0 ? '-' : '+'}${two(Math.floor(m / 60))}:${two(m % 60)}`;
+}
+
+/** The whole moment, where the row shows only the hour and minute: "20 Nov 2026 21:14:07 (UTC-06:00)", in this
+ * browser's own time as the row is, with how far that is from UTC. `null` for a batch whose id carries no time. */
+export function recordWhen(ms: number): string | null {
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const d = new Date(ms);
+  const two = (n: number) => String(n).padStart(2, '0');
+  const clock = `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} ${clock} (${utcOffset(-d.getTimezoneOffset())})`;
+}
+
+/** The record behind a row, for whoever needs it: the whole moment, the name and the whole account id behind
+ * the word in the Who column, and the label as it was written. A press on the row shows these, so a keyboard and
+ * a touch screen reach what a pointer reads off the row by resting on it. `self` is the person reading: their own
+ * rows carry their address, and nobody else's row ever does. */
+export function recordLines(row: TrailRow, self: { accountId: string | null; address: string | null }): RecordLine[] {
+  const lines: RecordLine[] = [];
+  const when = recordWhen(row.whenMs);
+  if (when !== null) lines.push({ label: 'When', value: when });
+  if (row.account === null) {
+    lines.push({ label: 'Account', value: 'No single account is recorded for this change' });
+  } else {
+    // "you" and "a colleague" are already on the row, and say no more here.
+    const named = row.account === self.accountId ? self.address : row.who === 'a colleague' ? null : row.who;
+    if (named != null) lines.push({ label: 'Account', value: named });
+    lines.push({ label: 'Account id', value: row.account });
+  }
+  lines.push({ label: 'Recorded as', value: row.label });
+  return lines;
+}

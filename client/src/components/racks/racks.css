@@ -48,6 +48,9 @@
 /* ADR-0053 §4 — the Trail panel (`Trail.tsx`), beside the drawing. */
 
 .racks-trail {
+  /* The two narrow columns. The record under a row sets its labels across both, so its values sit under "What changed". */
+  --trail-when: 40px;
+  --trail-who: 72px;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -91,8 +94,74 @@
   border-bottom: var(--rule-hair) solid var(--hairline);
 }
 
-.racks-trail__row {
+/* Each change is one item: its row, and under it the record a press opens. */
+.racks-trail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.racks-trail__item {
   border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+/* The row is a button, so a keyboard and a touch screen can open its record. It keeps the look of a line in a
+   list, and its words can still be selected and copied (`Trail.tsx` `selectedIn`). */
+.racks-trail__row {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.racks-trail__row:hover {
+  background: var(--control-bg-hover);
+}
+
+.racks-trail__row[aria-expanded='true'] {
+  background: var(--surface);
+}
+
+/* The ring sits inside the row: the list clips anything drawn outside it. */
+.racks-trail__row:focus-visible {
+  outline-offset: var(--focus-offset-inset);
+}
+
+.racks-trail__record {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin: 0;
+  padding: 0 var(--s4) var(--s3);
+  background: var(--surface);
+}
+
+/* In a panel dragged narrow, a value moves under its name and takes the whole line. */
+.racks-trail__record-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--s2);
+}
+
+.racks-trail__record-line dt {
+  flex: 0 0 calc(var(--trail-when) + var(--s2) + var(--trail-who));
+  color: var(--muted);
+}
+
+/* An account id and an address are read whole where there is room, and break anywhere where there is not. */
+.racks-trail__record-line dd {
+  flex: 1 1 160px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 
 .racks-trail__col,
@@ -102,14 +171,14 @@
 
 .racks-trail__col--when,
 .racks-trail__cell.racks-trail__col--when {
-  flex: 0 0 40px;
+  flex: 0 0 var(--trail-when);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .racks-trail__col--who,
 .racks-trail__cell.racks-trail__col--who {
-  flex: 0 0 72px;
+  flex: 0 0 var(--trail-who);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

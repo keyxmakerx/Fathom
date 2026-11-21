@@ -5,7 +5,7 @@ import { setRackField } from '../../document/edit';
 import { LOCAL_ACTOR, emptyDocument, formatNodeId, type Document } from '../../document/model';
 import { newUlid } from '../../document/ulid';
 import { redo, undo } from '../../document/undo';
-import { redoable, trailRows, whoLabel } from './trail';
+import { recordLines, recordWhen, redoable, trailRows, utcOffset, whoLabel, type TrailRow } from './trail';
 
 const NOW = 1_700_000_000_000;
 const ACTOR_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -145,5 +145,91 @@ describe('trailRows', () => {
     expect(sealedRow.sealed).toBe(true);
     expect(pendingRow.sealed).toBe(false);
     expect(pendingRow.why).toBe('moving the AP uplink');
+  });
+});
+
+describe('the record behind a row', () => {
+  const ACTOR_C = '01ARZ3NDEKTSV4RRFFQ69G5FCV';
+  // Built from the clock's own parts, so it reads the same wherever the test runs.
+  const AT = new Date(2026, 10, 20, 21, 4, 7).getTime();
+  const HERE = utcOffset(-new Date(AT).getTimezoneOffset());
+  const row = (over: Partial<TrailRow>): TrailRow => ({ batchId: 'b', whenMs: AT, who: 'you', account: ACTOR_A, what: 'Rack moved to another row', on: 'R1', label: 'set Rack.row', why: null, sealed: true, ...over });
+  const me = { accountId: ACTOR_A, address: 'ana@example.net' };
+  const valueOf = (lines: ReturnType<typeof recordLines>, label: string) => lines.find((l) => l.label === label)?.value;
+
+  it('says how far a clock is from UTC the way a log does', () => {
+    expect(utcOffset(-360)).toBe('UTC-06:00');
+    expect(utcOffset(330)).toBe('UTC+05:30');
+    expect(utcOffset(-210)).toBe('UTC-03:30');
+    expect(utcOffset(765)).toBe('UTC+12:45');
+    expect(utcOffset(0)).toBe('UTC');
+  });
+
+  it('gives the whole moment: the day, the year and the second, and how far the clock is from UTC', () => {
+    expect(recordWhen(AT)).toBe(`20 Nov 2026 21:04:07 (${HERE})`);
+    expect(recordWhen(new Date(2027, 0, 3, 0, 0, 0).getTime())).toMatch(/^3 Jan 2027 00:00:00 \(UTC/);
+  });
+
+  it('gives no moment for a batch whose id carries none', () => {
+    expect(recordWhen(0)).toBeNull();
+    expect(recordWhen(Number.NaN)).toBeNull();
+    expect(recordLines(row({ whenMs: 0 }), me).map((l) => l.label)).toEqual(['Account', 'Account id', 'Recorded as']);
+  });
+
+  it('lists the moment, the account and the label as recorded, in that order', () => {
+    const lines = recordLines(row({}), me);
+    expect(lines.map((l) => l.label)).toEqual(['When', 'Account', 'Account id', 'Recorded as']);
+    expect(valueOf(lines, 'When')).toBe(`20 Nov 2026 21:04:07 (${HERE})`);
+    expect(valueOf(lines, 'Recorded as')).toBe('set Rack.row');
+  });
+
+  it('shows the reader their own address above their account id', () => {
+    const mine = recordLines(row({}), me);
+    expect(valueOf(mine, 'Account')).toBe('ana@example.net');
+    expect(valueOf(mine, 'Account id')).toBe(ACTOR_A);
+    // Signed in, but the address is not known yet: the row already says "you", so the id alone.
+    const early = recordLines(row({}), { accountId: ACTOR_A, address: null });
+    expect(early.map((l) => l.label)).toEqual(['When', 'Account id', 'Recorded as']);
+    expect(valueOf(early, 'Account id')).toBe(ACTOR_A);
+  });
+
+  it('gives a colleague this design has heard their whole name, and one it has not only the id', () => {
+    const heard = recordLines(row({ who: 'Bartholomew Roe-Castellanos', account: ACTOR_B }), me);
+    expect(valueOf(heard, 'Account')).toBe('Bartholomew Roe-Castellanos');
+    expect(valueOf(heard, 'Account id')).toBe(ACTOR_B);
+    const unheard = recordLines(row({ who: 'a colleague', account: ACTOR_C }), me);
+    expect(unheard.map((l) => l.label)).toEqual(['When', 'Account id', 'Recorded as']);
+    expect(valueOf(unheard, 'Account id')).toBe(ACTOR_C);
+  });
+
+  it('never shows the reader\'s address on a row that is not theirs', () => {
+    for (const other of [row({ who: 'Bob Roe', account: ACTOR_B }), row({ who: 'a colleague', account: ACTOR_C }), row({ who: 'local', account: null })]) {
+      for (const line of recordLines(other, me)) expect(line.value).not.toContain('ana@example.net');
+    }
+  });
+
+  it('says so where a change belongs to no one account, and makes up no id for it', () => {
+    for (const reader of [me, { accountId: null, address: null }]) {
+      const lines = recordLines(row({ who: 'local', account: null }), reader);
+      expect(lines.map((l) => l.label)).toEqual(['When', 'Account', 'Recorded as']);
+      expect(valueOf(lines, 'Account')).toBe('No single account is recorded for this change');
+    }
+  });
+
+  it('reads a real trail: an undo keeps its label as it was written', () => {
+    const { doc, rackId } = docWithRack(ACTOR_A, AT);
+    const edited = setRackField(doc, rackId, 'row', 'Row A', { actor: ACTOR_B, now: AT + 1000 });
+    const undone = undo(edited, edited.batches[1].id, { actor: ACTOR_B, now: AT + 2000 });
+    const [top, , first] = trailRows(undone, nameOf, new Set());
+    expect(recordLines(top, me)).toEqual([
+      { label: 'When', value: `20 Nov 2026 21:04:09 (${HERE})` },
+      { label: 'Account', value: 'Bob Roe' },
+      { label: 'Account id', value: ACTOR_B },
+      { label: 'Recorded as', value: 'undo of set Rack.row' },
+    ]);
+    expect(recordLines(first, me).slice(1, 3)).toEqual([
+      { label: 'Account', value: 'ana@example.net' },
+      { label: 'Account id', value: ACTOR_A },
+    ]);
   });
 });

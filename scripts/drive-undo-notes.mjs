@@ -162,6 +162,73 @@ try {
 
     await page.screenshot({ path: SHOTS + 's6i-trail.png' });
     console.log('    wrote ' + SHOTS + 's6i-trail.png');
+
+    // A press on a row opens the record behind it: what a pointer reads by resting on the row, for a keyboard and
+    // a touch screen too. Opening a record changes nothing in the design.
+    const me = (await page.evaluate(() => window.__driveActors__)).me;
+    const rowAt = (i) => page.locator('.racks-trail__row').nth(i);
+    const recordNow = () => page.locator('.racks-trail__record-line').evaluateAll((lines) => Object.fromEntries(lines.map((l) => [l.querySelector('dt').textContent, l.querySelector('dd').textContent])));
+    const focusedRow = () => page.evaluate(() => [...document.querySelectorAll('.racks-trail__row')].indexOf(document.activeElement));
+    await rowAt(0).click();
+    const pressed = await recordNow();
+    check(
+      'trail: a press on a row opens its record: the whole moment, the account id and the label as recorded',
+      /^\d{1,2} [A-Z][a-z]{2} \d{4} \d\d:\d\d:\d\d \(UTC/.test(pressed.When ?? '') && pressed['Account id'] === me && pressed['Recorded as'] === 'undo of connect ports' && (await rowAt(0).getAttribute('aria-expanded')) === 'true',
+      JSON.stringify(pressed),
+    );
+    await page.screenshot({ path: SHOTS + 's6i-trail-record.png' });
+    console.log('    wrote ' + SHOTS + 's6i-trail-record.png');
+    await rowAt(0).click();
+    check('trail: a second press closes it', (await page.locator('.racks-trail__record').count()) === 0 && (await rowAt(0).getAttribute('aria-expanded')) === 'false');
+
+    // The row's words can still be selected and copied: a drag over them is not a press.
+    const words = await rowAt(0).locator('.racks-trail__col--what').boundingBox();
+    await page.mouse.move(words.x + 1, words.y + words.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(words.x + 90, words.y + words.height / 2, { steps: 6 });
+    await page.mouse.up();
+    const dragged = await page.evaluate(() => getSelection().toString());
+    check('trail: a drag over a row selects its words and does not open the record', dragged.length > 3 && (await page.locator('.racks-trail__record').count()) === 0, JSON.stringify(dragged));
+    await page.evaluate(() => getSelection().removeAllRanges());
+
+    // By keyboard: Tab stops once in the rows, Down goes to the next row, Enter opens it, Tab leaves for the comment box.
+    await page.locator('[data-testid=history-tab-trail]').focus();
+    await page.keyboard.press('Tab');
+    const firstStop = await focusedRow();
+    await page.keyboard.press('ArrowDown');
+    const afterDown = await focusedRow();
+    await page.keyboard.press('Enter');
+    const byKey = await recordNow();
+    await page.keyboard.press('Tab');
+    const leftFor = await page.evaluate(() => document.activeElement?.id ?? '');
+    check(
+      'trail: by keyboard, Tab stops on the newest row, Down goes to the next, Enter opens its record, and Tab leaves for the comment box',
+      firstStop === 0 && afterDown === 1 && byKey['Recorded as'] === 'connect ports' && leftFor === 'racks-trail-comment',
+      `Tab: row ${firstStop}; Down: row ${afterDown}; Enter: ${JSON.stringify(byKey)}; Tab: #${leftFor}`,
+    );
+
+    // With a device selected the drawing moves it a unit on Up and Down. Pressed in the rows, the keys are the trail's.
+    const device = page.locator('.react-flow__node-chassis', { hasText: 'acc-01' }).first();
+    await device.click();
+    await openTheTrail(page);
+    const rowsWere = await page.locator('.racks-trail__row').count();
+    await rowAt(1).focus();
+    for (const key of ['ArrowDown', 'ArrowDown', 'ArrowUp']) await page.keyboard.press(key);
+    await page.waitForTimeout(400);
+    const rowsAfterKeys = await page.locator('.racks-trail__row').count();
+    const rowAfterKeys = await focusedRow();
+    // The same key with the keyboard on the drawing does move it, so the device could have moved.
+    await device.click();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(600);
+    await openTheTrail(page);
+    const rowsAfterDrawingKey = await page.locator('.racks-trail__row').count();
+    check(
+      'trail: with a device selected, the arrow keys pressed in the rows move between rows and leave the device where it is',
+      rowsAfterKeys === rowsWere && rowAfterKeys === 2 && rowsAfterDrawingKey === rowsWere + 1,
+      `rows ${rowsWere}; after three keys in the rows ${rowsAfterKeys}, on row ${rowAfterKeys}; after Down on the drawing ${rowsAfterDrawingKey}`,
+    );
+    check('trail: no uncaught page errors after the record', pageErrors.length === 0, pageErrors.join(' | '));
     await page.close();
   }
 
@@ -209,6 +276,8 @@ try {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=note`);
     await page.click('.react-flow__node-chassis >> nth=0');
+    // A click selects the device and shows its card. Its Details are a tab of the right-hand dock.
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
     await page.getByRole('tab', { name: 'Notes' }).click();
 
@@ -249,6 +318,8 @@ try {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=typed`);
     await page.click('.react-flow__node-chassis >> nth=0');
+    // A click selects the device and shows its card. Its Details are a tab of the right-hand dock.
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
     await page.getByRole('tab', { name: 'Notes' }).click();
 
