@@ -642,6 +642,15 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   is selected and brought to the faceplate stop, and a device is opened. That answer is given once for each pick:
   a later change to the design, an Undo included, selects nothing and opens nothing again. Before, every change
   after a pick took the selection back to the picked thing and opened its drawer (`drive-undo-notes.mjs`).
+- **Enter selects what the keyboard is on** (`drawing/nodeKey.ts`). React Flow puts every device, rack, shelf, wall
+  and cable in the Tab order, and its own Enter marks a thing selected in its store only. Enter on one now makes
+  the selection a press does and opens Details on it, as a pick in Search does; Shift and Enter adds a racked
+  device to what is picked. Space is left alone: on the drawing it is held to pan. A band of several cables and a
+  tray select nothing. Escape clears the selection and, for someone going through the page with Tab, leaves the
+  ring on the thing, where React Flow took the keyboard off it. In the Diagram look Enter selects a box's device
+  and a line's cable. The words read out for a node or a cable say the key and nothing else (`KEYS_SAID`), in
+  place of React Flow's, which offered Space, moving and deleting. The key is a row of the shortcuts table
+  (`select-focused`). `drive-undo-notes.mjs` and `drive-sample.mjs` drive it.
 - **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
   Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
   pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right

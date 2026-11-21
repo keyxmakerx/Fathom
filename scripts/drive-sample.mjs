@@ -1046,6 +1046,73 @@ try {
     await context.close();
   }
 
+  // Enter on what the keyboard is on selects it, as a press on it does, and Details shows it: a device, a cable, a
+  // wall, a shelf and the rack. Space is left alone: on the drawing it is held to pan. A band of several cables
+  // selects nothing. What is read out for each says the key, in place of React Flow's own words.
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=home`);
+    await page.waitForSelector('.home-sample', { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Open sample' }).click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(2000);
+    // What Details shows of the selection, its words run together; null with nothing selected.
+    const details = () =>
+      page.evaluate(() => {
+        const panel = document.querySelector('.drawing-editor__title')?.closest('.shell-editor');
+        return panel == null ? null : (panel.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
+      });
+    const enterOn = async (selector) => {
+      for (let i = 0; i < 3 && (await details()) != null; i += 1) {
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(250);
+      }
+      await page.locator(selector).first().focus();
+      const said = await page.evaluate(() => document.getElementById(document.activeElement?.getAttribute('aria-describedby') ?? '')?.textContent ?? null);
+      await page.keyboard.press('Space');
+      await page.waitForTimeout(300);
+      const afterSpace = await details();
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(700);
+      return { said, afterSpace, afterEnter: await details(), card: await page.getByTestId('quick-card').count() };
+    };
+    for (const [what, selector, shows] of [
+      ['a device', '.react-flow__node-chassis', /router-1/],
+      ['a cable', '.react-flow__edge-cable', /end a .+ end b /i],
+      ['a wall', '.react-flow__node-surface', /^Outside wall/],
+      ['a shelf', '.react-flow__node-shelf', /^Shelf/],
+      ['the rack', '.react-flow__node-rack', /^Rack 1/],
+    ]) {
+      const got = await enterOn(selector);
+      check(
+        `Enter on ${what} the keyboard is on selects it and opens Details on it; Space does not, and the words read out say the key`,
+        got.afterSpace == null && shows.test(got.afterEnter ?? '') && got.card === 0 && got.said === 'Press Enter to select it.',
+        JSON.stringify(got).slice(0, 200),
+      );
+    }
+    const band = await enterOn('.react-flow__edge-bundle');
+    check('Enter on a band of several cables selects nothing', band.afterSpace == null && band.afterEnter == null, JSON.stringify(band));
+
+    // The Diagram look: a box is its device and a line its cable. Escape does not let go of a selection there, so
+    // the box's device is still in Details when Space is pressed on the line.
+    await page.keyboard.press('Escape');
+    await page.locator('.shell-bar').getByText('Diagram', { exact: true }).first().click();
+    await page.waitForSelector('.drawing--diagram .react-flow__node', { timeout: 10_000 });
+    await page.waitForTimeout(1200);
+    const boxSays = ((await page.locator('.drawing--diagram .react-flow__node').first().innerText()) ?? '').replace(/\s+/g, ' ').trim();
+    const box = await enterOn('.drawing--diagram .react-flow__node');
+    const boxName = (box.afterEnter ?? '').match(/[a-z]+-\d+/i)?.[0] ?? '';
+    check('in the Diagram look, Enter on a box selects its device', box.afterSpace == null && boxName !== '' && boxSays.includes(boxName), `the box: ${boxSays.slice(0, 40)}; Details: ${(box.afterEnter ?? '').slice(0, 60)}`);
+    const line = await enterOn('.drawing--diagram .react-flow__edge');
+    check('and Enter on a line selects its cable; Space does not', line.afterSpace === box.afterEnter && /end a .+ end b /i.test(line.afterEnter ?? ''), `after Space: ${(line.afterSpace ?? '').slice(0, 40)}; after Enter: ${(line.afterEnter ?? '').slice(0, 60)}`);
+
+    check('no uncaught page errors (Enter on what the keyboard is on)', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
   await browser.close();
   browser = null;
 } finally {

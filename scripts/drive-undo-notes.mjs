@@ -339,6 +339,59 @@ try {
       heldBeforeUndo === '0 selected, 0 open' && downBeforeUndo != null && downAfterUndo != null && downAfterUndo !== downBeforeUndo && heldAfterUndo === '0 selected, 0 open',
       `after ${letGo} Escape: ${heldBeforeUndo}; Undo moved the device ${downBeforeUndo} -> ${downAfterUndo}; then: ${heldAfterUndo}`,
     );
+
+    // Enter on the device the keyboard is on selects it, as a press on it does. The keyboard gets there with Tab, and
+    // no pointer is pressed from here on. Space is left alone: on the drawing it is held to pan.
+    const keyboardOnDevice = () =>
+      page.evaluate(() => document.activeElement?.classList.contains('react-flow__node-chassis') === true && (document.activeElement.textContent ?? '').includes('acc-01'));
+    const selectedBefore = await selectedDevices();
+    await device.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    const walkedToDevice = await keyboardOnDevice();
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(400);
+    const selectedAfterSpace = await selectedDevices();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(900);
+    const selectedAfterEnter = await selectedDevices();
+    const detailsSays = ((await page.locator('.drawing-editor__title').first().innerText().catch(() => '')) ?? '').trim();
+    const wasDown = await downItsRack();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(700);
+    const isDown = await downItsRack();
+    check(
+      'keys: Enter on the device the keyboard is on selects it and shows its Details, Space does not, and Down then moves it',
+      walkedToDevice && selectedBefore === 0 && selectedAfterSpace === 0 && selectedAfterEnter === 1 && detailsSays.includes('acc-01') && wasDown != null && isDown != null && isDown > wasDown + 2,
+      `the keyboard on the device: ${walkedToDevice}; selected ${selectedBefore}, after Space ${selectedAfterSpace}, after Enter ${selectedAfterEnter}; Details: ${detailsSays.slice(0, 30)}; down its rack ${wasDown} -> ${isDown}`,
+    );
+    // Escape steps out one level a press: the card that comes up beside the device the keyboard rests on goes
+    // first, then the selection. The keyboard stays on the device, so Enter selects it again.
+    const letGoOf = async () => {
+      const peekUp = await page.locator('.port-peek').count();
+      let escapes = 0;
+      for (; escapes < 3 && (await selectedDevices()) > 0; escapes += 1) {
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(500);
+      }
+      return { selected: await selectedDevices(), oneEach: escapes <= 1 + peekUp, escapes, peekUp, onDevice: await keyboardOnDevice() };
+    };
+    const afterMove = await letGoOf();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(700);
+    const selectedAgain = await selectedDevices();
+    // Straight after Enter, with no change between, React Flow has the device marked selected too, and on Escape
+    // takes the keyboard off it a frame later. It is put back.
+    const afterEnter = await letGoOf();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(700);
+    const selectedThird = await selectedDevices();
+    check(
+      'keys: Escape clears the selection and leaves the keyboard on the device, after a move and straight after Enter, so Enter selects it again',
+      afterMove.selected === 0 && afterMove.oneEach && afterMove.onDevice && selectedAgain === 1 && afterEnter.selected === 0 && afterEnter.oneEach && afterEnter.onDevice && selectedThird === 1,
+      `after a move: ${JSON.stringify(afterMove)}; Enter again: ${selectedAgain}; straight after Enter: ${JSON.stringify(afterEnter)}; Enter again: ${selectedThird}`,
+    );
+    await page.keyboard.press('Escape');
     check('trail: no uncaught page errors after the record', pageErrors.length === 0, pageErrors.join(' | '));
     await page.close();
   }

@@ -41,6 +41,7 @@ import { overlayShapes } from './overlayDraw';
 import { OverlayCard, OverlayLayer } from './OverlayLayer';
 import type { RoutingMarks, RoutingWord } from './routingLens';
 import { speedText, speedWidth, TRUNK_MIN_W, type LinksLine, type LinksMarks } from './linksLens';
+import { enterOn, KEYS_SAID } from './nodeKey';
 
 /** The Routing lens's table picker: the tables to choose from, the lit one, and what it lights. */
 export interface TableChoice {
@@ -443,12 +444,24 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   );
 
   return (
-    <div className="drawing drawing--diagram" data-look="diagram" data-style={style} data-zoom-band={band}>
+    <div
+      className="drawing drawing--diagram"
+      data-look="diagram"
+      data-style={style}
+      data-zoom-band={band}
+      // Enter on the box or the line the keyboard is on selects it, as a press does (`nodeKey.ts`). A box's
+      // id is its device's and a line's is its cable's.
+      onKeyDown={(event) => {
+        const on = enterOn(event.nativeEvent);
+        if (on != null) onSelect({ kind: on.kind === 'node' ? 'chassis' : 'cable', id: on.id });
+      }}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        ariaLabelConfig={KEYS_SAID}
         connectionMode={ConnectionMode.Loose}
         nodesConnectable={false}
         nodesDraggable={false}

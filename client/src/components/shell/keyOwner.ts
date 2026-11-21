@@ -36,6 +36,11 @@ export function keysToSelection(): void {
   walking = false;
 }
 
+/** Someone is going through the page with Tab: the ring they see is where they are. */
+export function keyboardIsWalking(): boolean {
+  return walking;
+}
+
 const PLAIN_KEYS: ReadonlySet<string> = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace']);
 
 type PlainKey = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'defaultPrevented' | 'target'>;

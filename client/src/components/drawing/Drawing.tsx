@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { DragEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
+import type { DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import {
   Background,
   ConnectionMode,
@@ -92,6 +92,7 @@ import { CanvasTools, type CanvasTool } from './CanvasTools';
 import { dockTravelLeft } from '../shell/Dock';
 import { InSideSlot } from '../shell/sideSlot';
 import { plainKeyIsElsewhere } from '../shell/keyOwner';
+import { enterOn, keepRing, KEYS_SAID } from './nodeKey';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { openElsewhere } from '../../api/estate';
@@ -1750,9 +1751,10 @@ function DrawingInner({
     } satisfies CableOverlayEdgeType);
   }
 
-  const handleNodeClick: NodeMouseHandler = useCallback(
-    (event, node) => {
-      if (free.onNodeClick(event, node)) return;
+  // What a press on a node selects. With Shift held it adds to, or takes from, what is already picked.
+  const pressNode = useCallback(
+    (press: { shiftKey: boolean }, node: RFNode) => {
+      if (free.onNodeClick(press, node)) return;
       // A wall, desk or ceiling: a click on its face or header, not on a fixture (which stops
       // the click itself), selects it.
       if (node.id.startsWith('surface:')) return onSelect({ kind: 'surface', id: node.id.slice('surface:'.length) });
@@ -1761,6 +1763,28 @@ function DrawingInner({
       onSelect(parsed.kind === 'rack' ? { kind: 'rack', id: parsed.id } : { kind: 'chassis', id: parsed.id });
     },
     [onSelect, free.onNodeClick],
+  );
+  const handleNodeClick: NodeMouseHandler = pressNode;
+
+  // Enter on the device, rack, shelf, wall or cable the keyboard is on selects it, as a press on it does
+  // (`nodeKey.ts`). A band of several cables has no press of its own, and no Enter. Escape clears the selection
+  // and leaves the keyboard where it was.
+  const handleCanvasKey = useCallback(
+    (event: ReactKeyboardEvent) => {
+      keepRing(event.nativeEvent);
+      const on = enterOn(event.nativeEvent);
+      if (on == null) return;
+      if (on.kind === 'edge') {
+        if (rf.getEdge(on.id)?.type === 'cable') onSelect({ kind: 'cable', id: on.id });
+        return;
+      }
+      const node = rf.getNode(on.id);
+      if (node == null) return;
+      // A shelf's press is its own (`ShelfPlate.tsx`), and never reaches the canvas's.
+      if (node.type === 'shelf') (node.data as ShelfPlateNodeType['data']).onSelectShelf();
+      else pressNode(event, node);
+    },
+    [rf, onSelect, pressNode],
   );
 
   // r116: a port or a cable has no inside, so a double-click on one opens its panel (ADR-0091 decision 3).
@@ -2244,6 +2268,7 @@ function DrawingInner({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDoubleClick={handleCableDoubleClick}
+      onKeyDown={handleCanvasKey}
       {...free.containerProps}
     >
       <CableCrossingKeys />
@@ -2302,6 +2327,7 @@ function DrawingInner({
         nodesConnectable={canDraw}
         elementsSelectable
         deleteKeyCode={null}
+        ariaLabelConfig={KEYS_SAID}
       >
         <Background gap={U_PX} size={1} />
         <CanvasMiniMap enabled={minimap === true} />

@@ -38,6 +38,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'zoom-fit', group: 'Canvas', keys: ['Shift', '1'], what: 'Fit the whole design in view', spec: { key: '!' } },
   { id: 'shortcuts', group: 'Canvas', keys: ['?'], what: 'Show this list of shortcuts', spec: { key: '?' } },
 
+  { id: 'select-focused', group: 'Selection', keys: ['Enter'], what: 'Select the device, rack, wall or cable the keyboard is on', spec: { key: 'Enter' } },
   { id: 'clear', group: 'Selection', keys: ['Esc'], what: 'Clear the selection or close what is open', spec: { key: 'Escape' } },
   { id: 'select-all', group: 'Selection', keys: ['Ctrl', 'A'], what: 'Select every box on the canvas', spec: { key: 'a', mod: true } },
   { id: 'nudge-up', group: 'Selection', keys: ['Up'], what: 'Move a rack device up one unit (a box: nudge it)', spec: { key: 'ArrowUp' } },
