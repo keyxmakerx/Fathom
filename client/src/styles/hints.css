@@ -22,8 +22,8 @@
   border: var(--rule-hair, 1px) solid var(--control-line);
   border-radius: var(--radius-pop, 0);
   background: color-mix(in srgb, var(--pop-solid, var(--surface)) 96%, transparent);
-  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
   -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
   box-shadow: var(--shadow-pop, 0 16px 40px rgb(0 0 0 / 0.28));
   color: var(--ink);
   font-size: var(--t-small);

@@ -8,8 +8,8 @@
   border: var(--rule-hair) solid var(--control-line);
   border-radius: var(--radius-pop);
   background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
   -webkit-backdrop-filter: var(--pop-blur);
+  backdrop-filter: var(--pop-blur);
   box-shadow: var(--shadow-pop);
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
   z-index: 60;

@@ -350,7 +350,10 @@ breadcrumb does one thing. The open design's name ends in an ellipsis past 32 ch
 tooltip), and someone who may draw renames it in place: a pencil on hover, a double-click, or Rename… at
 the top of its menu (Enter or leaving the field saves, Esc cancels). The bar shows five people, then one
 **+N** that lists the rest; each name selects what that person has selected. Fathom's button, field and
-focus styles stay inside the app, so a password manager's own controls keep their look.
+focus styles stay inside the app, so a password manager's own controls keep their look. A rule that frosts
+writes `-webkit-backdrop-filter` first and `backdrop-filter` second: written the other way round, the build's
+minifier dropped the second line and the built app drew no blur in Chromium, while `npm run dev` drew it
+(`styles/frost.test.ts` reads every stylesheet; `drive-fresh-install.mjs` reads the blur off the built app).
 
 **Hints and leaving** (sign-off r147). A control in the bar, the tool row, the zoom pill or the dock shows a
 card on hover or keyboard focus: its name, one plain sentence, its key (`shell/hints.ts`, `Hints.tsx`; the

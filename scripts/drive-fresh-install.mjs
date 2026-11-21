@@ -351,6 +351,16 @@ async function runDrive(tab) {
   await tab.waitForTimeout(1200); // the SaveQueue's own debounce plus one round trip
   const refusalCount = await tab.locator('.racks-place__refusal').count();
   check('9. place one device: it placed and saved with no refusal', refusalCount === 0, `refusal divs: ${refusalCount}`);
+
+  // -------------------------------------------------------------------
+  // 10. The built client frosts what floats. This drive runs the app as it is built, and the build is where the
+  // blur was lost: its minifier kept `-webkit-backdrop-filter` alone wherever that line was written second.
+  // -------------------------------------------------------------------
+  await tab.locator('[data-testid="shell-show"]').click();
+  await tab.locator('.shell-popover').first().waitFor({ timeout: 5000 });
+  const frost = await tab.locator('.shell-popover').first().evaluate((el) => getComputedStyle(el).backdropFilter);
+  check('10. frosted glass: the Layers menu blurs the drawing behind it', frost.includes('blur('), frost);
+  await tab.keyboard.press('Escape');
 }
 
 try {

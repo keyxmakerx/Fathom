@@ -376,8 +376,8 @@ button.shell-search {
   border: var(--rule-hair) solid var(--control-line);
   border-radius: var(--radius-pop);
   background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
   -webkit-backdrop-filter: var(--pop-blur);
+  backdrop-filter: var(--pop-blur);
   box-shadow: var(--shadow-pop);
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
   /* Over the canvas's floating cards (Checks, Plans, trace: --z-modal + 1 to + 3), under toasts. */
@@ -734,8 +734,8 @@ button.shell-admin-pill {
   margin-top: 4px;
   border: var(--rule-hair) solid var(--control-line);
   background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
   -webkit-backdrop-filter: var(--pop-blur);
+  backdrop-filter: var(--pop-blur);
   border-radius: var(--radius-pop);
   box-shadow: var(--shadow-pop);
   padding: 4px;
@@ -1230,8 +1230,8 @@ button.shell-admin-pill {
   border-radius: 0;
   background: none;
   box-shadow: none;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   animation: none;
 }
 .shell-canvas-bar .jump-tree {

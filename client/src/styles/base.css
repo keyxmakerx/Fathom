@@ -169,8 +169,8 @@
 /* Floating things (menus, pop-overs, notices) are frosted glass. */
 :where(.glass) {
   background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
   -webkit-backdrop-filter: var(--pop-blur);
+  backdrop-filter: var(--pop-blur);
   box-shadow: var(--shadow-pop);
 }
 
