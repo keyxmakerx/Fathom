@@ -657,6 +657,15 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   so where it sits is left out. Before, such a button had its label alone as a name ("1") and no tip. An inlet on
   a wall has its tip on the button too: its slot, and fed, fitted with no lead, or not fitted (`drive-sample.mjs`
   reads the wall's; the sample's shelf draws no ports, so the shelf's are held by `ShelfPlate.render.test.ts`).
+- **The arrow keys go through an open menu's rows** (`shell/menuKeys.ts`, wired in `shell/Popover.tsx`, so in every
+  menu the bar opens: the design's, Sample, Doing, the account's, the lens's, Layers, Look, Views and the zoom
+  stops; and in the ⋯ of the It's down panel, the one panel head that has rows). Down and Right step on, Up and
+  Left step back, and both go round at the ends; Home and End go to the first row and the last. From the button
+  that opened the menu Down goes in at the top and Up at the bottom, and no other key goes in. A greyed row is
+  skipped, as Tab skips it, and a field keeps its arrows. Tab goes through the rows as before, and still leaves
+  the menu open behind it. The right-click menu had Up and Down already (`drawing/ContextMenu.tsx`). The ⋯ of a
+  device in Details is a list of its own (`drawing/Editor.tsx`) and still moves by Tab only. `drive-sample.mjs`
+  drives Layers, Look and Views.
 - **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
   Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
   pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right

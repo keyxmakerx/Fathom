@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
-import type { ReactNode, RefObject } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react';
 
 import { useGhostRef } from './ghost';
+import { MENU_ROWS, rowAfter, usesArrows } from './menuKeys';
 
 export interface PopoverTriggerArgs {
   open: boolean;
@@ -39,7 +40,8 @@ export interface PopoverProps {
  * this component rather than reimplementing the behaviour.
  *
  * It traps nothing: Tab moves through the page as normal. Escape closes it
- * and returns focus to whichever element opened it.
+ * and returns focus to whichever element opened it. The arrow keys go
+ * through its rows (`menuKeys.ts`).
  */
 /** Lets a row close the pop-over it sits in once it has acted. */
 const CloseContext = createContext<() => void>(() => {});
@@ -98,12 +100,27 @@ export function Popover({ renderTrigger, children, align = 'left', className }: 
     setOpen((value) => !value);
   }
 
+  // The arrow keys go through the rows of an open menu, as Tab does. Pressed on the button that opened it, Down
+  // goes in at the top and Up at the bottom. A key a row used itself, or a field types with, is left alone.
+  function onKeys(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const box = popoverRef.current;
+    const on = document.activeElement;
+    if (!open || box == null || !(on instanceof HTMLElement) || event.defaultPrevented) return;
+    const onTrigger = on.closest('[aria-controls]')?.getAttribute('aria-controls') === id;
+    if (!onTrigger && (!box.contains(on) || usesArrows(on))) return;
+    const rows = Array.from(box.querySelectorAll<HTMLElement>(MENU_ROWS)).filter((row) => row.getClientRects().length > 0);
+    const next = rowAfter(event, onTrigger ? -1 : rows.indexOf(on), rows.length);
+    if (next == null) return;
+    event.preventDefault();
+    rows[next]?.focus();
+  }
+
   const classes = ['shell-popover', align === 'right' ? 'shell-popover--right' : '', className ?? '']
     .filter(Boolean)
     .join(' ');
 
   return (
-    <div className="shell-popover-host">
+    <div className="shell-popover-host" onKeyDown={onKeys}>
       {renderTrigger({
         open,
         toggle,
