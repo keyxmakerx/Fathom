@@ -638,6 +638,10 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   the selection's own and does not count (`data-selection-card`). An opened device keeps its Delete the same
   way. With the focus on the drawing, or on nothing, the keys are as they were (`drive-undo-notes.mjs`,
   `drive-back-tree.mjs`, `drive-open-device.mjs`).
+- **A pick is answered once** (`racks/focusRequest.ts`). A thing picked in Search, or shown with Show on rack,
+  is selected and brought to the faceplate stop, and a device is opened. That answer is given once for each pick:
+  a later change to the design, an Undo included, selects nothing and opens nothing again. Before, every change
+  after a pick took the selection back to the picked thing and opened its drawer (`drive-undo-notes.mjs`).
 - **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
   Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
   pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right

@@ -311,6 +311,34 @@ try {
       menuOpen && rowsWithMenu === rowsBeforeMenu && rowsAfterMenu === rowsBeforeMenu + 1,
       `menu open: ${menuOpen}; rows ${rowsBeforeMenu}, with the menu open ${rowsWithMenu}, after it closed and Up ${rowsAfterMenu}`,
     );
+
+    const selectedDevices = () => page.locator('.drawing-chassis--selected').count();
+    // How far down its rack the device is drawn: the same whatever the camera does.
+    const downItsRack = async () => {
+      const d = await device.boundingBox();
+      const r = await page.locator('.react-flow__node-rack').first().boundingBox();
+      return d != null && r != null ? Math.round(d.y - r.y) : null;
+    };
+
+    // A pick in Search is answered once: it selects the device and opens it. Let go of with Escape, a level a press,
+    // the device is the person's to leave: a later change to the design selects nothing and opens nothing.
+    const held = async () => `${await selectedDevices()} selected, ${await page.locator('.drawing-config-drawer').count()} open`;
+    let letGo = 0;
+    for (; letGo < 5 && (await held()) !== '0 selected, 0 open'; letGo += 1) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+    }
+    const heldBeforeUndo = await held();
+    const downBeforeUndo = await downItsRack();
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(900);
+    const downAfterUndo = await downItsRack();
+    const heldAfterUndo = await held();
+    check(
+      'keys: a pick in Search is answered once: let go of with Escape, the device is not selected or opened again by a later Undo',
+      heldBeforeUndo === '0 selected, 0 open' && downBeforeUndo != null && downAfterUndo != null && downAfterUndo !== downBeforeUndo && heldAfterUndo === '0 selected, 0 open',
+      `after ${letGo} Escape: ${heldBeforeUndo}; Undo moved the device ${downBeforeUndo} -> ${downAfterUndo}; then: ${heldAfterUndo}`,
+    );
     check('trail: no uncaught page errors after the record', pageErrors.length === 0, pageErrors.join(' | '));
     await page.close();
   }

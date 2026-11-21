@@ -109,6 +109,7 @@ import { TracePanel } from '../trace/TracePanel';
 import { useTraceElsewhere } from '../trace/traceElsewhere';
 import { InSideSlot, type SideTab } from '../shell/sideSlot';
 import { SaveBanner, type SaveBannerProps } from '../history/SaveBanner';
+import { focusToAnswer } from './focusRequest';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController, type TraceEnd } from '../trace/useTraceController';
 import { recordFirstSteps, sampleOfDesign } from '../home/firstSteps';
@@ -525,12 +526,16 @@ export function RacksPlace(props: RacksPlaceProps) {
   // per distinct `initialFocus` value — `DesignPlace.tsx` gives every "Show
   // on rack" click a fresh object, so identity itself is the "asked again"
   // signal, the same edge-triggered shape `Drawing.tsx`'s own camera moves
-  // already use.
+  // already use. `doc` is a new object after every change, so the request
+  // answered last is kept: a change is not a request (`focusRequest.ts`).
   const [openRequest, setOpenRequest] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
+  const answeredFocus = useRef<Selection | null>(null);
   useEffect(() => {
-    if (initialFocus == null || doc == null) return;
-    setSelection(initialFocus);
-    if (initialFocus.kind === 'chassis') setOpenRequest({ id: initialFocus.id, view: 'config' });
+    const focus = focusToAnswer(initialFocus, doc != null, answeredFocus.current);
+    if (focus == null) return;
+    answeredFocus.current = focus;
+    setSelection(focus);
+    if (focus.kind === 'chassis') setOpenRequest({ id: focus.id, view: 'config' });
     onZoomChange(CAMERA_STOPS.faceplate);
     // Edge-triggered on the `initialFocus` object identity and `doc` becoming available;
     // `onZoomChange` is a stable setter from `App.tsx`.
