@@ -114,6 +114,19 @@ check('drive.tsx copied from drive-lib/harness.tsx', existsSync(PREVIEW_TSX));
 check('drive-seed.ts copied from drive-lib/seed.ts', existsSync(PREVIEW_SEED));
 check('drive-catalogue.json copied from drive-lib/catalogue.json', existsSync(PREVIEW_CATALOGUE));
 
+/** How many cables the drawing shows once it has settled. As a design opens they are drawn, taken away for a few
+ * milliseconds and drawn again, so one read straight after they first show can find none. */
+async function cablesDrawn(page) {
+  let last = -1;
+  for (let i = 0; i < 20; i += 1) {
+    const now = await page.locator('.react-flow__edge-cable').count();
+    if (now > 0 && now === last) return now;
+    last = now;
+    await page.waitForTimeout(150);
+  }
+  return last;
+}
+
 let viteProc = null;
 let browser = null;
 
@@ -143,7 +156,7 @@ try {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=trail`);
     await page.waitForSelector('.react-flow__edge-cable', { timeout: 15_000 });
-    check('trail: the cable is on the drawing before undo', (await page.locator('.react-flow__edge-cable').count()) === 1);
+    check('trail: the cable is on the drawing before undo', (await cablesDrawn(page)) === 1);
 
     await openTheTrail(page);
     // A row says what changed in words and to what; the label as recorded is what the words show when pointed at.
@@ -312,7 +325,7 @@ try {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=conflict`);
     await page.waitForSelector('.react-flow__edge-cable', { timeout: 15_000 });
-    check('conflict: the cable is on the drawing before undo', (await page.locator('.react-flow__edge-cable').count()) === 1);
+    check('conflict: the cable is on the drawing before undo', (await cablesDrawn(page)) === 1);
 
     const colleague = (await page.evaluate(() => window.__driveActors__)).colleague;
 
