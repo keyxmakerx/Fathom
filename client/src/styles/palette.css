@@ -297,12 +297,11 @@
   text-align: center;
 }
 
+/* The wash comes in by its colour. A fade of the whole wash stands between the sheet's frosted glass and the page:
+   the glass then blurs the wash alone, and the drawing shows sharp through the sheet. */
 @keyframes float-scrim-in {
   from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
+    background-color: transparent;
   }
 }
 

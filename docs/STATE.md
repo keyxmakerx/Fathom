@@ -354,6 +354,10 @@ focus styles stay inside the app, so a password manager's own controls keep thei
 writes `-webkit-backdrop-filter` first and `backdrop-filter` second: written the other way round, the build's
 minifier dropped the second line and the built app drew no blur in Chromium, while `npm run dev` drew it
 (`styles/frost.test.ts` reads every stylesheet; `drive-fresh-install.mjs` reads the blur off the built app).
+The wash behind Search and the shortcuts sheet comes in by its colour: while it faded as a whole and held the
+end of that fade, the sheet inside blurred the wash alone and the drawing showed sharp through it, though the
+blur was computed. So the drive also looks: it lays fine stripes over the drawing and takes two pictures of
+the menu or sheet, the stripes moved between them (`seenThrough`, `scripts/drive-lib/kit.mjs`).
 
 **Hints and leaving** (sign-off r147). A control in the bar, the tool row, the zoom pill or the dock shows a
 card on hover or keyboard focus: its name, one plain sentence, its key (`shell/hints.ts`, `Hints.tsx`; the

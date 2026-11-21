@@ -50,3 +50,23 @@ describe('the frosted glass survives the build', () => {
     expect(wrong).toEqual([]);
   });
 });
+
+// A blur sees no further than the nearest thing around it that is drawn as one piece, and a thing that fades as a
+// whole and holds the end of its fade is such a piece: the glass inside then blurs that thing alone, and the page
+// shows sharp through it. `scripts/drive-fresh-install.mjs` looks at the pixels in the built app.
+describe('the frosted glass sees the page behind it', () => {
+  const palette = readFileSync(fileURLToPath(new URL('./palette.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const frames = (name: string) => new RegExp(`@keyframes ${name}\\s*\\{([\\s\\S]*?\\})\\s*\\}`).exec(palette)?.[1] ?? '';
+  const rule = (selector: string) => palette.split(`${selector} {`)[1]?.split('}')[0] ?? '';
+  const WHOLE = ['opacity', 'filter', 'mix-blend-mode', 'mask', 'clip-path'];
+
+  it('the wash a floating sheet sits in comes in by its colour, not as a whole', () => {
+    expect(rule('.float-scrim')).toMatch(/animation:\s*float-scrim-in\b/);
+    expect(frames('float-scrim-in')).toMatch(/background-color:\s*transparent/);
+    for (const property of WHOLE) expect(frames('float-scrim-in')).not.toContain(property);
+  });
+
+  it('and is not drawn as one piece at rest', () => {
+    for (const property of [...WHOLE, 'will-change']) expect(rule('.float-scrim')).not.toMatch(new RegExp(`(^|[;\\s])${property}\\s*:`));
+  });
+});
