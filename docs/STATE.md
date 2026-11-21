@@ -625,6 +625,15 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   always list Remove, greyed with what is still on them until they are empty (one undo step); Delete and
   Ctrl K's Delete do the same on a selected one. A wall clicked on its face opens a small panel (name,
   what is on it, cable runs). Empty canvas offers a 42U, 24U or 12U rack, or a wall. A reader gets Details.
+- **Whose the arrow keys are** (`shell/keyOwner.ts`). The drawing listens on the whole page, so a thing picked
+  with the pointer is nudged or removed with no press on the drawing first. An arrow key, Delete or Backspace is
+  not the selection's when it is pressed on a button or a list outside the drawing that used the key itself (the
+  Back list moves its own line) or that the keyboard reached with Tab, or while a menu or a dialog is open from
+  one. A press with the pointer, or a thing picked in Search, gives those keys back to the selection, and so does
+  closing the menu. Under a dialog that covers the page they are nobody's. The card beside a selected thing is
+  the selection's own and does not count (`data-selection-card`). An opened device keeps its Delete the same
+  way. With the focus on the drawing, or on nothing, the keys are as they were (`drive-undo-notes.mjs`,
+  `drive-back-tree.mjs`, `drive-open-device.mjs`).
 - **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
   Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
   pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right

@@ -166,8 +166,22 @@ try {
     check('exactly one line is current', (await page.locator('[data-testid="jump-tree"] [aria-current="location"]').count()) === 1);
     check('focus starts on the current line', await page.evaluate(() => document.activeElement?.getAttribute('aria-current') === 'location'));
     await shot(page, 'back-tree-device-in-rack');
+    // The arrows are the list's. With the device selected the drawing moves it a unit on Up and Down, so each key
+    // here is checked against the device's place and the saves made.
+    const selectedDevice = page.locator('.react-flow__node-chassis').first();
+    const deviceAt = async () => Math.round((await selectedDevice.boundingBox()).y);
+    const wasAt = await deviceAt();
+    const savesWere = await page.evaluate(() => window.__saveCount__);
     await page.keyboard.press('ArrowUp');
     check('ArrowUp moves up a line', await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'jump-tree-line' && document.activeElement?.getAttribute('aria-current') !== 'location'));
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowUp');
+    await page.waitForTimeout(900);
+    check(
+      'and the arrows pressed in the list leave the selected device where it is',
+      (await deviceAt()) === wasAt && (await page.evaluate(() => window.__saveCount__)) === savesWere,
+      `device at ${wasAt}, then ${await deviceAt()}; saves ${savesWere}, then ${await page.evaluate(() => window.__saveCount__)}`,
+    );
 
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);

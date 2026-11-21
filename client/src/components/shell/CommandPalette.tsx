@@ -3,6 +3,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { createPortal } from 'react-dom';
 
 import { useGhostRef } from './ghost';
+import { keysToSelection } from './keyOwner';
 import { cycleGroup, firstEnabled, highlightParts, matchActions, moveActive, noteOf, type PaletteAction } from './palette';
 import type { SearchHit } from './search';
 import type { ShellSearch } from './types';
@@ -135,6 +136,8 @@ export function PaletteSheet({ search, onClose, initialQuery = '', layer = false
       openElsewhere(entry.hit.design, entry.hit.open);
       return;
     }
+    // The thing is picked from the keyboard: the arrow keys and Delete are for it, wherever the focus goes back to.
+    keysToSelection();
     search.choose(entry.hit.selection);
   }
 

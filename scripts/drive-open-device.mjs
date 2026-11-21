@@ -227,6 +227,63 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     check('dragging port to port makes a cable', (await page.locator('[data-testid=jot-cable]').count()) === 1);
     await shot(page, 'S8-05-cabled');
 
+    // A press on the cable selects it. Delete and Backspace pressed on a button outside the opened device that Tab
+    // went to are that button's, and the cable stays; after a press on the cable, Delete takes it off.
+    const pressCable = async () => {
+      const at = await page.locator('.jot__cable-hit').first().evaluate((path) => {
+        const mid = path.getPointAtLength(path.getTotalLength() / 2);
+        const m = path.getScreenCTM();
+        return { x: mid.x * m.a + mid.y * m.c + m.e, y: mid.x * m.b + mid.y * m.d + m.f };
+      });
+      await page.mouse.click(at.x, at.y);
+      await page.waitForTimeout(200);
+    };
+    await pressCable();
+    const cableOn = (await page.locator('.jot__cable--on').count()) === 1;
+    await page.locator('[data-testid="dock-equipment"]').focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    const walkedTo = await page.evaluate(() => {
+      const el = document.activeElement;
+      return el instanceof HTMLButtonElement && el.closest('[data-testid=jot]') == null ? (el.getAttribute('data-testid') ?? el.textContent) : null;
+    });
+    for (const key of ['Delete', 'Backspace']) await page.keyboard.press(key);
+    await page.waitForTimeout(400);
+    check(
+      'Delete and Backspace on a button Tab went to, outside the opened device, leave the selected cable',
+      cableOn && walkedTo != null && (await page.locator('[data-testid=jot-cable]').count()) === 1,
+      `cable selected: ${cableOn}; the keyboard on: ${walkedTo}; cables: ${await page.locator('[data-testid=jot-cable]').count()}`,
+    );
+    // A menu opened with the pointer has the keys while it is open: the cable stays.
+    await pressCable();
+    await page.locator('[data-testid=shell-show]').click();
+    const menuOpen = (await page.locator('.shell-popover[role=menu]').count()) === 1;
+    const cableOnUnderMenu = (await page.locator('.jot__cable--on').count()) === 1;
+    for (const key of ['Delete', 'Backspace']) await page.keyboard.press(key);
+    await page.waitForTimeout(400);
+    const cablesWithMenu = await page.locator('[data-testid=jot-cable]').count();
+    await page.keyboard.press('Escape');
+    check(
+      'Delete and Backspace with a menu opened with the pointer leave the selected cable',
+      menuOpen && cableOnUnderMenu && cablesWithMenu === 1,
+      `menu open: ${menuOpen}; cable selected: ${cableOnUnderMenu}; cables: ${cablesWithMenu}`,
+    );
+    await pressCable();
+    await page.keyboard.press('Delete');
+    await page.waitForTimeout(400);
+    const cablesAfterDelete = await page.locator('[data-testid=jot-cable]').count();
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(600);
+    check(
+      'after a press on the cable Delete takes it off, and Ctrl+Z puts it back',
+      cablesAfterDelete === 0 && (await page.locator('[data-testid=jot-cable]').count()) === 1,
+      `after Delete: ${cablesAfterDelete}; after Ctrl+Z: ${await page.locator('[data-testid=jot-cable]').count()}`,
+    );
+    // A press on the empty field selects the opened device again, as it was before the cable was pressed.
+    const field = await page.locator('.jot__field').boundingBox();
+    await page.mouse.click(field.x + field.width - 10, field.y + field.height - 10);
+    await page.waitForTimeout(200);
+
     // Inside, Config, and out. r116: Inside and Config are the Details panel's foot buttons, and Esc with the
     // focus inside the panel folds the panel, so the focus leaves it before each Esc here.
     if ((await page.locator('[data-testid=device-open-inside]').count()) === 0) await page.locator('[data-testid=dock-details]').click();

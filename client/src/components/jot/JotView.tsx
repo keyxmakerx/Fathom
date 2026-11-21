@@ -19,6 +19,7 @@ import { PlateTools } from './PlateTools';
 import type { TemplateOwner } from './faceplateTemplates';
 import { ALIGN_PX, PLATE_GRID, snapPort, toPlate, type SnappedPort } from './portArrange';
 import { JOT_HINT } from '../racks/emptyHints';
+import { plainKeyIsElsewhere } from '../shell/keyOwner';
 import './jot.css';
 
 /** The port kinds the tray offers, dragged onto a plate or clicked. */
@@ -158,6 +159,8 @@ export function JotView(props: JotViewProps): JSX.Element {
         return;
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && canDraw && selected) {
+        // Pressed on a button outside this view that the keyboard walked to, it is not for what is selected here.
+        if (plainKeyIsElsewhere(e, rootRef.current)) return;
         if (selected.kind === 'cable') onDisconnect(selected.id);
         else if (selected.kind === 'chassis' && selected.id !== deviceId && shown.some((p) => p.chassis.id === selected.id)) onRemoveBox(selected.id);
         else return;

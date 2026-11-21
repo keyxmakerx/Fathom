@@ -14,6 +14,7 @@ import { DetailsOpenContext } from './shell/clickAnswer';
 import { rememberedTab, SHOW_DETAILS_EVENT, useRightTab, type RightTab } from './shell/useRightTab';
 import { loadResume, patchResume } from './design/resume';
 import { isTypingTarget, matches } from './shell/shortcuts';
+import { useKeyOwner } from './shell/keyOwner';
 import type { ShellProps } from './shell/types';
 
 export type {
@@ -100,6 +101,8 @@ export function Shell({
 }: ShellProps) {
   // r31-bar A: on the drawing, its own controls sit on it (a strip top left, a pill at the bottom), not in the bar.
   const toolsOnCanvas = place === 'racks';
+  // Whether the keyboard is going through the page, for the drawing's arrow keys, Delete and Backspace.
+  useKeyOwner();
 
   // ADR-0074: above the closet the same camera goes on to the building, the site and every site,
   // drawn from the folders over the canvas, which stays mounted beneath.

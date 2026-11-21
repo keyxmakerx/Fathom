@@ -228,6 +228,76 @@ try {
       rowsAfterKeys === rowsWere && rowAfterKeys === 2 && rowsAfterDrawingKey === rowsWere + 1,
       `rows ${rowsWere}; after three keys in the rows ${rowsAfterKeys}, on row ${rowAfterKeys}; after Down on the drawing ${rowsAfterDrawingKey}`,
     );
+
+    // The keyboard goes to a button outside the drawing with Tab: the arrows, Delete and Backspace are that button's,
+    // and the selected device stays as it is. A press with the pointer gives them back to the selection.
+    const rowCount = () => page.locator('.racks-trail__row').count();
+    const walkTo = async (selector) => {
+      await page.locator(selector).focus();
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+      return page.evaluate(() => {
+        const el = document.activeElement;
+        return el instanceof HTMLButtonElement && el.closest('.drawing') == null ? (el.getAttribute('data-testid') ?? el.textContent) : null;
+      });
+    };
+    await device.click();
+    await openTheTrail(page);
+    const rowsBeforeWalk = await rowCount();
+    const walkedTo = await walkTo('[data-testid=history-tab-trail]');
+    for (const key of ['ArrowUp', 'ArrowDown', 'Delete', 'Backspace']) await page.keyboard.press(key);
+    await page.waitForTimeout(600);
+    const rowsAfterWalk = await rowCount();
+    const devicesAfterWalk = await device.count();
+    // The pointer pressed on that same button, which keeps the focus: the next Up is the selection's.
+    await page.locator('[data-testid=history-tab-trail]').click();
+    await page.keyboard.press('ArrowUp');
+    await page.waitForTimeout(600);
+    const rowsAfterPointer = await rowCount();
+    check(
+      'keys: on a button Tab went to, outside the drawing, the arrows, Delete and Backspace leave the selected device as it is; after a press with the pointer on that button, Up moves it',
+      walkedTo != null && rowsAfterWalk === rowsBeforeWalk && devicesAfterWalk === 1 && rowsAfterPointer === rowsBeforeWalk + 1,
+      `the keyboard on: ${walkedTo}; rows ${rowsBeforeWalk}, after the four keys ${rowsAfterWalk}, device there: ${devicesAfterWalk === 1}; after the pointer and Up ${rowsAfterPointer}`,
+    );
+
+    // A device picked in Search from the keyboard is the selection's to move, though the focus goes back to the button.
+    await walkTo('[data-testid=history-tab-trail]');
+    await page.keyboard.press('Control+k');
+    await page.locator('.palette input').waitFor({ timeout: 5_000 });
+    await page.keyboard.type('acc-01');
+    await page.waitForTimeout(400);
+    const firstFound = ((await page.locator('.palette [role=option][aria-selected=true]').first().textContent().catch(() => '')) ?? '').trim();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(900);
+    const backOn = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? document.activeElement?.tagName ?? null);
+    // No press with the pointer from here to the key: the trail is read as it stands.
+    const rowsBeforeFound = await rowCount();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(600);
+    const rowsAfterFound = await rowCount();
+    check(
+      'keys: a device picked in Search from the keyboard moves with Down, with the focus back on the button Tab had gone to',
+      firstFound.includes('acc-01') && backOn === 'history-tab-trail' && rowsBeforeFound > 0 && rowsAfterFound === rowsBeforeFound + 1,
+      `Search found: ${firstFound.slice(0, 40)}; the focus back on: ${backOn}; rows ${rowsBeforeFound} -> ${rowsAfterFound}`,
+    );
+
+    // A menu opened with the pointer has the keys while it is open, though the pointer was pressed last. Closed,
+    // they are the selection's again.
+    const rowsBeforeMenu = await rowCount();
+    await page.locator('[data-testid=shell-show]').click();
+    const menuOpen = (await page.locator('.shell-popover[role=menu]').count()) === 1;
+    for (const key of ['ArrowUp', 'ArrowDown', 'Delete', 'Backspace']) await page.keyboard.press(key);
+    await page.waitForTimeout(600);
+    const rowsWithMenu = await rowCount();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('ArrowUp');
+    await page.waitForTimeout(600);
+    const rowsAfterMenu = await rowCount();
+    check(
+      'keys: with a menu opened with the pointer the arrows, Delete and Backspace leave the selected device as it is; the menu closed, Up moves it',
+      menuOpen && rowsWithMenu === rowsBeforeMenu && rowsAfterMenu === rowsBeforeMenu + 1,
+      `menu open: ${menuOpen}; rows ${rowsBeforeMenu}, with the menu open ${rowsWithMenu}, after it closed and Up ${rowsAfterMenu}`,
+    );
     check('trail: no uncaught page errors after the record', pageErrors.length === 0, pageErrors.join(' | '));
     await page.close();
   }

@@ -91,6 +91,7 @@ import { parseFreeNodeId } from './freeLayout';
 import { CanvasTools, type CanvasTool } from './CanvasTools';
 import { dockTravelLeft } from '../shell/Dock';
 import { InSideSlot } from '../shell/sideSlot';
+import { plainKeyIsElsewhere } from '../shell/keyOwner';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { openElsewhere } from '../../api/estate';
@@ -2099,6 +2100,9 @@ function DrawingInner({
     }
 
     function onKeyDown(event: KeyboardEvent) {
+      // An arrow key, Delete or Backspace pressed on a button or a list outside the drawing that the keyboard
+      // walked to, or that used the key itself, is not for the selection (`keyOwner.ts`).
+      if (plainKeyIsElsewhere(event, containerRef.current)) return;
       // A device in a rack: Up and Down move it a unit, Ctrl+D duplicates, Ctrl+C and Ctrl+V copy and paste.
       if (
         rackDeviceKey(event, {

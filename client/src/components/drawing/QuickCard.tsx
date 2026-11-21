@@ -228,6 +228,8 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
         ref={cardGhostRef}
         className="quick-card"
         role="dialog"
+        // The selection's own card: with it open, the arrow keys and Delete are still the selection's (`shell/keyOwner.ts`).
+        data-selection-card=""
         aria-label={`${facts.title}, in short`}
         data-testid="quick-card"
         data-print-omit=""
