@@ -1113,6 +1113,42 @@ try {
     await context.close();
   }
 
+  // The ports of a thing on a wall say what they are: each button's tip, and its name for a screen reader, are a
+  // rack port's words. The label alone once named it ("1"), and it had no tip.
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=home`);
+    await page.waitForSelector('.home-sample', { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Open sample' }).click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(2000);
+    const portsOf = (selector) =>
+      page.evaluate(
+        (sel) =>
+          [...document.querySelectorAll(sel)].map((b) => ({
+            tip: b.getAttribute('title'),
+            name: b.querySelector('svg[role="img"]')?.getAttribute('aria-label') ?? null,
+            cabled: [...b.classList].some((c) => c.endsWith('__port--cabled')),
+          })),
+        selector,
+      );
+    const wrongOf = (ports) => ports.filter((p) => p.tip == null || p.name !== p.tip || !/^Port \S.* · \S+ · (cabled|free)$/.test(p.tip) || !p.tip.endsWith(p.cabled ? ' · cabled' : ' · free'));
+    const onWalls = await portsOf('button.drawing-surface__port');
+    const wrongOnWalls = wrongOf(onWalls);
+    check(
+      'every port of a thing on a wall has a tip, and a name the same, that say the port, its connector and cabled or free',
+      onWalls.length > 0 && wrongOnWalls.length === 0,
+      `${onWalls.length} ports, ${onWalls.filter((p) => p.cabled).length} cabled; the first: ${onWalls[0]?.tip}; wrong: ${JSON.stringify(wrongOnWalls.slice(0, 3))}`,
+    );
+    const first = onWalls[0]?.tip ?? '';
+    check('and the browser gives a button that name', first !== '' && (await page.getByRole('button', { name: first, exact: true }).count()) > 0, first);
+    check('no uncaught page errors (the ports on a wall)', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
   await browser.close();
   browser = null;
 } finally {

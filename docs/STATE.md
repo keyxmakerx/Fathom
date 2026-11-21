@@ -651,6 +651,12 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   and a line's cable. The words read out for a node or a cable say the key and nothing else (`KEYS_SAID`), in
   place of React Flow's, which offered Space, moving and deleting. The key is a row of the shortcuts table
   (`select-focused`). `drive-undo-notes.mjs` and `drive-sample.mjs` drive it.
+- **A port says what it is, wherever it is drawn** (`drawing/faceplate.ts` `portSays`). A port's button has one
+  set of words as its tip and as its name for a screen reader: the port, its connector, where it sits on the
+  plate, an optic or an empty cage, and cabled or free. On a wall and on a shelf a port is drawn in a plain row,
+  so where it sits is left out. Before, such a button had its label alone as a name ("1") and no tip. An inlet on
+  a wall has its tip on the button too: its slot, and fed, fitted with no lead, or not fitted (`drive-sample.mjs`
+  reads the wall's; the sample's shelf draws no ports, so the shelf's are held by `ShelfPlate.render.test.ts`).
 - **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
   Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
   pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right

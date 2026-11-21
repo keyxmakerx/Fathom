@@ -5,7 +5,7 @@ import { PORT_GLYPHS } from '../ports';
 import { CheckBadge } from '../checks/CheckBadge';
 import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type InletView, type PortView, type Sheath } from './contract';
 import type { Facing } from './elevation';
-import { cardFrames, connectorName, faceplateLayoutFor, plateItems, portWhere, type PortBox } from './faceplate';
+import { cardFrames, faceplateLayoutFor, plateItems, portSays, portWhere, type PortBox } from './faceplate';
 import { onOpticDragOver, onOpticDrop } from './Parts';
 import { RAIL_PX, U_PX } from './geometry';
 import { useLive, useLiveStore } from './liveStore';
@@ -190,16 +190,6 @@ function PlatePort({
   );
 }
 
-function portTip(port: PortView, layout: ReturnType<typeof faceplateLayoutFor>, inlet: InletView | null): string {
-  const where = portWhere(layout, port.id);
-  const state = port.cable != null ? 'cabled' : 'free';
-  const label = inlet != null ? inlet.slot || inlet.label : port.label ? `Port ${port.label}` : 'Port';
-  const optic = port.optic ? `optic ${port.optic.type ?? port.optic.part ?? 'fitted'}` : port.optic === null ? 'empty cage' : '';
-  return [label, connectorName(port.connector), where, optic, inlet != null && !inlet.fitted ? 'not fitted' : state]
-    .filter(Boolean)
-    .join(' · ');
-}
-
 /** The device plate: its ports drawn where the unit has them (`faceplate.ts`),
  * its name in the blank part of the plate and above any cable, or on a tab at
  * the rail when the plate has no room. ADR-0050 §1: draws whichever faceplate
@@ -324,7 +314,7 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
                     liveDrag={liveDrag}
                     portSheath={portSheath}
                     litCableId={litCableId}
-                    tip={glyphs ? portTip(port, layout, inlet) : ''}
+                    tip={glyphs ? portSays(port, portWhere(layout, port.id), inlet) : ''}
                     onSelectPort={onSelectPort}
                     faded={data.checksFaded === true}
                   />

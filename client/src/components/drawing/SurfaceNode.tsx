@@ -17,6 +17,7 @@ import { isOneFitted, isSingleFed, pduUsage, pduUsageLabel } from './power';
 import type { SurfacePlacement } from './rows';
 import { mmRailTicks, mmToPx } from './rows';
 import { SURFACE_HEADER_PX } from './geometry';
+import { portSays } from './faceplate';
 import { isLoosePort, portHandleFlags } from './missingLinks';
 import { SHEATH_VAR } from './sheath';
 
@@ -161,11 +162,14 @@ function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: P
     const style: Record<string, string | number> = {};
     if (dimmedByDrag || dimmedByLitPath) style.opacity = 'var(--phantom)';
     if (sheath != null) style['--port-sheath'] = SHEATH_VAR[sheath];
+    // Its name and its tip, in a rack port's words (`ChassisNode.tsx`): the bare label alone said "1".
+    const says = portSays(port, null, null);
     return (
       <button
         key={port.id}
         type="button"
         data-port-id={port.id}
+        title={says}
         className={cabled ? 'drawing-surface__port drawing-surface__port--cabled nodrag' : 'drawing-surface__port nodrag'}
         style={style}
         onClick={(event: MouseEvent) => {
@@ -173,7 +177,7 @@ function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: P
           onSelectPort(port.id);
         }}
       >
-        <Glyph cabled={cabled} title={port.label} className="drawing-port-glyph--budgeted" />
+        <Glyph cabled={cabled} title={says} className="drawing-port-glyph--budgeted" />
         <Handle type="source" position={Position.Right} id={port.id} {...portHandleFlags(cabled, isLoosePort(port))} className="drawing-surface__port-handle" />
       </button>
     );
@@ -209,11 +213,13 @@ function InletStrip({
           const cabled = inlet.cable != null;
           const dimmed = litCableId != null && inlet.cable?.cableId !== litCableId;
           const Glyph = PORT_GLYPHS.c14;
+          const says = `${inlet.slot || inlet.label} — ${inlet.fitted ? (cabled ? 'fed' : 'fitted, no lead') : 'not fitted'}`;
           return (
             <button
               key={inlet.id}
               type="button"
               data-port-id={inlet.id}
+              title={says}
               className={cabled ? 'drawing-surface__port drawing-surface__port--cabled nodrag' : 'drawing-surface__port nodrag'}
               style={dimmed ? { opacity: 'var(--phantom)' } : undefined}
               onClick={(event: MouseEvent) => {
@@ -223,7 +229,7 @@ function InletStrip({
             >
               <Glyph
                 cabled={cabled}
-                title={`${inlet.slot || inlet.label} — ${inlet.fitted ? (cabled ? 'fed' : 'fitted, no lead') : 'not fitted'}`}
+                title={says}
                 className={
                   inlet.fitted ? 'drawing-port-glyph--zoomed' : 'drawing-port-glyph--zoomed drawing-chassis__inlet--unfitted'
                 }

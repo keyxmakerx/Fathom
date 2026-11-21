@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PortView } from './contract';
-import { describePorts, layoutFaceplate, plateItems, portWhere } from './faceplate';
+import type { InletView, PortView } from './contract';
+import { describePorts, layoutFaceplate, plateItems, portSays, portWhere } from './faceplate';
 
 function port(id: string, over: Partial<PortView> = {}): PortView {
   return {
@@ -93,6 +93,52 @@ describe('words', () => {
     const lines = describePorts(ports, layoutFaceplate(ports, 1, 'sw-01'));
     expect(lines[0]).toBe('24 × RJ45, ports 1–24, two rows');
     expect(lines[1]).toBe('2 × SFP+, ports 25–26, uplinks, on the right');
+  });
+
+  const CABLE = { cableId: 'c1', farPortId: 'far', farChassisId: 'sw-02', outsideCloset: false };
+
+  it('says what a port on a plate is: its name for a screen reader, and its tip', () => {
+    const ports = switch24();
+    const layout = layoutFaceplate(ports, 1, 'sw-01');
+    expect(portSays(port('7'), portWhere(layout, '7'), null)).toBe('Port 7 · RJ45 · top row, 4th from left · free');
+    expect(portSays(port('7', { cable: CABLE }), portWhere(layout, '7'), null)).toBe('Port 7 · RJ45 · top row, 4th from left · cabled');
+  });
+
+  it('leaves out where it sits for a port in a plain row, on a wall or a shelf', () => {
+    expect(portSays(port('eth0', { cable: CABLE }), null, null)).toBe('Port eth0 · RJ45 · cabled');
+    expect(portSays(port('4'), null, null)).toBe('Port 4 · RJ45 · free');
+    // More than the bare label the picture inside the button once gave it.
+    expect(portSays(port('4'), null, null)).not.toBe('4');
+  });
+
+  it('says Port alone for one with no label, and the connector as typed where it is not one it knows', () => {
+    expect(portSays(port('p1', { label: '' }), null, null)).toBe('Port · RJ45 · free');
+    expect(portSays(port('p2', { label: 'aux', connector: 'db9' }), null, null)).toBe('Port aux · DB9 · free');
+  });
+
+  it('says the optic in a cage, or that the cage is empty', () => {
+    expect(portSays(port('25', { connector: 'sfp_plus', optic: { type: '10GBASE-SR' } }), null, null)).toBe('Port 25 · SFP+ · optic 10GBASE-SR · free');
+    expect(portSays(port('25', { connector: 'sfp_plus', optic: { part: 'SFP-10G-SR' } }), null, null)).toBe('Port 25 · SFP+ · optic SFP-10G-SR · free');
+    expect(portSays(port('25', { connector: 'sfp_plus', optic: {} }), null, null)).toBe('Port 25 · SFP+ · optic fitted · free');
+    expect(portSays(port('26', { connector: 'sfp_plus', optic: null }), null, null)).toBe('Port 26 · SFP+ · empty cage · free');
+  });
+
+  it('names an inlet by its slot, and says when no supply is fitted', () => {
+    const inlet = (over: Partial<InletView>): InletView => ({
+      ...port('psu', { connector: 'c14', label: 'inlet' }),
+      slot: 'PSU1',
+      hotSwap: true,
+      fitted: true,
+      supplyId: null,
+      serial: null,
+      model: null,
+      position: { row: 'single', column: 0 },
+      ...over,
+    });
+    expect(portSays(inlet({}), null, inlet({}))).toBe('PSU1 · C14 · free');
+    expect(portSays(inlet({ cable: CABLE }), null, inlet({ cable: CABLE }))).toBe('PSU1 · C14 · cabled');
+    expect(portSays(inlet({ fitted: false }), null, inlet({ fitted: false }))).toBe('PSU1 · C14 · not fitted');
+    expect(portSays(inlet({ slot: '' }), null, inlet({ slot: '' }))).toBe('inlet · C14 · free');
   });
 });
 

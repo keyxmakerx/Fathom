@@ -174,6 +174,39 @@ describe('SurfaceNode (render-to-string)', () => {
     expect(markup).toContain('data-port-id="outlet-port-1"');
   });
 
+  it("a fixture's port says what it is, as the button's tip and as its name: a rack port's words", () => {
+    const cable = { cableId: 'c1', farPortId: 'far', farChassisId: 'sw-01', outsideCloset: false };
+    const f = fixture({
+      id: 'switch-2',
+      label: 'switch-2',
+      xMm: 0,
+      yMm: 0,
+      ports: [port({ id: 'sw2-1', label: '1', cable }), port({ id: 'sw2-4', label: '4' })],
+    });
+    const s = surface({ id: 'wall-office', label: 'Office', form: 'wall', fixtures: [f] });
+    const markup = renderSurface(baseData({ placement: placement(s) }));
+    // The tip is on the button; the name comes from the picture inside it, in the same words.
+    expect(markup).toMatch(/<button type="button" data-port-id="sw2-1" title="Port 1 · RJ45 · cabled"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 1 · RJ45 · cabled"/);
+    expect(markup).toMatch(/<button type="button" data-port-id="sw2-4" title="Port 4 · RJ45 · free"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 4 · RJ45 · free"/);
+    // Not the bare label alone, which said "1".
+    expect(markup).not.toContain('aria-label="1"');
+    expect(markup).not.toContain('aria-label="4"');
+  });
+
+  it("a fixture's inlet has its tip on the button too, in the words its picture has", () => {
+    const f = fixture({
+      id: 'ont-01',
+      label: 'ont-01',
+      xMm: 0,
+      yMm: 0,
+      psuInlets: [inlet({ id: 'ont-inlet-1', label: 'inlet', slot: 'PSU1' }), inlet({ id: 'ont-inlet-2', label: 'inlet', slot: 'PSU2', fitted: false })],
+    });
+    const s = surface({ id: 'wall-west', label: 'west wall', form: 'wall', fixtures: [f] });
+    const markup = renderSurface(baseData({ placement: placement(s) }));
+    expect(markup).toMatch(/<button type="button" data-port-id="ont-inlet-1" title="PSU1 — fitted, no lead"[^>]*>\s*<svg[^>]*aria-label="PSU1 — fitted, no lead"/);
+    expect(markup).toMatch(/<button type="button" data-port-id="ont-inlet-2" title="PSU2 — not fitted"[^>]*>\s*<svg[^>]*aria-label="PSU2 — not fitted"/);
+  });
+
   it("a fixture's own PSU inlets always draw, regardless of portOpacity", () => {
     const f = fixture({
       id: 'ont-01',

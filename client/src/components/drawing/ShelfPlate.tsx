@@ -16,6 +16,7 @@ import { RACK_INNER_PX, U_PX, glyphScaleBudgetCap } from './geometry';
 import { useLive } from './liveStore';
 import { LitPathMark } from './CableOverlayEdge';
 import { portKindFor } from './portGlyph';
+import { portSays } from './faceplate';
 import { isLoosePort, portHandleFlags } from './missingLinks';
 import { SHEATH_VAR } from './sheath';
 import { ShelfGrips, type ResizeShelf } from './ShelfGrips';
@@ -129,12 +130,15 @@ function GlyphRow({ ports, glyphClassName, showLabels, onSelectPort, liveDrag, p
         const style: Record<string, string | number> = {};
         if (dimmed) style.opacity = 'var(--phantom)';
         if (sheath != null) style['--port-sheath'] = SHEATH_VAR[sheath];
+        // Its name and its tip, in a rack port's words (`ChassisNode.tsx`).
+        const says = portSays(port, null, null);
 
         return (
           <button
             key={port.id}
             type="button"
             data-port-id={port.id}
+            title={says}
             className={
               cabled
                 ? 'drawing-shelf__port drawing-shelf__port--cabled nodrag'
@@ -146,7 +150,7 @@ function GlyphRow({ ports, glyphClassName, showLabels, onSelectPort, liveDrag, p
               onSelectPort(port.id);
             }}
           >
-            <Glyph cabled={cabled} title={port.label} className={glyphClassName} />
+            <Glyph cabled={cabled} title={says} className={glyphClassName} />
             {showLabels && (
               <span className="drawing-shelf__port-label">
                 {port.label} · {port.connector}
