@@ -975,7 +975,10 @@ screen, Inventory included. A past save is drawn on the canvas only: choosing on
 and leaving the canvas with one showing goes back to now. The banner that names the save sits in the canvas bar
 (`shell/CanvasBar.tsx`, the `canvas-note` slot): beside the tools where both fit on one line and under them where
 they do not, so the tools never lie over it, and it stays solid while the tools fade in a drag (`drive-history.mjs`
-checks it clear of the tools at two widths). The field view has no History (`DesignPlace.tsx`).
+checks it clear of the tools at two widths). The banner has its own **Back to now** beside its words
+(`history/SaveBanner.tsx`), as the list of saves has: only the words are the status that is read out, a press on
+the words still reaches the drawing, and the button stays whole where the words go over two lines. The field view
+has no History (`DesignPlace.tsx`).
 Undo and Redo follow the key: they are greyed while a save is on show, and not while the list of saves is open
 with none chosen. Greyed, each says why, as its tip in the bar and beside its name in the folded More menu and in
 Search: view only, the phone's Canvas, a save on show, or nothing to undo (`design/undoWords.ts` `notOffered`,

@@ -1118,7 +1118,10 @@ export function DesignPlace(props: DesignPlaceProps) {
         ),
         banner:
           pickedSave != null
-            ? `Showing the design just after ${whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0)} · what changed is outlined`
+            ? {
+                words: `Showing the design just after ${whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0)} · what changed is outlined`,
+                onBack: history.back,
+              }
             : null,
       }
     : undefined;

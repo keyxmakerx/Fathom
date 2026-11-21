@@ -108,6 +108,7 @@ import { RoutingContext, type RoutingApi } from '../drawing/RoutingTab';
 import { TracePanel } from '../trace/TracePanel';
 import { useTraceElsewhere } from '../trace/traceElsewhere';
 import { InSideSlot, type SideTab } from '../shell/sideSlot';
+import { SaveBanner, type SaveBannerProps } from '../history/SaveBanner';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController, type TraceEnd } from '../trace/useTraceController';
 import { recordFirstSteps, sampleOfDesign } from '../home/firstSteps';
@@ -339,8 +340,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
   /** The History panel, shown in the editor's place, and the line over the canvas while a
-   * past save is shown. Absent unless History is open. */
-  historyView?: { panel: ReactNode; banner: string | null };
+   * past save is shown, with its own way back. Absent unless History is open. */
+  historyView?: { panel: ReactNode; banner: SaveBannerProps | null };
   /** The cable ids the Cables list shows, or `null` when it shows them all — for "as shown on screen" in print. */
   onShownCablesChange?: (ids: ReadonlySet<string> | null) => void;
   /** The Cables list's own storage key (`fathom.cables.<designId>`), one
@@ -2256,9 +2257,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       <NoteAuthorsContext.Provider value={noteAuthors}>
       {historyView?.banner != null ? (
         <InSideSlot id="canvas-note">
-          <div className="history-banner" role="status" data-testid="history-banner">
-            {historyView.banner}
-          </div>
+          <SaveBanner {...historyView.banner} />
         </InSideSlot>
       ) : null}
       <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
