@@ -245,6 +245,8 @@ try {
     await page.waitForTimeout(300);
     check('a click selects a thing on the shelf', (await page.locator('.shelf-room__thing--selected[data-occupant-id]').textContent()).includes('morpheus-nas'));
     await shot(page, 'r63-2-selected');
+    // A press shows the thing's quick card; its Details are a tab of the right-hand dock.
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
     // A device on a shelf gets a racked device's whole panel: the ⋯ menu, its name to rename, the foot.
     check('a shelf device has the ⋯ menu', (await page.locator('[data-testid=device-more]').count()) === 1);
     check('a shelf device has Open inside on the foot', (await page.locator('[data-testid=device-open-inside]').count()) === 1);
@@ -296,7 +298,9 @@ try {
     // 5. Right-click a device drawn on the shelf: the same menu as a racked device's.
     await page.locator('.react-flow__node-shelf [data-device-chassis]').first().click({ button: 'right' });
     const devItems = await page.locator('.drawing-context-menu__item').allInnerTexts();
-    for (const want of ['Open inside', 'Fit a card', 'Remove device']) check(`right-click on a shelf device offers ${want}`, devItems.some((i) => i.startsWith(want)), devItems.join(' | '));
+    // r116: right-click is the short menu of ten rows; "Open inside" and "Fit a card" left it for the panel and Ctrl K.
+    for (const want of ['Open', 'Trace from here', 'Plan a change', 'Duplicate', 'Remove device']) check(`right-click on a shelf device offers ${want}`, devItems.some((i) => i.startsWith(want)), devItems.join(' | '));
+    for (const gone of ['Open inside', 'Fit a card']) check(`right-click on a shelf device no longer lists ${gone}`, !devItems.some((i) => i.startsWith(gone)), devItems.join(' | '));
     await shot(page, 'r63-6-device-menu');
     await page.keyboard.press('Escape');
 
