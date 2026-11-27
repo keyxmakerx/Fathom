@@ -100,7 +100,7 @@ try {
 
   await page.goto(`${BASE}/drive.html?scene=ipam`);
   await page.waitForSelector('.drawing', { timeout: 15_000 });
-  await page.getByRole('button', { name: 'Inventory', exact: true }).click();
+  await page.locator('[data-testid="view-inventory"]').click();
   await page.waitForSelector('.inventory-place__rail', { timeout: 15_000 });
   const rail = () => page.locator('.inventory-place__rail').innerText().then((t) => t.replace(/\s+/g, ' '));
 
@@ -142,7 +142,7 @@ try {
   await shot('prefixes-02-page.png');
 
   // 5 - a big range gets a coarse grid. A page replaces the list, so Back first.
-  await page.getByRole('button', { name: /^← Back to Prefixes/ }).click();
+  await page.locator('[data-testid=inv-back]').click();
   await page.waitForSelector('.inv-table__row');
   await page.locator('.inv-table__row', { hasText: '172.16.0.0/16' }).first().click();
   await page.waitForFunction(() => document.querySelectorAll('.ipam-grid .ipam-grid__cell').length === 256);
@@ -151,7 +151,7 @@ try {
   await shot('prefixes-03-coarse.png');
 
   // 6 - typing an address writes it to a device interface; one undo removes it.
-  await page.getByRole('button', { name: /^← Back to Prefixes/ }).click();
+  await page.locator('[data-testid=inv-back]').click();
   await page.waitForSelector('.inv-table__row');
   await page.locator('.inv-table__row', { hasText: '10.0.20.0/24' }).first().click();
   await page.waitForSelector('.ipam-grid');
@@ -164,7 +164,7 @@ try {
   const after = (await page.locator('.ipam-list').innerText()).replace(/\s+/g, ' ');
   check('the typed address is listed on nas-01 and the next free moves on', /10\.0\.20\.2 nas-01 eth0 typed/.test(after) && /next free 10\.0\.20\.3/.test((await page.locator('.ipam-page').innerText()).replace(/\s+/g, ' ')), after);
   await shot('prefixes-04-added.png');
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByTestId('bar-undo').click();
   await page.waitForFunction(() => /3\/254 used/.test(document.querySelector('.ipam-page')?.textContent ?? ''), null, { timeout: 5_000 });
   check('one Undo takes the address away again', true);
 
@@ -176,7 +176,7 @@ try {
   check('an address outside the prefix is refused plainly', (await page.locator('.ipam-form__error').innerText()).includes('not inside 10.0.20.0/24'));
 
   // 8 - a new prefix with no device interface is refused, not left orphaned.
-  await page.getByRole('button', { name: /^← Back to Prefixes/ }).click();
+  await page.locator('[data-testid=inv-back]').click();
   await page.waitForSelector('.inv-table__row');
   await page.getByRole('button', { name: '+ Add a prefix' }).click();
   await page.getByLabel('Prefix', { exact: true }).fill('10.0.40.0/24');
@@ -193,7 +193,7 @@ try {
   await shot('prefixes-05-new.png');
 
   // 9 - paste rows: header row, two good rows and one without an owner; one undo takes them all.
-  await page.getByRole('button', { name: /^← Back to Prefixes/ }).click();
+  await page.locator('[data-testid=inv-back]').click();
   await page.waitForSelector('.inv-table__row');
   await page.getByRole('button', { name: 'Paste rows' }).click();
   await page.getByLabel('Pasted rows').fill('Prefix\tAddress\tDevice\tInterface\n10.0.50.0/24\t10.0.50.1/24\tfw-01\tge-0/0/1\n10.0.51.0/24\t10.0.51.1/24\tnas-01\teth0\n10.0.52.0/24\t10.0.52.1/24\t\t');
@@ -201,7 +201,7 @@ try {
   await page.waitForFunction(() => /Prefixes\s*6/.test((document.querySelector('.inventory-place__rail')?.textContent ?? '').replace(/\s+/g, ' ')), null, { timeout: 5_000 });
   const notice = await page.locator('.inv-toolbar__notice').innerText();
   check('pasting names the row it could not place', /2 added, 1 not added/.test(notice) && notice.includes('Put it on a device interface'), notice);
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByTestId('bar-undo').click();
   await page.waitForFunction(() => /Prefixes\s*4/.test((document.querySelector('.inventory-place__rail')?.textContent ?? '').replace(/\s+/g, ' ')), null, { timeout: 5_000 });
   check('one Undo takes the whole paste away', true);
 
@@ -213,11 +213,11 @@ try {
   await page.locator('.inv-table__row').first().click();
   await page.waitForSelector('.ipam-page');
   check('the VLAN page lists its prefix and members', (await page.locator('.ipam-page').innerText()).includes('10.0.20.0/24'));
-  await page.getByRole('button', { name: /^← Back to VLANs/ }).click();
+  await page.locator('[data-testid=inv-back]').click();
   await page.waitForSelector('.inv-table__row');
   await page.getByRole('button', { name: '+ Add a VLAN' }).click();
   await page.getByLabel('VLAN number').fill('30');
-  await page.getByLabel('Name').fill('Cameras');
+  await page.locator('.ipam-page').getByLabel('Name', { exact: true }).fill('Cameras');
   await page.getByRole('button', { name: 'Add VLAN' }).click();
   check('a VLAN with no device is refused', (await page.locator('.ipam-form__error').innerText()).includes('Put it on a device'));
   await page.getByLabel('Device').selectOption({ label: 'cam-07' });
