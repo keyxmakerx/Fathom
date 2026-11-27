@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { SHORTCUTS } from '../shell/shortcuts';
-import { enterOn, escapeOnWalkedNode, KEYS_SAID } from './nodeKey';
+import { enterOn, escapeClears, escapeOnWalkedNode, KEYS_SAID } from './nodeKey';
 
 /** Something on the page with these classes, as React Flow writes a node or a cable. */
 function thing(classes: string, id: string | null = 'chassis:c1') {
@@ -79,6 +79,33 @@ describe('Escape on a node the keyboard walked to', () => {
     expect(escapeOnWalkedNode({ key: 'Escape', target: thing(EDGE) as unknown as EventTarget }, true)).toBeNull();
     expect(escapeOnWalkedNode({ key: 'Escape', target: thing('drawing-surface__port') as unknown as EventTarget }, true)).toBeNull();
     expect(escapeOnWalkedNode({ key: 'Escape', target: null }, true)).toBeNull();
+  });
+});
+
+describe('Escape in the Diagram look', () => {
+  const esc = (held: Partial<Record<'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'defaultPrevented', boolean>> = {}, key = 'Escape') => ({ key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, defaultPrevented: false, ...held });
+  const clear = { above: false, peek: false, card: false, typing: false };
+
+  it('clears the selection, as the shortcuts sheet says', () => {
+    expect(escapeClears(esc(), clear)).toBe(true);
+  });
+
+  it('puts away one thing at a time: a menu or a dialog, a hover card and the card beside the selection go first', () => {
+    expect(escapeClears(esc(), { ...clear, above: true })).toBe(false);
+    expect(escapeClears(esc(), { ...clear, peek: true })).toBe(false);
+    expect(escapeClears(esc(), { ...clear, card: true })).toBe(false);
+  });
+
+  it('leaves the key to someone typing, and to whatever has already used it', () => {
+    expect(escapeClears(esc(), { ...clear, typing: true })).toBe(false);
+    expect(escapeClears(esc({ defaultPrevented: true }), clear)).toBe(false);
+  });
+
+  it('is Escape alone: not another key, and not Escape with Ctrl, Cmd or Alt', () => {
+    expect(escapeClears(esc({}, 'Enter'), clear)).toBe(false);
+    expect(escapeClears(esc({ ctrlKey: true }), clear)).toBe(false);
+    expect(escapeClears(esc({ metaKey: true }), clear)).toBe(false);
+    expect(escapeClears(esc({ altKey: true }), clear)).toBe(false);
   });
 });
 

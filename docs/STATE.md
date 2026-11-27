@@ -702,6 +702,13 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   `aria-label`); read from the row itself they ran together. The ⋯ of a device in Details is a list of its own
   (`drawing/Editor.tsx` `DeviceMore`) and has the same three: first row from the keyboard, the arrows through
   its rows, shut when Tab leaves it. `drive-sample.mjs` drives Layers, Doing, Look, Views and the ⋯ list.
+- **The shortcuts sheet and the keys agree** (`shell/shortcuts.ts`; `drawing/nodeKey.ts` `escapeClears`). The
+  sheet says Esc clears the selection. In the Diagram look it did nothing; it now clears the selection there as
+  it does on the Canvas. One Esc still puts away one thing: a menu or a dialog over the page, a hover card and
+  the card beside the selection each go first, and a field keeps the key. The keyboard stays on the box it was
+  on. Holding Space and dragging moves the view whichever tool is on. That is React Flow's own and worked
+  already; it is now a row of the sheet (`pan-hold`, with no key spec, as the double-click to rename has none).
+  `drive-sample.mjs` drives the Escape; `drive-shortcuts.mjs` drives the drag with Space held and reads the row.
 - **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
   Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
   pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right

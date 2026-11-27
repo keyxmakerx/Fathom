@@ -4,6 +4,7 @@
 // selected in its store; the selection this app draws, moves and shows a panel for is the app's own, so the
 // canvas hears the key here and makes the selection a press would.
 
+import { nextEscape } from '../shell/clickAnswer';
 import { keyboardIsWalking } from '../shell/keyOwner';
 import { matches } from '../shell/shortcuts';
 
@@ -52,9 +53,19 @@ export function keepRing(event: KeyboardEvent): void {
   });
 }
 
+type ClearKey = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'defaultPrevented'>;
+
+/** Whether an Escape is the one that clears the selection in the Diagram look, as the shortcuts sheet says it
+ * does (`clear`). One Esc puts away one thing (`nextEscape`): a menu or a dialog over the page, a hover card and
+ * the card beside the selection each go first. A key something has already used, and one pressed while someone
+ * is typing, is not the selection's. The Canvas look's own handler is in `Drawing.tsx`. */
+export function escapeClears(event: ClearKey, up: { above: boolean; peek: boolean; card: boolean; typing: boolean }): boolean {
+  if (!matches(event, 'clear') || event.defaultPrevented || up.typing) return false;
+  return nextEscape({ above: up.above, peek: up.peek, card: up.card, selected: true }) === 'clear';
+}
+
 /** What is read out for a node or a cable the keyboard is on, in place of React Flow's own words. Those offer
- * Space, which is held to pan here, say every node can be moved and deleted, and say Escape lets go, which the
- * Diagram look does not do. */
+ * Space, which is held to pan here, and say every node can be moved and deleted. */
 const SAID = 'Press Enter to select it.';
 export const KEYS_SAID = {
   'node.a11yDescription.default': SAID,

@@ -42,7 +42,9 @@ import { overlayShapes } from './overlayDraw';
 import { OverlayCard, OverlayLayer } from './OverlayLayer';
 import type { RoutingMarks, RoutingWord } from './routingLens';
 import { speedText, speedWidth, TRUNK_MIN_W, type LinksLine, type LinksMarks } from './linksLens';
-import { enterOn, KEYS_SAID } from './nodeKey';
+import { enterOn, escapeClears, KEYS_SAID } from './nodeKey';
+import { openAbove } from '../shell/clickAnswer';
+import { isTypingTarget } from '../shell/shortcuts';
 
 /** The Routing lens's table picker: the tables to choose from, the lit one, and what it lights. */
 export interface TableChoice {
@@ -437,6 +439,23 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     void rf.zoomTo(zoom / 100);
   }, [zoom, rf]);
   useCameraHub(cameraHub);
+
+  // Escape clears the selection, as it does in the Canvas look and as the shortcuts sheet says. It once did
+  // nothing here. What goes first is `escapeClears`; a copy left to fade (`ghost.ts`) is not up.
+  useEffect(() => {
+    if (selected == null) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      const up = {
+        above: openAbove(),
+        peek: document.querySelector('.port-peek:not([data-ghost])') != null,
+        card: document.querySelector('.quick-card:not([data-ghost])') != null,
+        typing: isTypingTarget(document.activeElement),
+      };
+      if (escapeClears(event, up)) onSelect(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selected, onSelect]);
 
   const [wheel, setWheel] = useWheelMode('zoom');
   const handleMove: OnMove = useCallback((_e, vp) => setBand(zoomBandAt(Math.round(vp.zoom * 1000) / 10)), []);

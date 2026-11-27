@@ -30,6 +30,8 @@ export interface Shortcut {
 export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'tool-select', group: 'Canvas', keys: ['V'], what: 'Select tool: drag to box-select', spec: { key: 'v' } },
   { id: 'tool-pan', group: 'Canvas', keys: ['H'], what: 'Pan tool: drag to move the view', spec: { key: 'h' } },
+  // Held, not pressed: React Flow's own (`panActivationKeyCode`), so nothing here listens for it and it has no spec.
+  { id: 'pan-hold', group: 'Canvas', keys: ['Space', 'Drag'], what: 'Hold Space and drag to move the view, whichever tool is on' },
   { id: 'print', group: 'Canvas', keys: ['Ctrl', 'P'], what: 'Print or export', spec: { key: 'p', mod: true } },
   { id: 'go-back', group: 'Canvas', keys: ['Alt', 'Left'], what: 'Go back to where you were, like a browser', spec: { key: 'ArrowLeft', alt: true } },
   { id: 'go-forward', group: 'Canvas', keys: ['Alt', 'Right'], what: 'Go forward again', spec: { key: 'ArrowRight', alt: true } },

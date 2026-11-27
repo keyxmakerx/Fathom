@@ -1147,8 +1147,8 @@ try {
     const band = await enterOn('.react-flow__edge-bundle');
     check('Enter on a band of several cables selects nothing, and nothing read out says it would', band.afterSpace == null && band.afterEnter == null && band.said == null, JSON.stringify(band));
 
-    // The Diagram look: a box is its device and a line its cable. Escape does not let go of a selection there, so
-    // the box's device is still in Details when Space is pressed on the line.
+    // The Diagram look: a box is its device and a line its cable. Escape lets go of a selection there as it does
+    // on the Canvas, and as the shortcuts sheet says: it once did nothing in this look.
     await page.keyboard.press('Escape');
     await page.locator('.shell-bar').getByText('Diagram', { exact: true }).first().click();
     await page.waitForSelector('.drawing--diagram .react-flow__node', { timeout: 10_000 });
@@ -1160,8 +1160,12 @@ try {
     const box = await enterOn('.drawing--diagram .react-flow__node');
     const boxName = (box.afterEnter ?? '').match(/[a-z]+-\d+/i)?.[0] ?? '';
     check('in the Diagram look, Enter on a box selects its device', box.afterSpace == null && boxName !== '' && boxSays.includes(boxName), `the box: ${boxSays.slice(0, 40)}; Details: ${(box.afterEnter ?? '').slice(0, 60)}`);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    const onBox = await page.evaluate(() => document.activeElement?.classList.contains('react-flow__node') ?? false);
+    check('Escape there clears the selection, and the keyboard stays on the box', (await details()) == null && onBox, `Details: ${((await details()) ?? 'nothing').slice(0, 40)}; on the box: ${onBox}`);
     const line = await enterOn('.drawing--diagram .react-flow__edge');
-    check('and Enter on a line selects its cable; Space does not', line.afterSpace === box.afterEnter && /end a .+ end b /i.test(line.afterEnter ?? ''), `after Space: ${(line.afterSpace ?? '').slice(0, 40)}; after Enter: ${(line.afterEnter ?? '').slice(0, 60)}`);
+    check('and Enter on a line selects its cable; Space does not', line.afterSpace == null && /end a .+ end b /i.test(line.afterEnter ?? ''), `after Space: ${(line.afterSpace ?? 'nothing').slice(0, 40)}; after Enter: ${(line.afterEnter ?? '').slice(0, 60)}`);
 
     check('no uncaught page errors (Enter on what the keyboard is on)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
