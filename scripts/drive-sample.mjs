@@ -1290,7 +1290,7 @@ try {
     const says = (await card.textContent().catch(() => '')) ?? '';
     check('a press on a device on a wall shows its card', (await card.count()) === 1 && says.includes('camera-1'), says.slice(0, 80));
     check("the card says where it is and how many of its ports are cabled, as a rack device's does", /Where\s*Outside wall/.test(says) && /Ports\s*1 of 1 cabled/.test(says), says);
-    check('the card offers no double-click, which does not open a device on a wall', !/Double-click/.test(says), says);
+    check('the card offers the double-click that opens it, as a rack device\'s does', /Double-click to open inside/.test(says), says);
     check('the device is marked as the selected one', await marked('camera-1'));
     check('and the camera stays where it was', (await zoomOf()) === zoomAsItOpens, `${zoomAsItOpens} to ${await zoomOf()}`);
     const ap = await onWall('ap-1').boundingBox();
@@ -1335,6 +1335,188 @@ try {
     const shelf = await whereIs('nas-1');
     check('and one on a shelf', shelf != null && shelf.inView && shelf.onTop, JSON.stringify(shelf));
     check('no uncaught page errors (a device on a wall)', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
+  // A port answers when it is drawn, and only then, and a device opens on a double-click wherever it sits. As the
+  // sample opens a rack device's ports are too small to be drawn, yet each took the pointer: a press on a switch
+  // was a port's as often as the switch's, and a drag from one drew a cable out of a port nobody could see. Drawn,
+  // a pressed port got no card, since the port kept its press to itself. A shelf and a device on it got none
+  // either; a press on the device took the camera to the Faceplate stop, and the second press of a double-click
+  // then missed it. A double-click on a device on a wall doubled the zoom.
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=home`);
+    await page.waitForSelector('.home-sample', { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Open sample' }).click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(2000);
+    const card = page.getByTestId('quick-card');
+    const says = async () => ((await card.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ');
+    const zoomOf = () => page.evaluate(() => document.querySelector('.react-flow__viewport')?.style.transform.match(/scale\(([^)]+)\)/)?.[1] ?? '');
+    const opened = () => page.locator('[data-testid=jot]').count();
+    const putAway = async () => {
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+    };
+    // A person's double-click: two presses some way apart, not the instant pair dblclick() sends.
+    const doublePress = async (at) => {
+      await page.mouse.move(at.x, at.y);
+      await page.mouse.down({ clickCount: 1 });
+      await page.mouse.up({ clickCount: 1 });
+      await page.waitForTimeout(220);
+      await page.mouse.down({ clickCount: 2 });
+      await page.mouse.up({ clickCount: 2 });
+      await page.waitForTimeout(1400);
+    };
+    const middleOf = (selector, name) =>
+      page.evaluate(
+        ({ selector, name }) => {
+          const el = [...document.querySelectorAll(selector)].find((n) => (n.textContent ?? '').trim().startsWith(name));
+          if (el == null) return null;
+          const r = el.getBoundingClientRect();
+          return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        },
+        { selector, name },
+      );
+    const zoomAsItOpens = await zoomOf();
+
+    // Far out, where the ports of the big switch lie.
+    const far = await page.evaluate(() => {
+      const plate = [...document.querySelectorAll('.react-flow__node-chassis')].find((n) => (n.textContent ?? '').includes('switch-1'));
+      const ports = [...(plate?.querySelectorAll('[data-port-id]') ?? [])];
+      const middle = (p) => {
+        const r = p.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      };
+      const onTop = ports.filter((p) => {
+        const at = middle(p);
+        const top = document.elementFromPoint(at.x, at.y);
+        return top != null && p.contains(top);
+      }).length;
+      const free = ports.find((p) => p.querySelector('.react-flow__handle.connectionindicator') != null);
+      const layer = plate?.querySelector('.drawing-chassis__ports');
+      return { ports: ports.length, onTop, layer: layer != null ? getComputedStyle(layer).visibility : null, at: free != null ? middle(free) : null };
+    });
+    check('as the sample opens no port of a rack device is drawn, and none takes the pointer', far.ports > 0 && far.onTop === 0 && far.layer === 'hidden', JSON.stringify(far));
+    if (far.at != null) {
+      await page.mouse.click(far.at.x, far.at.y);
+      await page.waitForTimeout(800);
+      const pressed = await says();
+      check(
+        'a press where one lies is a press on the device, and the camera stays',
+        pressed.includes('switch-1') && !pressed.startsWith('Port') && (await zoomOf()) === zoomAsItOpens,
+        `card: ${pressed.slice(0, 40)}; zoom ${zoomAsItOpens} to ${await zoomOf()}`,
+      );
+      await putAway();
+      await page.mouse.move(far.at.x, far.at.y);
+      await page.mouse.down();
+      await page.mouse.move(far.at.x, far.at.y + 10, { steps: 3 });
+      await page.mouse.move(far.at.x, far.at.y + 40, { steps: 6 });
+      const drawing = await page.locator('.react-flow__connection').count();
+      await page.mouse.move(far.at.x, far.at.y, { steps: 6 });
+      await page.mouse.up();
+      await page.waitForTimeout(700);
+      check('and a drag from there draws no cable', drawing === 0, String(drawing));
+      await putAway();
+    } else {
+      check('the big switch has a free port to press on', false);
+    }
+
+    // The shelf and a device on it, as the sample opens.
+    const shelfName = await middleOf('.drawing-shelf__label', 'Shelf');
+    if (shelfName != null) await page.mouse.click(shelfName.x, shelfName.y);
+    await page.waitForTimeout(800);
+    const shelfSays = await says();
+    check('a press on a shelf shows its card: where it is and what is on it', shelfSays.startsWith('Shelf') && /Where\s*Rack 1/.test(shelfSays) && /On it\s*nas-1/.test(shelfSays), shelfSays.slice(0, 90));
+    await putAway();
+    const chips = '.drawing-shelf__compact-occupant, .drawing-shelf__occupant';
+    const nas = await middleOf(chips, 'nas-1');
+    if (nas != null) await page.mouse.click(nas.x, nas.y);
+    await page.waitForTimeout(900);
+    const nasSays = await says();
+    check('a press on a device on the shelf shows its card', nasSays.includes('nas-1') && /Where\s*Rack 1 · Shelf/.test(nasSays) && /Double-click to open inside/.test(nasSays), nasSays.slice(0, 110));
+    check('and the camera stays where it was', (await zoomOf()) === zoomAsItOpens, `${zoomAsItOpens} to ${await zoomOf()}`);
+    const clear = await page.evaluate(() => {
+      const shelf = document.querySelector('.react-flow__node-shelf')?.getBoundingClientRect();
+      const c = document.querySelector('[data-testid="quick-card"]')?.getBoundingClientRect();
+      return shelf != null && c != null ? { shelf: [Math.round(shelf.left), Math.round(shelf.right)], card: [Math.round(c.left), Math.round(c.right)] } : null;
+    });
+    check('the card hangs off the end of the shelf, clear of the things beside the one pressed', clear != null && (clear.card[0] >= clear.shelf[1] || clear.card[1] <= clear.shelf[0]), JSON.stringify(clear));
+    await putAway();
+    const nasAgain = await middleOf(chips, 'nas-1');
+    if (nasAgain != null) await doublePress(nasAgain);
+    check('a double-click opens the device on the shelf', (await opened()) === 1 && (await card.count()) === 0);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(1200);
+    check('and Esc comes back to the room as it was left', (await opened()) === 0 && (await zoomOf()) === zoomAsItOpens, `${zoomAsItOpens} to ${await zoomOf()}`);
+    await putAway();
+
+    // A device on a wall.
+    const cam = await middleOf('.drawing-surface__fixture', 'camera-1');
+    if (cam != null) await doublePress(cam);
+    check('a double-click opens a device on a wall', (await opened()) === 1);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(1200);
+    check('and leaves the zoom of the room alone', (await opened()) === 0 && (await zoomOf()) === zoomAsItOpens, `${zoomAsItOpens} to ${await zoomOf()}`);
+    await putAway();
+
+    // Close in, where the ports are drawn. A pick in Search opens Details, and the panel then answers a press in
+    // place of the card: fold it first.
+    const closeIn = async (name) => {
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('.palette input', { timeout: 5_000 });
+      await page.keyboard.type(name);
+      await page.waitForTimeout(500);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(2600);
+      const tab = page.getByTestId('dock-details');
+      if ((await tab.getAttribute('aria-expanded')) === 'true') await tab.click();
+      await page.waitForTimeout(700);
+    };
+    // The card of a pressed port: what it says, where it hangs and where its dotted line starts.
+    const pressPort = async (name) => {
+      const at = await page.evaluate((name) => {
+        const device = [...document.querySelectorAll('.react-flow__node-chassis, .drawing-surface__fixture')].find((n) => (n.textContent ?? '').includes(name));
+        const port = device?.querySelector('button[data-port-id][class*="__port--cabled"]');
+        if (device == null || port == null) return null;
+        const d = device.getBoundingClientRect();
+        const p = port.getBoundingClientRect();
+        // A wall is drawn behind the cables, so a cable takes a press where its line lies over a port: press the
+        // port clear of it.
+        const spots = [[0.5, 0.5], [0.75, 0.75], [0.25, 0.75], [0.75, 0.25], [0.25, 0.25]].map(([fx, fy]) => ({ x: p.x + p.width * fx, y: p.y + p.height * fy }));
+        const clear = spots.find((spot) => port.contains(document.elementFromPoint(spot.x, spot.y)));
+        return clear != null ? { ...clear, port: [p.left, p.right], device: [d.left, d.right], tip: port.getAttribute('title') } : null;
+      }, name);
+      if (at == null) return null;
+      await page.mouse.click(at.x, at.y);
+      await page.waitForTimeout(900);
+      const hung = await page.evaluate(() => {
+        const c = document.querySelector('[data-testid="quick-card"]')?.getBoundingClientRect();
+        const dot = document.querySelector('.quick-card__dot');
+        return c != null && dot != null ? { card: [c.left, c.right], dot: Number(dot.getAttribute('cx')) } : null;
+      });
+      return { ...at, says: await says(), hung };
+    };
+    const clearOf = (p) => p?.hung != null && (p.hung.card[0] >= p.device[1] || p.hung.card[1] <= p.device[0]);
+    const fromPort = (p) => p?.hung != null && p.hung.dot >= p.port[0] - 1 && p.hung.dot <= p.port[1] + 1;
+    await closeIn('switch-1');
+    const inRack = await pressPort('switch-1');
+    check("close in, a press on a rack port shows the port's card: where it goes, its VLAN and its cable", inRack != null && inRack.says.startsWith('Port') && /To\s*\S/.test(inRack.says) && /VLAN/.test(inRack.says) && /Cable/.test(inRack.says), `${inRack?.tip}: ${inRack?.says.slice(0, 80)}`);
+    check('the card hangs off the end of the device, clear of the ports beside the one pressed', clearOf(inRack), JSON.stringify(inRack?.hung ?? null) + JSON.stringify(inRack?.device ?? null));
+    check('and its dotted line starts at the port', fromPort(inRack), JSON.stringify(inRack?.hung ?? null) + JSON.stringify(inRack?.port ?? null));
+    check('the camera stays at the Faceplate stop', (await zoomOf()) === '2', await zoomOf());
+    await shot(page, 'SN-16-a-pressed-port-has-its-card');
+    await putAway();
+    await closeIn('switch-2');
+    const onDesk = await pressPort('switch-2');
+    check("a press on a port of a thing on a desk, clear of its cable, shows the port's card the same", onDesk != null && onDesk.says.startsWith('Port') && /To\s*\S/.test(onDesk.says) && clearOf(onDesk) && fromPort(onDesk), `${onDesk?.tip}: ${onDesk?.says.slice(0, 60)} ${JSON.stringify(onDesk?.hung ?? null)}`);
+    await putAway();
+    check('no uncaught page errors (ports, a shelf and a double-click)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
 

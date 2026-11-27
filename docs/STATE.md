@@ -661,7 +661,11 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   thing is read in place of "node" and "edge" (`SAID_AS`). Before, React Flow's own words were no name at all for
   a device, a rack, a shelf or a wall, and "Edge from" and two ids for a cable. The Diagram look's boxes and lines
   have the same names. A device on a wall and a thing on a shelf take no Tab stop of their own, so they are named
-  only by the wall or shelf that holds them. The names were read back from Chromium's accessibility tree, not
+  only by the wall or shelf that holds them. A cable's two ends, a band's two devices and the things on a wall are
+  read in name order, a number in a name by its value ("switch-2" before "switch-10"), an end outside the room
+  last: the design keeps no order of its own for them, and read as it holds them, two things made in the same
+  millisecond came out either way round, so a design and its copy named the same cable differently. A shelf's
+  things are read in the order they sit. The names were read back from Chromium's accessibility tree, not
   listened to with a screen reader; an area and a line on the open canvas were not read back. `thingSays.test.ts`
   holds the words; `drive-sample.mjs` reads them in both looks.
 - **A port says what it is, wherever it is drawn** (`drawing/faceplate.ts` `portSays`). A port's button has one
@@ -677,8 +681,10 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   the document, never heard it. Such a press is now sent on to the card by name (`ownPress`). The card says what
   a rack device's says: its kind, its name, the management address to copy, the model, where it is and how many
   of its ports are cabled (`quickCard.ts` reads the device's record wherever it sits, and the peek has the same
-  rows). It offers no double-click, which does not open a device on a wall. Selected, a thing on a wall has the
-  four corner ticks; it had no mark. A device on a wall or a shelf that is picked in Search is brought into view
+  rows). A double-click opens it, as it opens one in a rack, and the card says so. It once doubled the zoom: the
+  device's box is now marked `nopan`, which keeps the canvas from taking the double-click as its own. A drag that
+  starts on a device on a wall no longer moves the view for the same reason; one that starts on the wall itself
+  still does. Selected, a thing on a wall has the four corner ticks; it had no mark. A device on a wall or a shelf that is picked in Search is brought into view
   at the faceplate stop (`Drawing.tsx` `showRequest`): the camera once went to that stop about the middle of the
   view and left the device off the screen. Until a wall thing's ports are drawn they are out of reach
   (`.drawing-surface__port-row--undrawn`): no Tab stop, no press, nothing read out, and a press there is a press
@@ -686,6 +692,31 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   the faceplate stop. The inlets of a thing on a wall are marked the same way, by the style sheet's rule; no
   design to hand has one, so that is not seen in a browser. `drive-sample.mjs` drives the card, the mark, Search
   and the ports.
+- **A port answers when it is drawn, and only then** (`drawing/ChassisNode.tsx`; `drawing.css`
+  `.drawing-chassis__ports--undrawn`). Below the 125% band a rack device's ports are not drawn, and they are now
+  out of reach as well: a press, a pointer at rest, a right-click, a double-click or a drag where one lies is the
+  device's. Each once took the pointer unseen: a press there got a port's card, a double-click the port's panel
+  and the faceplate stop, and a drag from a free one drew a cable out of it. They keep their place, so every cable
+  ends where it did (the cables' ends were read before and after and are the same). Drawn, a pressed port sends
+  its press on to the quick card (`ownPress`), in a rack, on a wall and on a thing opened beside its shelf; it
+  once kept the press. Far out, pointing at a cable's coloured end on a plate shows the device's peek and no
+  longer the port's, as on a wall; pointing at the cable itself still shows the cable's, and in the Faded style
+  its whole run.
+- **A shelf and the things on it answer like a device in a rack** (`drawing/ShelfPlate.tsx`; `Drawing.tsx`
+  `onSelectOccupant`). A press on a shelf gets the shelf's card: where it is and what is on it. A press on a
+  device on it gets the device's. Such a press selects and leaves the camera where it is. It once glided to the
+  faceplate stop: far out the thing left the pointer, the second press of a double-click missed it, and nothing
+  opened. A double-click now opens the device, on a shelf and on a wall (`doubleClick.ts` `holderDoubleClick`);
+  anywhere else on a shelf's tray it steps into the shelf as before. At the faceplate stop the selected thing
+  still opens beside its shelf. A passive thing on a shelf (a splitter, an outlet) has no card of its own.
+  `keepInView.ts`, which panned to show the opened box after the glide, went with the glide.
+- **Where the quick card hangs** (`drawing/quickCardPlace.ts`, pure; `QuickCard.tsx` reads the boxes). Right of
+  the thing on a dotted line, or left of it when the canvas has no room on the right. A thing on a shelf hangs it
+  off the end of the shelf. A port hangs it off the end of its device, with the line running back to the port, so
+  the ports beside the one pressed stay in reach; where the device is wider than the canvas the card stays beside
+  the port. The card is hidden only while the end its line starts from is out of view. A thing whose right end
+  lay past the edge of the canvas once had its card placed on its left and then hidden. `drive-sample.mjs` drives
+  the ports far out and close in, the shelf, both double-clicks and where the card hangs.
 - **The arrow keys go through an open menu's rows** (`shell/menuKeys.ts`, wired in `shell/Popover.tsx`, so in every
   menu the bar opens: the design's, Sample, Doing, the account's, the lens's, Layers, Look, Views and the zoom
   stops; and in the ⋯ of the It's down panel, the one panel head that has rows). Down and Right step on, Up and
@@ -726,9 +757,9 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
 - **Quick card and peek** (sign-off r59, r66; `drawing/quickCard.ts`, `scripts/drive-quick-card.mjs`). A
   click on a device (or one of its ports), rack, shelf, cable or free box also puts a small card beside
   it on a dotted line: what it is, its name, the management address with Copy, model, place and ports,
-  and Details, which shows the panel even when it was folded. As measured for card r156, a racked device, a
-  rack and a device on a wall get the card; a port, a shelf, a thing on a shelf and a cable get none, since each
-  keeps its press to itself and the card never hears it. It follows the camera and goes on Esc, a
+  and Details, which shows the panel even when it was folded. A racked device, a rack, a shelf, a device on a
+  shelf or a wall, and a port once it is drawn get the card. A cable gets none, since its line keeps its press
+  to itself and the card never hears it; nor does a passive thing on a shelf or a wall. It follows the camera and goes on Esc, a
   click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card. The pause has to
   be the person's: after a press, a key or the wheel nothing shows until the pointer has moved, so what a
   gliding camera brings under a resting pointer puts up no card (r149).
