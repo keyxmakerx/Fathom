@@ -420,7 +420,7 @@ try {
     // In words: what was changed, by whom as histories name people, and what that change was. No id is quoted.
     check(
       "conflict: the refusal says what was changed since, and what the colleague's change was",
-      refusal.some((t) => t.includes('Nothing was undone: the same part of the design was changed by a colleague since (cable label changed).') && !t.includes(colleague)),
+      refusal.some((t) => /Nothing was undone: the cable from \S+ to \S+ was changed by a colleague since \(cable label changed\)\./.test(t) && !t.includes(colleague)),
       refusal.join(' | '),
     );
     check('conflict: the cable is still on the drawing (nothing undone)', (await page.locator('.react-flow__edge-cable').count()) === 1);

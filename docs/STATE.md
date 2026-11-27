@@ -855,7 +855,8 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   thing names it.
 - **History trail follow-ups (r161).** A device with no name is told apart by where it stands, "an unnamed device
   in R1 U12" or "on Shelf A", in the trail, in Undo's sentences and on the "changed just after you" card
-  (`document/liveDoc.ts` `ownName`; Undo's "taken by" leaves the place off, since the sentence says it). The trail
+  (`document/liveDoc.ts` `ownName`; Undo's "taken by" leaves the place off, since the sentence says it). A refusal about a
+  cable says what it joins, "the cable from core-01 to acc-01" (`elementName`'s `cableWords`). The trail
   draws 50 rows and "Show 50 older changes" adds a page (`racks/trail.ts` `trailRows` `limit`, `TRAIL_PAGE`); a row
   from another day shows its day (`rowWhen`). A greyed Undo or Redo is `aria-disabled`, so Tab stops on it and its
   hint says why; Search shows no keys beside a greyed one; the View only chip says an AI idea is on show when that

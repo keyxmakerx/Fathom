@@ -8,6 +8,7 @@ import type { CanonValue } from './canon';
 import {
   archiveField,
   assertHand,
+  edgesIn,
   edgesOut,
   everyEdgeIn,
   findEdge,
@@ -424,6 +425,21 @@ function kindOf(id: string): string | null {
   }
 }
 
+/** A cable has no name, so it is said by what it joins: "the cable from sw-1 to sw-2", "the cable from sw-1" with
+ * its other end open or outside the design. The end marked A comes first. A cable with no end drawn is `this item`. */
+function cableWords(doc: Document, cableId: string, where: boolean): string {
+  const ends = [...edgesOut(doc, cableId, 'Terminates')].sort((a, b) => String(a.fields['Terminates.end']?.value ?? 'a').localeCompare(String(b.fields['Terminates.end']?.value ?? 'a')));
+  const names: string[] = [];
+  for (const end of ends) {
+    const chassis = edgesIn(doc, end.to, 'HasPort')[0]?.from;
+    const device = chassis === undefined ? undefined : edgesIn(doc, chassis, 'HasChassis')[0]?.from;
+    const name = device === undefined ? null : ownName(doc, device, where);
+    if (name !== null && !names.includes(name)) names.push(name);
+  }
+  if (names.length === 0) return NO_NAME;
+  return `the cable from ${names.join(' to ')}`;
+}
+
 /** What to call the thing a field is on: its device's hostname, or its own name. */
 export function elementName(doc: Document, id: string, where = true): string {
   let cur = id;
@@ -436,6 +452,7 @@ export function elementName(doc: Document, id: string, where = true): string {
     if (!findNode(doc, cur)) break;
     const own = ownName(doc, cur, where);
     if (own !== null) return own;
+    if (kindOf(cur) === 'Cable') return cableWords(doc, cur, where);
     if (kindOf(cur) === null) break;
     const up = everyEdgeIn(doc, cur).find((e) => e.absentSince === undefined);
     if (!up) break;

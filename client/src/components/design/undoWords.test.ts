@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../../api/catalogue';
 import { createRack, createShelf, createSketchDevice, placeChassis, placeOnShelf, removeChassis } from '../../document/commands';
+import { connectOneEnd, connectPorts, setCableField } from '../../document/cables';
 import { setDeviceField } from '../../document/edit';
 import { elementName } from '../../document/liveDoc';
-import { parseNodeId, edgesIn, emptyDocument, formatNodeId, type Document } from '../../document/model';
+import { parseNodeId, edgesIn, edgesOut, emptyDocument, formatNodeId, type Document } from '../../document/model';
 import { addNote, removeNote } from '../../document/notes';
 import { newUlid } from '../../document/ulid';
 import { UndoConflictError, conflict, undo, type UndoConflict } from '../../document/undo';
@@ -113,6 +114,38 @@ describe('what a refused undo says', () => {
   it('says a recorded plan stays as written', () => {
     const { doc } = rackDoc();
     expect(refusedSentence(doc, { kind: 'recorded-plan', element: 'maintenance-plan:x' }, 'undo', bob)).toBe('Nothing was undone: a recorded plan is history as written.');
+  });
+});
+
+describe('a refusal about a cable', () => {
+  it('says what the cable joins, and what it leaves open', () => {
+    const { doc, rackId } = rackDoc();
+    let working = placeChassis(doc, rackId, MODEL, 10, 'front', { actor: ME, now: T + 1 });
+    working = placeChassis(working, rackId, MODEL, 12, 'front', { actor: ME, now: T + 2 });
+    const chassis = edgesIn(working, rackId, 'MountedIn').map((e) => e.from);
+    const devices = chassis.map((c) => edgesIn(working, c, 'HasChassis')[0]!.from);
+    working = setDeviceField(working, devices[0]!, 'hostname', 'core-sw-01', { actor: ME, now: T + 3 });
+    working = setDeviceField(working, devices[1]!, 'hostname', 'edge-sw-02', { actor: ME, now: T + 4 });
+    const ports = chassis.map((c) => edgesOut(working, c, 'HasPort')[0]!.to);
+    const cabled = connectPorts(working, ports[0]!, ports[1]!, {}, { actor: ME, now: T + 5 });
+    const mineId = cabled.batches.at(-1)!.id;
+    const cableId = cabled.nodes.find((n) => n.id.startsWith('cable:'))!.id;
+    const theirs = setCableField(cabled, cableId, 'label', 'uplink', { actor: THEM, now: T + 6 });
+    const said = refusedSentence(theirs, refusalOf(theirs, mineId), 'undo', bob);
+    expect(said).toMatch(/^Nothing was undone: the cable from (core-sw-01 to edge-sw-02|edge-sw-02 to core-sw-01) was changed by Bob Roe since/);
+    expect(said).not.toContain('cable:');
+  });
+
+  it('says the one end it has when the other is open', () => {
+    const { doc, rackId } = rackDoc();
+    let working = placeChassis(doc, rackId, MODEL, 10, 'front', { actor: ME, now: T + 1 });
+    const chassisId = edgesIn(working, rackId, 'MountedIn')[0]!.from;
+    const deviceId = edgesIn(working, chassisId, 'HasChassis')[0]!.from;
+    working = setDeviceField(working, deviceId, 'hostname', 'core-sw-01', { actor: ME, now: T + 2 });
+    const portId = edgesOut(working, chassisId, 'HasPort')[0]!.to;
+    const cabled = connectOneEnd(working, portId, {}, { actor: ME, now: T + 3 });
+    const cableId = cabled.nodes.find((n) => n.id.startsWith('cable:'))!.id;
+    expect(elementName(cabled, cableId)).toBe('the cable from core-sw-01');
   });
 });
 
