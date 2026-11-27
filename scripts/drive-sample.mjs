@@ -1422,6 +1422,9 @@ try {
     await page.waitForTimeout(400);
     check('Enter on it does nothing: the menu stays open with the keyboard on the row', (await menu.count()) === 1 && (await on()) === greyed[0], `menus ${await menu.count()}; on ${await on()}`);
     check('the browser gives it as a menu item that is off, named by its words and its reason apart', /\S, \S/.test(greyName) && (await page.getByRole('menuitem', { name: greyName, exact: true, disabled: true }).count()) === 1, greyName);
+    // A greyed row is faded, and its focus ring would fade with it: with the keyboard on it the row is drawn whole.
+    const drawn = await menu.evaluate((m) => [...m.querySelectorAll('[aria-disabled="true"]')].map((b) => ({ on: b === document.activeElement, opacity: getComputedStyle(b).opacity })));
+    check('with the keyboard on it a greyed row is drawn whole, and a greyed row without it is faded', drawn.some((d) => d.on) && drawn.every((d) => d.opacity === (d.on ? '1' : '0.45')), JSON.stringify(drawn));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
 

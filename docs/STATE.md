@@ -698,7 +698,8 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   where it once stayed open over the page; going nowhere, as on a press on the menu's bare edge, is not leaving.
   A greyed row is marked `aria-disabled` and not `disabled`: Tab and the arrows reach it, so the reason written
   in it is read, and a press or Enter on it does nothing and leaves the menu open (`pressRow`). It is drawn as
-  before. Its words and its reason are read apart ("It's down, select a device first": `rowSaid`, the row's
+  before, faded to 45%; with the keyboard on it, it is drawn whole in the muted colour, so that its focus ring
+  is whole (`shell.css`). Its words and its reason are read apart ("It's down, select a device first": `rowSaid`, the row's
   `aria-label`); read from the row itself they ran together. The ⋯ of a device in Details is a list of its own
   (`drawing/Editor.tsx` `DeviceMore`) and has the same three: first row from the keyboard, the arrows through
   its rows, shut when Tab leaves it. `drive-sample.mjs` drives Layers, Doing, Look, Views and the ⋯ list.

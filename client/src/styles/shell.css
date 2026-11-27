@@ -813,6 +813,11 @@ button.shell-admin-pill {
   opacity: 0.45;
 }
 
+/* With the keyboard on it the row is drawn whole, so that its focus ring is whole. It stays the muted colour. */
+.shell-popover__row[aria-disabled='true']:focus-visible {
+  opacity: 1;
+}
+
 /* ---- under the bar ----------------------------------------------------- */
 
 .shell__body {
