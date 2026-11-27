@@ -210,7 +210,9 @@ Each tied to a real event. Nothing moves to look alive.
 7. A suggestion accepted goes from dashed to solid and pulses once; rejected, it fades out.
 8. The plug in a tracer preview slides into the far port, pulses once, settles.
 9. A surface slides in from the right and out again; the drawing beneath does not move.
-10. A box on a shelf opens at the faceplate stop by the same camera as everything else.
+10. A box on a shelf opens at the faceplate stop by the same camera as everything else. A press does
+    not take the camera there (sign-off r157): it selects the box and shows its card, as on a device
+    in a rack, and a double-click opens it.
 
 **Excluded on purpose:** particles flowing along links. If it moves, it must be true now.
 
