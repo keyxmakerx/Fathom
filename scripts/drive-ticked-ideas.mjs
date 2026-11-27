@@ -132,7 +132,7 @@ try {
     await page.waitForTimeout(200);
 
     await page.mouse.click(1000, 650, { button: 'right' });
-    await page.locator('.drawing-context-menu__item', { hasText: 'Add a note here' }).first().click();
+    await page.locator('.drawing-context-menu__item', { hasText: 'Add a note' }).first().click();
     await page.waitForTimeout(300);
     await page.keyboard.type('Port 4 goes to the lobby AP.');
     await page.keyboard.press('Enter');
