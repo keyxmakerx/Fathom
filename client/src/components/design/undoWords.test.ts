@@ -3,9 +3,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../../api/catalogue';
-import { createRack, placeChassis, removeChassis } from '../../document/commands';
+import { createRack, createShelf, createSketchDevice, placeChassis, placeOnShelf, removeChassis } from '../../document/commands';
 import { setDeviceField } from '../../document/edit';
-import { edgesIn, emptyDocument, formatNodeId, type Document } from '../../document/model';
+import { elementName } from '../../document/liveDoc';
+import { parseNodeId, edgesIn, emptyDocument, formatNodeId, type Document } from '../../document/model';
 import { addNote, removeNote } from '../../document/notes';
 import { newUlid } from '../../document/ulid';
 import { UndoConflictError, conflict, undo, type UndoConflict } from '../../document/undo';
@@ -50,10 +51,10 @@ function refusalOf(doc: Document, batchId: string): UndoConflict {
 
 describe('what a refused undo says', () => {
   it('names the rack someone else has put a device in since, and says what they did', () => {
+    // Mine is the rack itself, so a device put in it would be taken with it.
     const { doc, rackId } = rackDoc();
-    const mine = placeChassis(doc, rackId, MODEL, 10, 'front', { actor: ME, now: T + 1 });
-    const mineId = mine.batches.at(-1)!.id;
-    const theirs = placeChassis(mine, rackId, MODEL, 20, 'front', { actor: THEM, now: T + 2 });
+    const mineId = doc.batches.at(-1)!.id;
+    const theirs = placeChassis(doc, rackId, MODEL, 20, 'front', { actor: THEM, now: T + 2 });
 
     const c = conflict(theirs, mineId, ME, { skipChangedFields: true })!;
     expect(refusedSentence(theirs, c, 'undo', bob)).toBe('Nothing was undone: R1 was changed by Bob Roe since (added EX4300-48P to R1).');
@@ -68,7 +69,7 @@ describe('what a refused undo says', () => {
     const mine = setDeviceField(placed, deviceId, 'management_address', '10.0.0.2', { actor: ME, now: T + 2 });
     const mineId = mine.batches.at(-1)!.id;
     const theirs = setDeviceField(mine, deviceId, 'management_address', '10.0.0.99', { actor: THEM, now: T + 3 });
-    expect(refusedSentence(theirs, refusalOf(theirs, mineId), 'undo', bob)).toBe('Nothing was undone: an unnamed device was changed by Bob Roe since (address changed).');
+    expect(refusedSentence(theirs, refusalOf(theirs, mineId), 'undo', bob)).toBe('Nothing was undone: an unnamed device in R1 U10 was changed by Bob Roe since (address changed).');
 
     const named = setDeviceField(theirs, deviceId, 'hostname', 'core-sw-01', { actor: THEM, now: T + 4 });
     expect(refusedSentence(named, refusalOf(named, mineId), 'undo', bob)).toBe('Nothing was undone: core-sw-01 was changed by Bob Roe since (address changed).');
@@ -151,5 +152,23 @@ describe('why Undo or Redo is greyed', () => {
       expect(said.short, why).toMatch(/^[A-Z].*[^.]$/);
       expect(said.short.length, why).toBeLessThanOrEqual(40);
     }
+  });
+});
+
+describe('two devices with no name', () => {
+  it('are told apart by where each stands, in a rack and on a shelf', () => {
+    const { doc, rackId } = rackDoc();
+    const a = placeChassis(doc, rackId, MODEL, 12, 'front', { actor: ME, now: T + 1 });
+    const b = placeChassis(a, rackId, MODEL, 20, 'front', { actor: ME, now: T + 2 });
+    const [one, two] = edgesIn(b, rackId, 'MountedIn').map((e) => e.from);
+    expect(elementName(b, one!)).toBe('an unnamed device in R1 U12');
+    expect(elementName(b, two!)).toBe('an unnamed device in R1 U20');
+
+    const shelved = createShelf(b, rackId, { positionU: 30, label: 'Shelf A', actor: ME, now: T + 3 });
+    const shelfId = shelved.nodes.find((n) => parseNodeId(n.id).kind === 'PassiveNode')!.id;
+    const sketch = createSketchDevice(shelved, { actor: ME, now: T + 4 });
+    const chassisId = sketch.nodes.filter((n) => parseNodeId(n.id).kind === 'Chassis').at(-1)!.id;
+    const onShelf = placeOnShelf(sketch, chassisId, shelfId, 1, { actor: ME, now: T + 5 });
+    expect(elementName(onShelf, chassisId)).toBe('an unnamed device on Shelf A');
   });
 });

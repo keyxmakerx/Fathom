@@ -147,9 +147,9 @@ export type UndoConflict =
    * `LOCAL_ACTOR`-stamped batch (pre-account data) or a mixed one — so there
    * is nobody's undo this could be. */
   | { kind: 'unattributed' }
-  /** A later batch by a DIFFERENT actor touched an element this batch also
-   * touched — undo refuses rather than silently overwriting a colleague's
-   * change. `element` is the first one both touched. */
+  /** A later batch by a DIFFERENT actor changed what this undo would remove, removed or brought back what it
+   * would change, or wrote a field it would put back (ADR-0053 §3, narrowed 2026-11-27) — undo refuses rather
+   * than silently overwriting a colleague's change. `element` is the thing they changed. */
   | { kind: 'later-change'; batchId: string; label: string; actor: string; at: number; element: string }
   /** ADR-0053 §3 — "You undo your own changes": the batch is somebody else's,
    * checked against the account asking to undo (or redo) it. */
@@ -165,9 +165,8 @@ export type UndoConflict =
   | { kind: 'recorded-plan'; element: string };
 
 /** Every element `batch` touched: each op's own element, plus — when that
- * element is (or was) an edge — its two endpoints, so a colleague's edit to
- * either end of an edge this batch added or removed still counts as
- * touching what the batch touched. */
+ * element is (or was) an edge — its two endpoints. Read for a colleague's later batch, so that attaching
+ * something to a thing this undo would remove is seen as touching it. */
 function touchedElements(doc: Document, batch: Batch, withoutFieldWrites = false): Set<string> {
   const out = new Set<string>();
   const addEdgeAndEndpoints = (edgeId: string, from?: string, to?: string): void => {
@@ -238,6 +237,49 @@ function ulidTimestampMs(id: string): number {
   return Number(decodeUlid(id) >> 80n);
 }
 
+/** The elements `batch`'s own ops name, an edge's ends not included. */
+function directElements(batch: Batch): Set<string> {
+  const out = new Set<string>();
+  for (const op of batch.ops) {
+    if (op.type === 'add_node') out.add(op.node);
+    else if (op.type === 'add_edge') out.add(op.edge);
+    else out.add(op.element);
+  }
+  return out;
+}
+
+/** The fields `batch` wrote, as `element` and `key` joined: "the same property of the same object". */
+function fieldWrites(batch: Batch): Set<string> {
+  const out = new Set<string>();
+  for (const op of batch.ops) if (op.type === 'set_field') out.add(`${op.element}\u0000${op.key}`);
+  return out;
+}
+
+/** The first thing in `later`, a colleague's change, that this undo cannot go past, or `undefined`.
+ *  - It changed, moved, removed or attached something to a thing this undo would remove.
+ *  - It removed or brought back a thing this undo changes or brings back.
+ *  - It wrote a field this undo would put back, unless a live session leaves that field alone and says so. */
+function laterHit(
+  doc: Document,
+  later: Batch,
+  removed: ReadonlySet<string>,
+  direct: ReadonlySet<string>,
+  written: ReadonlySet<string>,
+  skipFields: boolean,
+): string | undefined {
+  for (const op of later.ops) {
+    if (op.type === 'set_field') {
+      if (removed.has(op.element)) return op.element;
+      if (!skipFields && written.has(`${op.element}\u0000${op.key}`)) return op.element;
+    } else if (op.type === 'tombstone' || op.type === 'revive') {
+      if (direct.has(op.element)) return op.element;
+    }
+  }
+  // Anything attached to a thing this undo would remove, however it is joined.
+  for (const el of touchedElements(doc, later, true)) if (removed.has(el)) return el;
+  return undefined;
+}
+
 /** Would undoing (or redoing) `batchId` conflict? `undefined` when it would
  * not. `requestingActor`, when given, is the account asking to undo (or
  * redo) the batch — ADR-0053 §3's "you undo your own changes", checked here
@@ -269,25 +311,18 @@ export function conflict(
   const recorded = recordedPlanTouched(doc, batch);
   if (recorded !== undefined) return { kind: 'recorded-plan', element: recorded };
 
-  const touched = touchedElements(doc, batch);
-  // Skipping a field leaves what someone else wrote as it is. That answers for a field this undo would write back,
-  // not for a thing it would remove: the thing goes whole, their value with it.
-  const removed = opts?.skipChangedFields === true ? removedByReversing(batch) : undefined;
+  // ADR-0053 §3 (the narrower rule, 2026-11-27): a colleague's later change refuses this undo only when taking the
+  // change back would take their work with it or write over it. What they did to the things around yours does not
+  // count: the rack a device of yours stands in, the port a cable of yours plugs into.
+  const removed = removedByReversing(batch);
+  const direct = directElements(batch);
+  const written = fieldWrites(batch);
+  const skipFields = opts?.skipChangedFields === true;
   const index = doc.batches.indexOf(batch);
   for (const later of doc.batches.slice(index + 1)) {
     const laterActor = batchActor(doc, later);
     if (laterActor === undefined || laterActor === actor) continue;
-    const laterTouched = touchedElements(doc, later, opts?.skipChangedFields === true);
-    if (removed !== undefined) {
-      for (const op of later.ops) if (op.type === 'set_field' && removed.has(op.element)) laterTouched.add(op.element);
-    }
-    let hit: string | undefined;
-    for (const el of laterTouched) {
-      if (touched.has(el)) {
-        hit = el;
-        break;
-      }
-    }
+    const hit = laterHit(doc, later, removed, direct, written, skipFields);
     if (hit !== undefined) {
       return {
         kind: 'later-change',
