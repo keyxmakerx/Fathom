@@ -128,9 +128,23 @@ try {
       continue;
     }
 
+    // r160: the sample's cables draw once as it opens. They drew, went for a frame and drew again half a second
+    // later, when the catalogue answered after the design and every device was redrawn at its real shape.
+    await page.evaluate(() => {
+      window.__cableCounts = [];
+      const tick = () => {
+        const n = document.querySelectorAll('.react-flow__edge').length;
+        if (window.__cableCounts.at(-1) !== n) window.__cableCounts.push(n);
+        window.__cableTick = requestAnimationFrame(tick);
+      };
+      tick();
+    });
     await page.getByRole('button', { name: 'Open sample' }).click();
     await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
     await page.waitForTimeout(2000);
+    const counts = await page.evaluate(() => { cancelAnimationFrame(window.__cableTick); return window.__cableCounts; });
+    const drawn = counts.filter((n) => n > 0);
+    check('the cables draw once as the sample opens, never going and coming back', drawn.length > 0 && drawn.every((n, i) => i === 0 || n >= drawn[i - 1]), counts.join(' -> '));
     const names = await page.locator('.react-flow__node').allInnerTexts();
     const all = names.join(' ');
     for (const host of ['router-1', 'switch-1', 'switch-2', 'nas-1', 'desktop-1', 'ap-1']) {
