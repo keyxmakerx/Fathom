@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { FixtureView, SurfaceView } from '../../document/view';
 import type { InletView, PortView } from './contract';
-import { LiveStoreProvider, createLiveStore } from './liveStore';
+import { LiveStoreProvider, createLiveStore, type LiveState } from './liveStore';
 import type { SurfacePlacement } from './rows';
 import { mmToPx } from './rows';
 import { SurfaceNode, type SurfaceNodeData, type SurfaceNodeType } from './SurfaceNode';
@@ -75,8 +75,10 @@ function placement(s: SurfaceView, overrides: Partial<SurfacePlacement> = {}): S
 
 // `liveDrag`/`litCableId` live in `liveStore.ts`, not on `data` — a fresh,
 // empty store gives every test below `liveDrag: null`, `litCableId: null`.
-function renderSurface(data: SurfaceNodeData): string {
+// `live` sets what a test needs of it, such as the camera being close enough for ports to be drawn.
+function renderSurface(data: SurfaceNodeData, live: Partial<LiveState> = {}): string {
   const store = createLiveStore();
+  store.setState(live);
   return renderToStaticMarkup(
     createElement(
       ReactFlowProvider,
@@ -184,13 +186,21 @@ describe('SurfaceNode (render-to-string)', () => {
       ports: [port({ id: 'sw2-1', label: '1', cable }), port({ id: 'sw2-4', label: '4' })],
     });
     const s = surface({ id: 'wall-office', label: 'Office', form: 'wall', fixtures: [f] });
-    const markup = renderSurface(baseData({ placement: placement(s) }));
+    const markup = renderSurface(baseData({ placement: placement(s) }), { showPortGlyphs: true });
     // The tip is on the button; the name comes from the picture inside it, in the same words.
     expect(markup).toMatch(/<button type="button" data-port-id="sw2-1" title="Port 1 · RJ45 · cabled"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 1 · RJ45 · cabled"/);
     expect(markup).toMatch(/<button type="button" data-port-id="sw2-4" title="Port 4 · RJ45 · free"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 4 · RJ45 · free"/);
     // Not the bare label alone, which said "1".
     expect(markup).not.toContain('aria-label="1"');
     expect(markup).not.toContain('aria-label="4"');
+  });
+
+  it("a fixture's port has no tip while the camera is too far out for it to be drawn, and keeps its name", () => {
+    const f = fixture({ id: 'switch-2', label: 'switch-2', xMm: 0, yMm: 0, ports: [port({ id: 'sw2-4', label: '4' })] });
+    const s = surface({ id: 'wall-office', label: 'Office', form: 'wall', fixtures: [f] });
+    const markup = renderSurface(baseData({ placement: placement(s) }));
+    expect(markup).toMatch(/<button type="button" data-port-id="sw2-4" class="[^"]*"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 4 · RJ45 · free"/);
+    expect(markup).not.toContain('title="Port 4');
   });
 
   it("a fixture's inlet has its tip on the button too, in the words its picture has", () => {

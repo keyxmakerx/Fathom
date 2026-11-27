@@ -654,9 +654,11 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
 - **A port says what it is, wherever it is drawn** (`drawing/faceplate.ts` `portSays`). A port's button has one
   set of words as its tip and as its name for a screen reader: the port, its connector, where it sits on the
   plate, an optic or an empty cage, and cabled or free. On a wall and on a shelf a port is drawn in a plain row,
-  so where it sits is left out. Before, such a button had its label alone as a name ("1") and no tip. An inlet on
-  a wall has its tip on the button too: its slot, and fed, fitted with no lead, or not fitted (`drive-sample.mjs`
-  reads the wall's; the sample's shelf draws no ports, so the shelf's are held by `ShelfPlate.render.test.ts`).
+  so where it sits is left out. Before, such a button had its label alone as a name ("1") and no tip. A wall
+  port's tip follows its picture: the row is not drawn until the camera is past the Rack stop, and until then the
+  button has its name and no tip, as a rack port has none until its glyph is drawn. An inlet on a wall has its
+  tip on the button too: its slot, and fed, fitted with no lead, or not fitted (`drive-sample.mjs` reads the
+  wall's; the sample's shelf draws no ports, so the shelf's are held by `ShelfPlate.render.test.ts`).
 - **The arrow keys go through an open menu's rows** (`shell/menuKeys.ts`, wired in `shell/Popover.tsx`, so in every
   menu the bar opens: the design's, Sample, Doing, the account's, the lens's, Layers, Look, Views and the zoom
   stops; and in the ⋯ of the It's down panel, the one panel head that has rows). Down and Right step on, Up and

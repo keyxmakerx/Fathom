@@ -1114,7 +1114,8 @@ try {
   }
 
   // The ports of a thing on a wall say what they are: each button's tip, and its name for a screen reader, are a
-  // rack port's words. The label alone once named it ("1"), and it had no tip.
+  // rack port's words. The label alone once named it ("1"), and it had no tip. The tip follows the picture: as the
+  // sample opens the ports are too small to be drawn, and a tip there would speak for nothing on the screen.
   {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
@@ -1136,6 +1137,17 @@ try {
         selector,
       );
     const wrongOf = (ports) => ports.filter((p) => p.tip == null || p.name !== p.tip || !/^Port \S.* · \S+ · (cabled|free)$/.test(p.tip) || !p.tip.endsWith(p.cabled ? ' · cabled' : ' · free'));
+    const rowShown = () => page.evaluate(() => Number(getComputedStyle(document.querySelector('.drawing-surface__port-row')).opacity));
+    const asItOpens = await portsOf('button.drawing-surface__port');
+    check(
+      'as the sample opens a wall port is not drawn: it has its name, and no tip',
+      (await rowShown()) === 0 && asItOpens.length > 0 && asItOpens.every((p) => p.tip == null && /^Port \S.* · \S+ · (cabled|free)$/.test(p.name ?? '')),
+      `${asItOpens.length} ports; the first: tip ${asItOpens[0]?.tip}, name ${asItOpens[0]?.name}`,
+    );
+    await page.locator('.shell-pill__value').click();
+    await page.locator('.shell-pill__stop', { hasText: 'Faceplate' }).click();
+    await page.waitForTimeout(1200);
+    check('at the Faceplate stop the ports of a thing on a wall are drawn', (await rowShown()) === 1);
     const onWalls = await portsOf('button.drawing-surface__port');
     const wrongOnWalls = wrongOf(onWalls);
     check(

@@ -145,6 +145,9 @@ interface PlateProps {
 /** One row of port glyphs — non-uplink left, uplink right, UI-SPEC "Ports":
  * "uplinks right", the same shape `ChassisNode.tsx`'s `PortRow` keeps. */
 function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: PlateProps) {
+  // The row is not drawn until the camera is past the rack stop (`drawing.css`), and a tip follows the picture:
+  // none while there is no port to see. The name for a screen reader stays, as the button does.
+  const drawn = useLive((s) => s.showPortGlyphs);
   if (ports.length === 0) return null;
   const downlink = ports.filter((p) => !p.uplink);
   const uplink = ports.filter((p) => p.uplink);
@@ -169,7 +172,7 @@ function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: P
         key={port.id}
         type="button"
         data-port-id={port.id}
-        title={says}
+        title={drawn ? says : undefined}
         className={cabled ? 'drawing-surface__port drawing-surface__port--cabled nodrag' : 'drawing-surface__port nodrag'}
         style={style}
         onClick={(event: MouseEvent) => {
