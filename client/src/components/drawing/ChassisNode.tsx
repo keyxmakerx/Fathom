@@ -9,6 +9,7 @@ import { cardFrames, faceplateLayoutFor, plateItems, portSays, portWhere, type P
 import { onOpticDragOver, onOpticDrop } from './Parts';
 import { RAIL_PX, U_PX } from './geometry';
 import { useLive, useLiveStore } from './liveStore';
+import { PortPick } from './PortPick';
 import { LitPathMark } from './CableOverlayEdge';
 import { EditableName } from './NameEdit';
 import { isPanel } from './paths';
@@ -189,6 +190,7 @@ function PlatePort({
         className={unfitted ? 'drawing-chassis__inlet--unfitted' : undefined}
       />
       {handle}
+      <PortPick portId={port.id} />
     </button>
   );
 }

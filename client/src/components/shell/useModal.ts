@@ -64,7 +64,8 @@ export function useModal(ref: RefObject<HTMLElement | null>, onEscape: () => voi
     return () => {
       document.removeEventListener('keydown', onKey, true);
       open.splice(open.indexOf(me), 1);
-      if (back?.isConnected) back.focus();
+      // Without preventScroll the browser scrolls the drawing's box to the thing, which React Flow never undoes.
+      if (back?.isConnected) back.focus({ preventScroll: true });
     };
     // Mount only: the dialog's element and focus choice do not change while it is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps

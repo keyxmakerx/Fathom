@@ -158,6 +158,8 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
           position: { x: -(ROW_LABEL_WIDTH + RACK_GAP_PX / 2), y },
           draggable: false,
           selectable: false,
+          // r159: Enter does nothing on the row label, so it takes no Tab stop. Its Flip buttons keep theirs.
+          focusable: false,
           ariaLabel: rowSays(layout.label, layout.elevation),
           domAttributes: SAID_AS.row,
           width: ROW_LABEL_WIDTH,
@@ -343,6 +345,8 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
         position: { x: pos.x, y },
         draggable: false,
         selectable: false,
+        // r159: Enter does nothing on the cables that leave the room, so they take no Tab stop. A button inside keeps its own.
+        focusable: false,
         ariaLabel: wayOutSays(groupSnapshot.label, portalCountLabel(groupSnapshot)),
         domAttributes: SAID_AS.wayOut,
         width: RACK_NODE_WIDTH,

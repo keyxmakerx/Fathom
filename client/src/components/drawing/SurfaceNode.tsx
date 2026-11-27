@@ -20,6 +20,8 @@ import { SURFACE_HEADER_PX } from './geometry';
 import { portSays } from './faceplate';
 import { isLoosePort, portHandleFlags } from './missingLinks';
 import { ownPress } from './ownPress';
+import { PortPick } from './PortPick';
+import { leftToRight, useOwnStop } from './ownStop';
 import { SHEATH_VAR } from './sheath';
 
 /**
@@ -185,6 +187,7 @@ function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: P
       >
         <Glyph cabled={cabled} title={says} className="drawing-port-glyph--budgeted" />
         <Handle type="source" position={Position.Right} id={port.id} {...portHandleFlags(cabled, isLoosePort(port))} className="drawing-surface__port-handle" />
+        <PortPick portId={port.id} />
       </button>
     );
   };
@@ -249,6 +252,7 @@ function InletStrip({
                 isConnectable={inlet.fitted && !cabled}
                 className="drawing-surface__port-handle"
               />
+              <PortPick portId={inlet.id} />
             </button>
           );
         })}
@@ -317,15 +321,17 @@ function FixtureBox({
   // Selected, a thing on a wall is marked as a device in a rack is. Search names it a fixture; a device opened
   // from Inventory arrives as a chassis.
   const selected = useLive((s) => (s.selected?.kind === 'fixture' || s.selected?.kind === 'chassis') && s.selected.id === fixture.id);
+  const stop = useOwnStop(fixture, onSelectFixture);
   if (fixture.form === 'board') {
     const { widthPx, heightPx } = boardContentSizePx(fixture.fixtures, uPx);
-    const children = fixture.fixtures.filter(isPositioned);
+    const children = leftToRight(fixture.fixtures.filter(isPositioned));
     const unmeasuredChildren = fixture.fixtures.filter((f) => !isPositioned(f));
     return (
       <div className="drawing-surface__board" style={{ width: widthPx, height: heightPx }}>
         <div
           className="drawing-surface__board-header nodrag"
           style={{ cursor: 'pointer' }}
+          {...stop}
           onClick={(event: MouseEvent) => {
             ownPress(event);
             onSelectFixture(fixture.id);
@@ -403,6 +409,7 @@ function FixtureBox({
         minHeight: upright ? FLOOR_FIXTURE_HEIGHT_PX : FIXTURE_MIN_HEIGHT_PX,
         cursor: 'pointer',
       }}
+      {...stop}
       onClick={(event: MouseEvent) => {
         ownPress(event);
         onSelectFixture(fixture.id);
@@ -480,7 +487,8 @@ function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSh
 }) {
   const { surface } = placement;
   const bodyHeightPx = Math.max(0, placement.heightPx - HEADER_PX);
-  const positioned = surface.fixtures.filter(isPositioned);
+  // In the page, and so for Tab, left to right (r159).
+  const positioned = leftToRight(surface.fixtures.filter(isPositioned));
   const unmeasured = surface.fixtures.filter((f) => !isPositioned(f));
   const ticks = mmRailTicks(bodyHeightPx, uPx);
 
@@ -561,7 +569,7 @@ function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, po
   litCableId: string | null;
 }) {
   const { surface } = placement;
-  const positioned = surface.fixtures.filter((f) => f.xMm != null);
+  const positioned = leftToRight(surface.fixtures.filter((f) => f.xMm != null));
   const unmeasured = surface.fixtures.filter((f) => f.xMm == null);
   return (
     <div className="drawing-surface drawing-surface--floor" style={{ width: placement.widthPx, height: placement.heightPx }}>

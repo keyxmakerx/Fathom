@@ -30,6 +30,15 @@ export function enterOn(event: EnterKey): Landed | null {
   return id == null || id === '' ? null : { kind, id };
 }
 
+type OwnEnterKey = EnterKey & { currentTarget: unknown };
+
+/** Whether an Enter selects a thing that takes its own Tab stop inside a node: a device on a wall, a desk or a
+ * ceiling (`SurfaceNode.tsx`). Only an Enter pressed on the thing itself, not on one of its ports. The same keys as
+ * `enterOn`: no Ctrl, Cmd or Alt, not held down, not already used. */
+export function enterSelectsHere(event: OwnEnterKey): boolean {
+  return matches(event, 'select-focused') && !event.repeat && !event.defaultPrevented && event.target === event.currentTarget;
+}
+
 type EscapeKey = Pick<KeyboardEvent, 'key' | 'target'>;
 
 /** The node an Escape was pressed on, for someone going through the page with Tab (`walking`), or null. React

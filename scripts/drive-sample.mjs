@@ -1109,7 +1109,10 @@ try {
       check(`one says "${want}"`, names.includes(want), names.filter((n) => n.startsWith(want.slice(0, 5))).join(' | '));
     check('and the browser gives the device that name', (await page.getByRole('group', { name: 'router-1, router, Rack 1 U10', exact: true }).count()) === 1);
     const noEnter = stops.filter((s) => !s.enter).map((s) => s.as).sort();
-    check('Enter is offered on all but the row, the band of cables and the cables that leave the room', JSON.stringify(noEnter) === JSON.stringify(['cables', 'cables that leave this room', 'row']), JSON.stringify(noEnter));
+    check('Enter is offered on all but the band of cables', JSON.stringify(noEnter) === JSON.stringify(['cables']), JSON.stringify(noEnter));
+    // The row's label and the cables that leave the room open nothing and say nothing a rack does not: Tab passes them (r159).
+    const kinds = stops.map((s) => s.as);
+    check('the row label and the cables that leave the room take no Tab stop', !kinds.includes('row') && !kinds.includes('cables that leave this room'), JSON.stringify([...new Set(kinds)]));
     // What Details shows of the selection, its words run together; null with nothing selected.
     const details = () =>
       page.evaluate(() => {

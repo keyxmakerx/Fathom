@@ -201,3 +201,23 @@ describe('buildDrawingNodes — node and array identity across 2,100 devices', (
     expect(second.nodes[0]).not.toBe(first.nodes[0]);
   });
 });
+
+describe('buildDrawingNodes — Tab stops (r159)', () => {
+  it('the row label and the cables that leave the room take no Tab stop; racks and devices keep theirs', () => {
+    const racks = racksFor((r, u) => chassisFor(r, u));
+    const input = baseInput(racks);
+    const built = buildDrawingNodes(
+      {
+        ...input,
+        cameraStop: 'closet',
+        portalGroups: [{ key: 'rack-0|above|ISP', rackId: 'rack-0', side: 'above', label: 'ISP', cables: [{ cableId: 'c1', kind: 'copper', nearPortId: 'p1' }] }],
+      },
+      createDrawingNodeCaches(),
+    );
+    const byType = (type: string) => built.nodes.filter((n) => n.type === type);
+    expect(byType('rowLabel').length).toBeGreaterThan(0);
+    expect(byType('tray')).toHaveLength(1);
+    for (const n of [...byType('rowLabel'), ...byType('tray')]) expect(n.focusable).toBe(false);
+    for (const n of [...byType('rack'), ...byType('chassis')]) expect(n.focusable).not.toBe(false);
+  });
+});

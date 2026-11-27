@@ -94,6 +94,7 @@ import { dockTravelLeft } from '../shell/Dock';
 import { InSideSlot } from '../shell/sideSlot';
 import { plainKeyIsElsewhere } from '../shell/keyOwner';
 import { enterOn, keepRing, KEYS_SAID } from './nodeKey';
+import { useKeepWalkInView, useToDrawingKey } from './toDrawing';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { openElsewhere } from '../../api/estate';
@@ -577,6 +578,8 @@ function DrawingInner({
   // it into the page coordinates the colour picker's `position: fixed`
   // overlay actually needs.
   const containerRef = useRef<HTMLDivElement>(null);
+  // r159: G takes the keyboard to the drawing.
+  useToDrawingKey(containerRef, selected);
   // What a plain left-drag on empty canvas does. Pan by default; Shift+drag draws a selection box either way.
   const [tool, setTool] = useState<CanvasTool>('pan');
   const [wheel, setWheel] = useWheelMode('scroll');
@@ -950,6 +953,10 @@ function DrawingInner({
       },
     };
   };
+
+  // r159: Tab onto a thing on a wall or a shelf, or a port, brings it into view as React Flow does for a node, clear
+  // of the tool row and the zoom buttons.
+  useKeepWalkInView(containerRef, rf, () => coversNow()?.reach ?? null);
 
   // A fit with room left for what floats over the pane; unchanged where nothing does.
   const clearOfCovers = <T extends { nodes: { id: string }[]; maxZoom: number; padding: number | FitSides }>(options: T): T => {

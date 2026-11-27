@@ -75,3 +75,19 @@ describe('the shortcuts table', () => {
     expect(isTypingTarget(null)).toBe(false);
   });
 });
+
+describe('the key that goes to the drawing (r159)', () => {
+  it('is G alone, listed in the Canvas group so the sheet and the key agree', () => {
+    expect(matches(key('g'), 'to-drawing')).toBe(true);
+    expect(matches(key('G', { shiftKey: true }), 'to-drawing')).toBe(false);
+    expect(matches(key('g', { ctrlKey: true }), 'to-drawing')).toBe(false);
+    expect(matches(key('g', { altKey: true }), 'to-drawing')).toBe(false);
+    expect(SHORTCUTS.find((s) => s.id === 'to-drawing')?.group).toBe('Canvas');
+    expect(shortcutText('to-drawing', false)).toBe('G');
+  });
+
+  it('is the only shortcut on G', () => {
+    const onG = SHORTCUTS.filter((s) => s.spec != null && matches(key('g'), s.id));
+    expect(onG.map((s) => s.id)).toEqual(['to-drawing']);
+  });
+});

@@ -36,6 +36,12 @@ export function keysToSelection(): void {
   walking = false;
 }
 
+/** The keyboard was sent to the drawing with its own key (`drawing/toDrawing.ts`): from there it goes on as after
+ * a walk with Tab. */
+export function walkedTo(): void {
+  walking = true;
+}
+
 /** Someone is going through the page with Tab: the ring they see is where they are. */
 export function keyboardIsWalking(): boolean {
   return walking;

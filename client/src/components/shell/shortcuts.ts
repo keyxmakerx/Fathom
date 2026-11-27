@@ -38,6 +38,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'zoom-in', group: 'Canvas', keys: ['+'], what: 'Zoom in', spec: { key: '+', also: ['='] } },
   { id: 'zoom-out', group: 'Canvas', keys: ['-'], what: 'Zoom out', spec: { key: '-', also: ['_'] } },
   { id: 'zoom-fit', group: 'Canvas', keys: ['Shift', '1'], what: 'Fit the whole design in view', spec: { key: '!' } },
+  { id: 'to-drawing', group: 'Canvas', keys: ['G'], what: 'Go to the drawing: the keyboard lands on what is selected, or on the first rack', spec: { key: 'g' } },
   { id: 'shortcuts', group: 'Canvas', keys: ['?'], what: 'Show this list of shortcuts', spec: { key: '?' } },
 
   { id: 'select-focused', group: 'Selection', keys: ['Enter'], what: 'Select the device, rack, wall or cable the keyboard is on', spec: { key: 'Enter' } },

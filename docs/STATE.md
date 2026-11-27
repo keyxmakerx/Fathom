@@ -652,6 +652,15 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   place of React Flow's, which offered Space, moving and deleting. A row, a band of several cables and the cables
   that leave the room, which Enter does not select, are read without them. The key is a row of the shortcuts
   table (`select-focused`). `drive-undo-notes.mjs` and `drive-sample.mjs` drive it.
+- **The keyboard's way round the drawing** (r159). A device on a wall, a desk or a ceiling takes a Tab stop, right
+  after its wall and left to right (`drawing/ownStop.ts`), and Enter selects it as a press does; a thing on a shelf
+  was already a button. The row label and the cables that leave the room take none, since Enter does nothing on
+  either; the buttons on them keep theirs. A thing inside a node that Tab lands on is brought into view clear of
+  the tool row and the zoom buttons, as React Flow does for a node. **G** takes the keyboard to the drawing: to the
+  selected thing when it is drawn, or else to the first rack (`drawing/toDrawing.ts`, `to-drawing` in the
+  shortcuts table, so the sheet lists it). In the sample that is 1 press where the first rack was 25 from the top
+  of the page. A pressed port stands on a square of ink, with a hairline of the page's colour round it
+  (`drawing/PortPick.tsx`), whether its card or Details is showing; a selected cable's two ports keep their ring.
 - **Things on the drawing say their names** (`drawing/thingSays.ts`). Everything on the drawing that takes the
   keyboard has a name for a screen reader, handed to React Flow as `ariaLabel`. A device says its name, what it is
   and where it is ("router-1, router, Rack 1 U10"); a rack its height and the units in use; a shelf and a wall
@@ -660,8 +669,8 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   many it stands for; a box, a label, a note, an area and a line on the open canvas their own words. The kind of
   thing is read in place of "node" and "edge" (`SAID_AS`). Before, React Flow's own words were no name at all for
   a device, a rack, a shelf or a wall, and "Edge from" and two ids for a cable. The Diagram look's boxes and lines
-  have the same names. A device on a wall and a thing on a shelf take no Tab stop of their own, so they are named
-  only by the wall or shelf that holds them. A cable's two ends, a band's two devices and the things on a wall are
+  have the same names. A device on a wall takes a Tab stop of its own (r159) and says its name and what it is; a
+  thing on a shelf is a button of its own and says its name. A cable's two ends, a band's two devices and the things on a wall are
   read in name order, a number in a name by its value ("switch-2" before "switch-10"), an end outside the room
   last: the design keeps no order of its own for them, and read as it holds them, two things made in the same
   millisecond came out either way round, so a design and its copy named the same cable differently. A shelf's
