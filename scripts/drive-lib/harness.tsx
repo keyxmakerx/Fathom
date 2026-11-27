@@ -219,6 +219,7 @@ async function main() {
   else if (scene === 'cable-groups-speed') doc = seedCableGroupsSpeedScene(catalogue, ME, Number(params.get('count') ?? '2100'));
   else doc = seedEmptyDesign();
 
+  const faceplateTemplates: Array<{ id: string; name: string; role: string | null; ports: unknown[]; createdBy: string }> = [];
   // Every saved version of DESIGN_ID, for the History panel: `log[v - 1]`.
   const nowUnix = Math.floor(Date.now() / 1000);
   const log: { bytes: Uint8Array; atUnix: number; actor: string }[] = [];
@@ -327,6 +328,20 @@ async function main() {
     // "Could not get ..." alerts off the page, so a drive that counts alerts counts only its own.
     if (method === 'POST' && p.startsWith(`${org}/designs/`) && p.endsWith('/work')) {
       return json({ numbers: {}, people: {} });
+    }
+    // Faceplate templates ("Your models") live on the server, one list for the organisation (migration 0076).
+    if (p === `${org}/faceplate-templates` && method === 'GET') return json(faceplateTemplates);
+    if (p === `${org}/faceplate-templates` && method === 'POST') {
+      const sent = JSON.parse(new TextDecoder().decode(requestBody)) as { name: string; role?: string; ports: unknown[]; replaces?: string };
+      for (let i = faceplateTemplates.length - 1; i >= 0; i -= 1) if (faceplateTemplates[i].id === sent.replaces) faceplateTemplates.splice(i, 1);
+      const made = { id: `01JTEMPLATE${String(faceplateTemplates.length + 1).padStart(15, '0')}`, name: sent.name, role: sent.role ?? null, ports: sent.ports, createdBy: ME };
+      faceplateTemplates.push(made);
+      return json(made);
+    }
+    if (p.startsWith(`${org}/faceplate-templates/`) && method === 'DELETE') {
+      const id = decodeURIComponent(p.slice(`${org}/faceplate-templates/`.length));
+      for (let i = faceplateTemplates.length - 1; i >= 0; i -= 1) if (faceplateTemplates[i].id === id) faceplateTemplates.splice(i, 1);
+      return new Response(null, { status: 204 });
     }
     if (method === 'GET' && p === `${org}/teams`) {
       return json({ steward: false, teams: [] });
