@@ -159,6 +159,8 @@ try {
   };
   const select = async (hostname) => {
     await page.locator('.react-flow__node-chassis', { hasText: hostname }).first().click();
+    // A device's Details are a tab of the right-hand dock, not a panel that opens by itself.
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
     await page.waitForTimeout(200);
   };
@@ -217,8 +219,12 @@ try {
   await page.locator('[data-testid="learn-fold"]').waitFor({ timeout: 8_000 });
   await page.evaluate(() => document.querySelectorAll('details.drawing-editor__fold').forEach((d) => { d.open = true; })); // r30-device: the panel's lower sections start folded
   check('a reader sees the EOS Learn line', (await page.locator('[data-testid="learn-about"]').innerText()).includes('Arista EOS'));
-  await page.setViewportSize({ width: 390, height: 844 });
+  // The phone view is a shell of its own (Scan, Find, Canvas) with no device panel, so the explainer is opened
+  // first and the window then narrowed to a phone's width: the overlay must still fit.
   await page.locator('[data-testid="learn-about"]').getByRole('button', { name: 'Read more' }).click();
+  await page.waitForSelector('.learn-overlay', { timeout: 5_000 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(500);
   await page.waitForSelector('.learn-overlay', { timeout: 5_000 });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   check('the explainer fits a phone width', !overflow);
@@ -230,10 +236,11 @@ try {
   const diagram = async (scene) => {
     await page.goto(`${BASE}/drive.html?scene=${scene}`);
     await page.waitForSelector('.home__design-row', { timeout: 10_000 });
-    const row = page.locator('.home__design-row').filter({ has: page.locator('.home__design-name[title="design-drive"]') });
-    await row.locator('button', { hasText: 'Canvas' }).click();
+    // Home rows carry no design id now and neither seeded design is named: `design-drive` is the first row.
+    await page.locator('.home__design-row').first().locator('.home__design-name').click();
     await page.waitForSelector('.react-flow__pane', { timeout: 15_000 });
-    await page.getByLabel('Look').getByRole('button', { name: 'Diagram', exact: true }).click();
+    // The Diagram view is a bar tab now.
+    await page.getByTestId('view-diagram').click();
     await page.waitForSelector('.drawing-diagram-box', { timeout: 10_000 });
     await page.click('button[aria-label="Fit to view"]').then(() => page.waitForTimeout(700));
   };
