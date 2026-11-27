@@ -44,8 +44,19 @@ export function WhyCard({ finding, onClose }: { finding: CheckFinding; onClose: 
   useEffect(() => {
     const el = ref.current;
     if (el == null) return;
-    el.focus({ preventScroll: true });
-    el.scrollIntoView?.({ block: 'nearest' });
+    // From the refusal card the Checks tab is shown a render after this card mounts, and a card in a hidden tab
+    // cannot take focus: try again each frame until it is shown (a few frames at most).
+    let frames = 0;
+    let raf = 0;
+    const take = () => {
+      el.focus({ preventScroll: true });
+      if (document.activeElement !== el && frames++ < 10 && typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(take);
+      else el.scrollIntoView?.({ block: 'nearest' });
+    };
+    take();
+    return () => {
+      if (raf !== 0) cancelAnimationFrame(raf);
+    };
   }, []);
   return (
     <section ref={ref} tabIndex={-1} className="checks-why" aria-label="Why" data-testid="checks-why">
