@@ -3,7 +3,7 @@
 // (`thingPeek.ts`), so the two never disagree. Pure; the card is `QuickCard.tsx`.
 
 import type { ClosetView } from './contract';
-import { findDevice, findFixture } from './lookup';
+import { findDevice } from './lookup';
 import type { Document } from '../../document/model';
 import { portPeek } from './portPeek';
 import { thingPeek, type PeekTarget, type ThingRow } from './thingPeek';
@@ -16,7 +16,7 @@ export interface QuickCardFacts {
   address: string | null;
   /** The peek's other rows; the address is not among them. */
   rows: ThingRow[];
-  /** A device in a rack, on a shelf or not placed yet opens inside with a double-click; the card says so. */
+  /** A device opens inside with a double-click, wherever it sits; the card says so. */
   opens: boolean;
 }
 
@@ -43,9 +43,7 @@ export function quickCard(view: ClosetView, target: PeekTarget): QuickCardFacts 
   if (target.kind !== 'device') return { kind: KIND_WORD[target.kind], title: peek.title, address: null, rows, opens: false };
   const { role, address } = deviceFacts(view, target.id);
   const trimmed = address?.trim() ?? '';
-  // A double-click does not open a device on a wall, so its card does not say that it does.
-  const opens = findFixture(view, target.id) == null;
-  return { kind: roleWord(role), title: peek.title, address: trimmed !== '' ? trimmed : null, rows, opens };
+  return { kind: roleWord(role), title: peek.title, address: trimmed !== '' ? trimmed : null, rows, opens: true };
 }
 
 /** r116: the card for a clicked port, from the port peek's own rows (`portPeek.ts`), so the two never disagree. */

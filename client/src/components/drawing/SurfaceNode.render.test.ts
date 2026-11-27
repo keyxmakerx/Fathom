@@ -224,6 +224,20 @@ describe('SurfaceNode (render-to-string)', () => {
     expect(rows(renderSurface(baseData({ placement: placement(s) }), { showPortGlyphs: true }))).toEqual(['drawing-surface__port-row', 'drawing-surface__port-row']);
   });
 
+  // A double-click opens a device (`doubleClick.ts`). Without `nopan` the canvas took the double-click as its own
+  // and doubled the zoom. A passive thing has nothing to open, and the canvas keeps a double-click on it.
+  it('a device on a wall keeps a double-click from the canvas, and a passive thing does not', () => {
+    const device = fixture({ id: 'camera-1', label: 'camera-1', kind: 'chassis', xMm: 0, yMm: 0 });
+    const passive = fixture({ id: 'outlet-1', label: 'outlet-1', xMm: 400, yMm: 0 });
+    const s = surface({ id: 'wall-out', label: 'Outside wall', form: 'wall', fixtures: [device, passive] });
+    const markup = renderSurface(baseData({ placement: placement(s) }));
+    const boxes = [...markup.matchAll(/<div (?:data-device-chassis="([^"]*)" )?class="(drawing-surface__fixture(?: [^"]*)?)"/g)].map((m) => [m[1] ?? null, m[2]!.split(' ').includes('nopan')]);
+    expect(boxes).toEqual([
+      ['camera-1', true],
+      [null, false],
+    ]);
+  });
+
   it("a fixture's inlet has its tip on the button too, in the words its picture has", () => {
     const f = fixture({
       id: 'ont-01',

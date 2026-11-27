@@ -178,7 +178,8 @@ function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: P
         className={cabled ? 'drawing-surface__port drawing-surface__port--cabled nodrag' : 'drawing-surface__port nodrag'}
         style={style}
         onClick={(event: MouseEvent) => {
-          event.stopPropagation();
+          // The port's own press, not the fixture's; the port's card still comes (`ownPress.ts`).
+          ownPress(event);
           onSelectPort(port.id);
         }}
       >
@@ -230,7 +231,7 @@ function InletStrip({
               className={cabled ? 'drawing-surface__port drawing-surface__port--cabled nodrag' : 'drawing-surface__port nodrag'}
               style={dimmed ? { opacity: 'var(--phantom)' } : undefined}
               onClick={(event: MouseEvent) => {
-                event.stopPropagation();
+                ownPress(event);
                 onSelectPort(inlet.id);
               }}
             >
@@ -391,6 +392,9 @@ function FixtureBox({
         upright ? 'drawing-surface__fixture--upright' : '',
         selected ? 'drawing-surface__fixture--selected' : '',
         'nodrag',
+        // A device opens on a double-click (`doubleClick.ts`). `nopan` keeps the canvas from taking that
+        // double-click as its own and doubling the zoom, as on a shelf (`ShelfPlate.tsx`).
+        fixture.kind === 'chassis' ? 'nopan' : '',
       ]
         .filter(Boolean)
         .join(' ')}

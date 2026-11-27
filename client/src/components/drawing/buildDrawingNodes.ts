@@ -85,7 +85,7 @@ export interface BuildDrawingNodesInput {
   onOpenShelf?: (shelfId: string) => void;
   /** A writer's shelf grips; absent for a reader. */
   onResizeShelf?: (shelfId: string, change: { heightU?: number; slots?: number }, preview: boolean) => { refused: string } | void;
-  onOpenShelfOccupant: (occupantId: string, centreX: number, centreY: number) => void;
+  onSelectOccupant: (occupantId: string) => void;
   onHoverInlet: (cableId: string | null) => void;
   surfacesLayout: SurfacesLayout;
   portalGroups: readonly PortalGroup[];
@@ -137,7 +137,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
     onSelectShelf,
     onOpenShelf,
     onResizeShelf,
-    onOpenShelfOccupant,
+    onSelectOccupant,
     onHoverInlet,
     surfacesLayout,
     portalGroups,
@@ -266,11 +266,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
                 ...(canDraw && onResizeShelf ? { rackId: rack.id, onResize: (change, preview) => onResizeShelf(shelf.id, change, preview) } : {}),
                 onSelectShelf: () => onSelectShelf(shelf.id),
                 ...(onOpenShelf ? { onOpenShelf: () => onOpenShelf(shelf.id) } : {}),
-                onSelectOccupant: (occupantId: string) => {
-                  const centreX = shelfPosition.x + RACK_INNER_PX / 2;
-                  const centreY = shelfPosition.y + (shelf.heightU * U_PX) / 2;
-                  onOpenShelfOccupant(occupantId, centreX, centreY);
-                },
+                onSelectOccupant,
                 onSelectPort: handleSelectPort,
                 portSheath,
               } satisfies ShelfPlateNodeData,

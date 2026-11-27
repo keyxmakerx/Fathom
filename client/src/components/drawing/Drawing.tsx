@@ -100,7 +100,7 @@ import { openElsewhere } from '../../api/estate';
 import { SHOW_DETAILS_EVENT } from '../shell/useRightTab';
 import { CableRunAsk, RackSizeAsk } from './AskCard';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
-import { doubleClickAnswer } from './doubleClick';
+import { doubleClickAnswer, holderDoubleClick } from './doubleClick';
 import { cableEndsOf, portFactsOf } from './menuFacts';
 import { holderOf } from './editorChanges';
 import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider, useLive, type LiveStore } from './liveStore';
@@ -137,7 +137,6 @@ import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
 import { easeOut, glideOptions } from './motion';
 import { useMovedNodes } from './movedNodes';
-import { panToShow } from './keepInView';
 import { useSettle } from './useSettle';
 import { liveSagPath, markFreshCable } from './cableMotion';
 import { useCameraHub, type CameraHub } from './camera';
@@ -213,9 +212,6 @@ const SHAKE_MS = 220;
 export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null, showPending = false): boolean {
   return !(isFirstRun && (selected?.kind === 'chassis' || showPending));
 }
-
-/** Room left between an opened shelf box's inset and the pane's edge. */
-const INSET_MARGIN_PX = 24;
 
 /** A dropped fixture's rough height, so it lands below the pointer, not above. */
 const DROP_LIFT_PX = 90;
@@ -1272,28 +1268,11 @@ function DrawingInner({
     [],
   );
   const onSelectShelf = useCallback((shelfId: string) => onSelect({ kind: 'shelf', id: shelfId }), [onSelect]);
-  // A box on a shelf opens at the faceplate stop by the same continuous camera every other selection moves — never a second, independent jump.
-  // The details panel slides open during that glide and narrows the pane, which left the opened box's
-  // inset under the panel; once both have settled, pan just far enough to bring it back out.
-  const occupantOpenRef = useRef(0);
-  const onOpenShelfOccupant = useCallback(
-    (occupantId: string, centreX: number, centreY: number) => {
-      onSelect({ kind: 'occupant', id: occupantId });
-      const open = ++occupantOpenRef.current;
-      void rf.setCenter(centreX, centreY, { zoom: CAMERA_STOPS.faceplate / 100, ...GLIDE }).then(() => {
-        requestAnimationFrame(() => {
-          const pane = containerRef.current;
-          const inset = pane?.querySelector('.drawing-shelf__inset');
-          if (open !== occupantOpenRef.current || pane == null || inset == null) return;
-          const dx = panToShow(pane.getBoundingClientRect(), inset.getBoundingClientRect(), INSET_MARGIN_PX);
-          if (dx === 0) return;
-          const v = rf.getViewport();
-          void rf.setViewport({ ...v, x: v.x + dx }, { ...GLIDE });
-        });
-      });
-    },
-    [onSelect, rf],
-  );
+  // A press on a thing on a shelf selects it, as a press on a device in a rack does, and leaves the camera where
+  // it is. It used to glide to the faceplate stop: the thing left the pointer, so the second press of a
+  // double-click missed it, and a press far out answered with a jump. At the faceplate stop the selected thing
+  // still opens beside its shelf (`ShelfPlate.tsx`).
+  const onSelectOccupant = useCallback((occupantId: string) => onSelect({ kind: 'occupant', id: occupantId }), [onSelect]);
 
   // One tray node per (rack, side, far label) group — `portals.ts` does the grouping; `buildDrawingNodes.ts` lays the boxes out.
   const portalGroups = useMemo(() => groupPortals(view), [view]);
@@ -1336,7 +1315,7 @@ function DrawingInner({
       onSelectShelf,
       onOpenShelf,
       onResizeShelf,
-      onOpenShelfOccupant,
+      onSelectOccupant,
       onHoverInlet: handleHoverCable,
       surfacesLayout,
       portalGroups,
@@ -1854,11 +1833,13 @@ function DrawingInner({
       const freeBox = parseFreeNodeId(node.id);
       if (freeBox?.kind === 'box' && onOpenDevice) return openChassis(freeBox.id);
       if (free.onNodeDoubleClick(node)) return;
-      // A shelf: a double-click on a device on it opens that device; anywhere else on the tray steps into the shelf.
-      if (node.type === 'shelf') {
-        const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis');
-        if (onDevice) return openChassis(onDevice);
-        onOpenShelf?.((node.data as ShelfPlateNodeType['data']).shelf.id);
+      // A shelf or a wall: a double-click on a device on it opens that device; anywhere else on a shelf's tray steps
+      // into the shelf (`doubleClick.ts`).
+      if (node.type === 'shelf' || node.type === 'surface') {
+        const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis') ?? null;
+        const into = holderDoubleClick(node.type, onDevice);
+        if (into?.open === 'device') openChassis(into.id);
+        else if (into?.open === 'shelf') onOpenShelf?.((node.data as ShelfPlateNodeType['data']).shelf.id);
         return;
       }
       const parsed = parseNodeId(node.id);

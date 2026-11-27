@@ -18,6 +18,7 @@ import { LitPathMark } from './CableOverlayEdge';
 import { portKindFor } from './portGlyph';
 import { portSays } from './faceplate';
 import { isLoosePort, portHandleFlags } from './missingLinks';
+import { ownPress } from './ownPress';
 import { SHEATH_VAR } from './sheath';
 import { ShelfGrips, type ResizeShelf } from './ShelfGrips';
 
@@ -96,6 +97,14 @@ function useShelfLiveData(shelfId: string, occupantIds: ReadonlySet<string>, myC
   return { selected, selectedOccupantId, litCableId, liveDrag, cameraStop };
 }
 
+/** A press on a thing on the shelf is the thing's, not the shelf's. A device's is passed on to the quick card,
+ * which answers for it as for a device in a rack (`ownPress.ts`). A passive thing (a splitter, an outlet) has no
+ * card of its own yet, and the shelf's would speak for the wrong thing. */
+function pressThing(event: MouseEvent, occupant: Pick<OccupantView, 'kind'>): void {
+  if (occupant.kind === 'chassis') ownPress(event);
+  else event.stopPropagation();
+}
+
 interface GlyphRowProps {
   ports: PortView[];
   /** `--budgeted` for the compact rack-stop box (capped to its own row
@@ -146,7 +155,8 @@ function GlyphRow({ ports, glyphClassName, showLabels, onSelectPort, liveDrag, p
             }
             style={style}
             onClick={(event: MouseEvent) => {
-              event.stopPropagation();
+              // The port's own press, not its box's; the port's card still comes (`ownPress.ts`).
+              ownPress(event);
               onSelectPort(port.id);
             }}
           >
@@ -214,7 +224,7 @@ function OccupantBox({
       style={style}
       data-device-chassis={occupant.kind === 'chassis' ? occupant.id : undefined}
       onClick={(event: MouseEvent) => {
-        event.stopPropagation();
+        pressThing(event, occupant);
         onSelectOccupant();
       }}
     >
@@ -438,7 +448,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
         }
         style={{ height }}
         onClick={(event: MouseEvent) => {
-          event.stopPropagation();
+          ownPress(event);
           onSelectShelf();
         }}
       >
@@ -460,7 +470,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
                     : 'drawing-shelf__compact-occupant nodrag'
                 }
                 onClick={(event: MouseEvent) => {
-                  event.stopPropagation();
+                  pressThing(event, item.occupant);
                   onSelectOccupant(item.occupant.id);
                 }}
               >
@@ -477,8 +487,13 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
                 aria-label={onOpenShelf ? `Open shelf: ${folded.length} more` : undefined}
                 className="drawing-shelf__compact-more nodrag"
                 onClick={(event: MouseEvent) => {
-                  event.stopPropagation();
-                  (onOpenShelf ?? onSelectShelf)();
+                  if (onOpenShelf) {
+                    event.stopPropagation();
+                    onOpenShelf();
+                    return;
+                  }
+                  ownPress(event);
+                  onSelectShelf();
                 }}
               >
                 +{folded.length}
@@ -508,7 +523,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
       className={selected ? 'drawing-shelf drawing-shelf--selected nopan' : 'drawing-shelf nopan'}
       style={{ height }}
       onClick={(event: MouseEvent) => {
-        event.stopPropagation();
+        ownPress(event);
         onSelectShelf();
       }}
     >

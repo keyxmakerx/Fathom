@@ -14,6 +14,7 @@ import { EditableName } from './NameEdit';
 import { isPanel } from './paths';
 import { pduUsage, pduUsageLabel } from './power';
 import { isLoosePort, portHandleFlags } from './missingLinks';
+import { ownPress } from './ownPress';
 import { SHEATH_VAR } from './sheath';
 
 /** Counts renders into `window.__cn` when a test harness has set it to a
@@ -93,7 +94,8 @@ export type ChassisNodeType = Node<ChassisNodeData, 'chassis'>;
 export type LiveDrag = { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
 
 /** One port on the plate, drawn where the unit has it. Zoomed out it is only
- * its handle, so a cable still has somewhere to end and no glyph is drawn. */
+ * its handle, so a cable still has somewhere to end and no glyph is drawn; it
+ * is out of reach there (`drawing-chassis__ports--undrawn`). */
 function PlatePort({
   box,
   port,
@@ -154,7 +156,7 @@ function PlatePort({
   );
   if (!glyphs) {
     return (
-      <div data-port-id={port.id} className="drawing-chassis__port drawing-chassis__port--bare" style={style} {...reveal}>
+      <div data-port-id={port.id} className="drawing-chassis__port drawing-chassis__port--bare" style={style}>
         {handle}
       </div>
     );
@@ -175,7 +177,8 @@ function PlatePort({
       onDragOver={(e) => onOpticDragOver(port, e)}
       onDrop={(e) => onOpticDrop(port, e)}
       onClick={(event: MouseEvent) => {
-        event.stopPropagation();
+        // The port's own press: it is not the device's, and the port's card still comes (`ownPress.ts`).
+        ownPress(event);
         onSelectPort(port.id);
       }}
     >
@@ -285,7 +288,9 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
                 {marks}
               </div>
             )}
-            <div className="drawing-chassis__ports">
+            {/* Until the ports are drawn they keep their place, so a cable still ends where its port is, and are
+                out of reach (`drawing.css`): a press, a pointer or a drag where one lies is the device's. */}
+            <div className={glyphs ? 'drawing-chassis__ports' : 'drawing-chassis__ports drawing-chassis__ports--undrawn'}>
               {cardFrames(layout, items).map((f) => {
                 const card = cardById.get(f.cardId);
                 return (

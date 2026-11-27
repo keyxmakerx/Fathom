@@ -16,3 +16,10 @@ export function doubleClickAnswer(kind: DoubleClickKind): DoubleClickAnswer {
       return 'panel';
   }
 }
+
+/** What a double-click inside a shelf or on a wall, a desk or a ceiling goes into. A device on it opens, wherever
+ * it sits. Anywhere else on a shelf steps into the shelf; anywhere else on a wall has nothing to go into. */
+export function holderDoubleClick(holder: 'shelf' | 'surface', onDeviceId: string | null): { open: 'device'; id: string } | { open: 'shelf' } | null {
+  if (onDeviceId != null && onDeviceId !== '') return { open: 'device', id: onDeviceId };
+  return holder === 'shelf' ? { open: 'shelf' } : null;
+}

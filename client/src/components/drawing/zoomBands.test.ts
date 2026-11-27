@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { CAMERA_STOPS, ZOOM_BANDS, zoomBandAt } from './geometry';
+import { CAMERA_STOPS, ZOOM_BANDS, portOpacity, zoomBandAt } from './geometry';
 
 const CSS = readFileSync(fileURLToPath(new URL('../../styles/drawing.css', import.meta.url)), 'utf8');
 
@@ -25,5 +25,16 @@ describe('zoomBandAt', () => {
       const rule = new RegExp(`\\.drawing\\[data-zoom-band='${band}'\\]\\s*\\{\\s*--zoom:\\s*${band / 100};\\s*--zoom-pct:\\s*${band};\\s*\\}`);
       expect(CSS, `band ${band}`).toMatch(rule);
     }
+  });
+
+  // A port that is not drawn keeps its place, so its cable still ends there, and is out of reach. `ChassisNode.tsx`
+  // and `SurfaceNode.tsx` put the mark on below the 125 band (`Drawing.tsx`), which is where a port's opacity is 0.
+  it('drawing.css puts an undrawn port out of reach, in a rack and on a wall', () => {
+    expect(CSS).toMatch(/\.drawing-chassis__ports--undrawn\s*\{\s*visibility:\s*hidden;\s*\}/);
+    expect(CSS).toMatch(/\.drawing-surface__port-row--undrawn\s*\{\s*visibility:\s*hidden;\s*\}/);
+  });
+
+  it('ports are at opacity 0 in exactly the bands below 125, where they are marked undrawn', () => {
+    for (const band of ZOOM_BANDS) expect(portOpacity(band) === 0, `band ${band}`).toBe(band < 125);
   });
 });

@@ -71,6 +71,12 @@
 .drawing-chassis__ports > * {
   pointer-events: auto;
 }
+/* Too small to be drawn (opacity 0, above), a rack device's ports and cards are out of reach as well: a press, a
+   pointer, a right-click or a drag where one lies is the device's. They keep their place, so a cable still ends
+   where its port is. A wall thing's ports do the same (`.drawing-surface__port-row--undrawn`). */
+.drawing-chassis__ports--undrawn {
+  visibility: hidden;
+}
 
 /* A port glyph at about its true size: CSS `zoom` (not `transform`, which
    would not reflow the row) counter-scales it by the band, `1 / var(--zoom)`. */
