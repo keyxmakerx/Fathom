@@ -246,7 +246,7 @@ try {
     check(`[${w}x${h}] the panel lists the single-cable idea`, rows.some((r) => /only one cable/i.test(r)), rows.join(' | ').replace(/\s+/g, ' '));
     check(`[${w}x${h}] rows carry a glyph and a word`, rows.every((r) => /[✕▲○]/.test(r) && /can't work|warning|idea/i.test(r)));
     const chip = await page.locator('[data-testid=dock-checks]').innerText();
-    check(`[${w}x${h}] the chip shows the count`, /Checks \d+/.test(chip), chip);
+    check(`[${w}x${h}] the chip shows the count`, /checks \d+/i.test(chip), chip);
     const badgeCount = await page.locator('[data-testid=checks-badge]').count();
     check(`[${w}x${h}] an idea is listed but not badged on the device`, badgeCount === 0, String(badgeCount));
     await shot(page, `${tag}-04-panel-badge`);
@@ -254,9 +254,10 @@ try {
     // The panel stays clear of the bar and the canvas controls.
     const panel = await page.locator('[data-testid=checks-panel]').boundingBox();
     const bar = await page.locator('.shell-bar').boundingBox();
-    const ctl = await page.locator('.drawing-cables-control').boundingBox();
+    // The Cables control is in the tool row now (card r116), along the canvas's top-left.
+    const ctl = await page.locator('.canvas-tools').boundingBox();
     check(`[${w}x${h}] the panel is below the bar and inside the window`, panel.y >= bar.y + bar.height && panel.x + panel.width <= w && panel.y + panel.height <= h, JSON.stringify(panel));
-    check(`[${w}x${h}] the panel does not cover the cables control`, ctl == null || panel.x >= ctl.x + ctl.width || panel.y >= ctl.y + ctl.height);
+    check(`[${w}x${h}] the panel does not cover the tool row`, ctl == null || panel.x >= ctl.x + ctl.width || panel.y >= ctl.y + ctl.height);
 
     // Why? from a row: the card takes focus, Esc closes it and focus goes back to that row's button.
     const whyBtn = page.locator('[data-testid=checks-row]').first().getByRole('button', { name: 'Why?' });
@@ -315,7 +316,8 @@ try {
     // r30-panels: the panel is a tab of the right-hand panel, not a card dragged about the canvas.
     check(`[${w}x${h}] the panel sits in the right-hand panel, not over the canvas`, (await page.locator('.dock-side [data-testid=checks-panel]').count()) === 1);
     await shot(page, `${tag}-06-in-dock`);
-    await page.locator('.checks-panel__head').getByRole('button', { name: 'Fold the Checks panel' }).click();
+    // The fold button is in the right-hand panel's head, with the panel's name (shell/PanelHead.tsx).
+    await page.getByTestId('panel-fold').click();
     await page.waitForTimeout(200);
     check(`[${w}x${h}] Fold leaves only the count on the tab`, (await page.locator('[data-testid=checks-panel]').count()) === 0 && (await page.locator('[data-testid=dock-checks]').count()) === 1);
 
@@ -354,7 +356,8 @@ try {
     check(`[${w}x${h}] an explicit open wins over the narrow default`, (await page.locator('[data-testid=checks-panel]').count()) === 1);
     const area = await page.locator('.shell__drawing').boundingBox();
     const pb = await page.locator('[data-testid=checks-panel]').boundingBox();
-    check(`[${w}x${h}] the opened panel is inside the canvas`, pb.x >= area.x - 1 && pb.x + pb.width <= area.x + area.width + 1 && pb.y + pb.height <= area.y + area.height + 1, JSON.stringify({ pb, area }));
+    // The panel is in the right-hand dock now: it stands beside the canvas, inside the window, and covers none of it.
+    check(`[${w}x${h}] the opened panel stands beside the canvas, inside the window`, pb.x >= area.x + area.width - 1 && pb.x + pb.width <= w + 1 && pb.y + pb.height <= h + 1, JSON.stringify({ pb, area }));
     await shot(page, `checks2-fresh-${w}x${h}`);
     await context.close();
   }
