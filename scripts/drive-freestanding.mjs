@@ -260,6 +260,8 @@ try {
   check('at least one cabled port shows on a surface fixture', cabledPortCount > 0, `${cabledPortCount} cabled port glyphs`);
   const zoomBeforePortFocus = await zoomOf(page);
   await cabledPort.click();
+  // A device's Details are a tab of the right-hand dock, not a panel that opens by itself.
+  if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
   // Selecting a port glides the camera to its owning box at the faceplate stop.
   await page.waitForTimeout(800);

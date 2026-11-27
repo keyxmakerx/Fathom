@@ -119,7 +119,9 @@ try {
     const chassisNodes = page.locator('.react-flow__node-chassis');
     const coreNode = chassisNodes.filter({ hasText: 'core-01' });
     await coreNode.click();
-    await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
+    // Delete is the canvas's key: it does nothing from a button the keyboard was moved to (card r154), so
+    // this part leaves the dock alone and keeps the press on the device.
+    await page.waitForTimeout(300);
     check('one cable drawn before removal', (await page.locator('[data-cable-id]').count()) === 1);
     await page.screenshot({ path: SHOTS + 'RD-01-selected.png' });
     console.log('    wrote ' + SHOTS + 'RD-01-selected.png');
@@ -152,10 +154,13 @@ try {
     const { context, page, pageErrors } = await openTrail();
     const coreNode = page.locator('.react-flow__node-chassis').filter({ hasText: 'core-01' });
     await coreNode.click();
+    // A device's Details are a tab of the right-hand dock, not a panel that opens by itself.
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
     // Remove device sits in the panel's ⋯ menu.
     await page.locator('[data-testid="device-more"] > summary').click();
-    const removeButton = page.locator('.drawing-editor__panel button', { hasText: 'Remove device' });
+    // The ⋯ menu sits in the dock's head, above the panel, and its rows are menu items.
+    const removeButton = page.getByRole('menuitem', { name: /Remove device/ });
     check('the panel offers "Remove device"', (await removeButton.count()) === 1);
     await removeButton.scrollIntoViewIfNeeded();
     // The panel with the button, in view.
@@ -177,10 +182,17 @@ try {
     const { context, page, pageErrors } = await openTrail('read');
     const coreNode = page.locator('.react-flow__node-chassis').filter({ hasText: 'core-01' });
     await coreNode.click();
+    // A device's Details are a tab of the right-hand dock, not a panel that opens by itself.
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
-    const removeButton = page.locator('.drawing-editor__panel button', { hasText: 'Remove device' });
+    // Open the ⋯ menu if a reader has one, so the check looks where the item would be.
+    const moreButton = page.locator('[data-testid="device-more"] > summary');
+    if ((await moreButton.count()) > 0) await moreButton.click();
+    const removeButton = page.getByRole('menuitem', { name: /Remove device/ });
     check('a reader\'s panel offers no "Remove device"', (await removeButton.count()) === 0);
 
+    // The dock tab holds the keyboard; press the device again so Delete is meant for the canvas.
+    await coreNode.click();
     await page.keyboard.press('Delete');
     await page.waitForTimeout(300);
     check('Delete removes nothing for a reader', (await page.locator('.react-flow__node-chassis').count()) === 2);
