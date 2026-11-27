@@ -76,10 +76,12 @@ export type Placement =
  * `ExternalPeer` (`connectToOutside`, `cables.ts`) rather than a
  * `PhysicalPort` — the modelling horizon (11 §6.3), same reading `outside`
  * gives `CableView.ends` below. `outsideCloset` is true whenever the far end
- * is not placed (ADR-0051 §1: `MountedIn` a rack, or `SitsOn` a shelf itself
- * `MountedIn` a rack) in a rack this `ClosetView` itself carries (an
- * ExternalPeer, a chassis racked at a different Premises, or — until a
- * surface/board reader needs the same distinction — a surface fixture). */
+ * is not drawn in this `ClosetView`: not placed (ADR-0051 §1: `MountedIn` a
+ * rack, `SitsOn` a shelf itself `MountedIn` a rack, or `FixedTo` a surface or
+ * a board on one) in a rack or on a surface this view carries. That is an
+ * ExternalPeer, a device at a different Premises, or one placed nowhere.
+ * Before sign-off r160 a device on a wall, desk or ceiling of this same room
+ * counted as outside, and a port's card said "Leaves this room" for it. */
 export interface CableEndView {
   cableId: string;
   farPortId: string | null;
@@ -494,13 +496,10 @@ function terminatesLiveTarget(doc: Document, edge: GraphEdge): boolean {
  * per port" — the command layer, `cables.ts`, refuses a second one; this is
  * a read, so it simply takes the first if that invariant were ever
  * violated by a document from elsewhere), reduced to the far end.
- * `closetRackIds` is the set of rack ids the `ClosetView` being built
- * itself carries — a far port whose owning rack (`rackIdOfPlacement`
- * above — a shelf occupant's own shelf's rack, for one) is not one of them
- * is `outsideCloset`. A surface/board fixture has no owning rack at all and
- * reads `outsideCloset: true` here the same way it always has — ADR-0051
- * §1/§2 gave it a place to draw, not yet a reader of this bit that needs to
- * tell it apart from a rack in a different closet. */
+ * `closetRackIds` is the set of rack AND surface ids the `ClosetView` being
+ * built itself carries — a far port whose owning place (`placeIdOfPlacement`
+ * below: a shelf occupant's own shelf's rack, a board's own surface) is not
+ * one of them is `outsideCloset`. */
 function portCableView(doc: Document, portId: string, closetRackIds: ReadonlySet<string>): CableEndView | null {
   const near = edgesIn(doc, portId, 'Terminates')[0];
   if (!near) return null;
@@ -516,8 +515,8 @@ function portCableView(doc: Document, portId: string, closetRackIds: ReadonlySet
   const farPortId = far.to;
   const farHasPort = edgesIn(doc, farPortId, 'HasPort')[0];
   const farChassisId = farHasPort?.from ?? null;
-  const farRackId = farChassisId ? rackIdOfPlacement(doc, placementOf(doc, farChassisId)) : null;
-  const outsideCloset = !farRackId || !closetRackIds.has(farRackId);
+  const farPlaceId = farChassisId ? placeIdOfPlacement(doc, placementOf(doc, farChassisId)) : null;
+  const outsideCloset = !farPlaceId || !closetRackIds.has(farPlaceId);
   return { cableId, farPortId, farChassisId, outsideCloset };
 }
 
@@ -1248,6 +1247,14 @@ function cableKindOfMedia(media: string): CableKind {
  * shelf occupant, the shelf's own rack (a shelf is itself `MountedIn` a
  * rack — `shelfView`'s own doc); `null` for a surface/board fixture or an
  * unplaced item, neither of which has one. */
+/** The rack or surface a placement finally stands in: `rackIdOfPlacement` for a rack or a shelf, the surface for a
+ * thing fixed to one, and for a thing fixed to a board, the place the board stands in (boards nest). */
+function placeIdOfPlacement(doc: Document, placement: Placement, depth = 0): string | null {
+  if (placement.kind === 'surface') return placement.surfaceId;
+  if (placement.kind === 'board') return depth > 16 ? null : placeIdOfPlacement(doc, placementOf(doc, placement.boardId), depth + 1);
+  return rackIdOfPlacement(doc, placement);
+}
+
 function rackIdOfPlacement(doc: Document, placement: Placement): string | null {
   if (placement.kind === 'rack') return placement.rackId;
   if (placement.kind === 'shelf') {
@@ -1343,11 +1350,12 @@ export function viewOf(doc: Document, catalogue: CatalogueModel[]): ClosetView {
     return { premisesId: '', racks: [], cables, rows: [], surfaces: [], unplaced, ...freeViews(doc, unplaced) };
   }
   const rackEdges = edgesOut(doc, premises.id, 'HasRack');
-  const closetRackIds = new Set(rackEdges.map((e) => e.to));
+  const surfaceEdges = edgesOut(doc, premises.id, 'HasSurface');
+  // Every place this view draws: a cable to a device in any of them names it, not "Leaves this room".
+  const closetRackIds = new Set([...rackEdges, ...surfaceEdges].map((e) => e.to));
   const racks = rackEdges
     .map((e) => rackView(doc, e.to, catalogue, closetRackIds))
     .filter((r): r is RackView => r !== undefined);
-  const surfaceEdges = edgesOut(doc, premises.id, 'HasSurface');
   const surfaces = surfaceEdges
     .map((e) => surfaceView(doc, e.to, catalogue, closetRackIds))
     .filter((s): s is SurfaceView => s !== undefined);
@@ -1380,7 +1388,7 @@ export function viewOfAll(doc: Document, catalogue: CatalogueModel[]): AllPremis
   }
   const closetRackIds = new Set<string>();
   const edges = all.map((p) => ({ p, racks: edgesOut(doc, p.id, 'HasRack'), surfaces: edgesOut(doc, p.id, 'HasSurface') }));
-  for (const e of edges) for (const r of e.racks) closetRackIds.add(r.to);
+  for (const e of edges) for (const r of [...e.racks, ...e.surfaces]) closetRackIds.add(r.to);
   const racks: RackView[] = [];
   const surfaces: SurfaceView[] = [];
   const premises: PremisesIn[] = [];

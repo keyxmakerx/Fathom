@@ -66,7 +66,7 @@ export function searchDesign(view: Pick<ClosetView, 'racks'> & Partial<Pick<Clos
         const portTagHit = portNameMatches ? undefined : matchingTagName(port.id);
         if (!portNameMatches && !portTagHit) continue;
         const far = port.cable?.farPortId ? nameOf.get(port.cable.farPortId) : null;
-        const why = portTagHit ? `tag: ${portTagHit}` : (port.cable == null ? 'free' : port.cable.outsideCloset ? 'cabled out of this closet' : `cabled to ${far ?? 'another port'}`);
+        const why = portTagHit ? `tag: ${portTagHit}` : (port.cable == null ? 'free' : port.cable.outsideCloset ? 'cabled out of this room' : `cabled to ${far ?? 'another port'}`);
         hits.push({ group: 'Ports', name, why, selection: { kind: 'port', id: port.id } });
       }
     }
