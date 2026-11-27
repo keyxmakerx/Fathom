@@ -122,6 +122,9 @@ export interface LiveStatus {
 const NO_LIVE: LiveStatus = { mode: 'connecting', connected: false, reconnecting: false, pendingCount: 0, note: null, overwrite: null, merged: null, self: null, people: [] };
 
 export interface DesignSession {
+  /** The open design, once both it and the catalogue have answered: `null` until then. Drawn before the
+   * catalogue, every catalogued device drew as a sketch and then again at its real shape half a second
+   * later, and its cables vanished for a frame in between (sign-off r160). */
   doc: Document | null;
   live: LiveStatus;
   /** Live editing: restore the value another person's change just replaced (an item's `id` from `live.overwrite`). */
@@ -183,6 +186,8 @@ export function useDesignSession(organisationId: string, designId: string, capab
 
   const [doc, setDoc] = useState<Document | null>(null);
   const [catalogue, setCatalogue] = useState<CatalogueModel[]>([]);
+  // The catalogue is the same for every design, so it is kept when another design opens.
+  const [catalogueReady, setCatalogueReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
   const [live, setLive] = useState<LiveStatus>(NO_LIVE);
@@ -208,7 +213,9 @@ export function useDesignSession(organisationId: string, designId: string, capab
     fetchCatalogue()
       .then((list) => Promise.all(list.map((entry) => fetchModel(entry.vendor, entry.model))))
       .then((models) => {
-        if (!cancelledRef.current) setCatalogue(models);
+        if (cancelledRef.current) return;
+        setCatalogue(models);
+        setCatalogueReady(true);
       })
       .catch((error: unknown) => {
         if (!cancelledRef.current) setLoadError(describeError(error));
@@ -260,7 +267,6 @@ export function useDesignSession(organisationId: string, designId: string, capab
 
   useEffect(() => {
     setDoc(null);
-    setCatalogue([]);
     setSaveRefusal(null);
     setLive(NO_LIVE);
     conditionalSaveRef.current = null;
@@ -417,7 +423,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
   );
 
   return {
-    doc,
+    doc: catalogueReady ? doc : null,
     designId,
     organisationId,
     live,

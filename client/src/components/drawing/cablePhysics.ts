@@ -201,14 +201,19 @@ export function smoothPath(points: readonly Pt[]): string {
 const LEAD_SHARE = 0.18;
 
 /** Bend the first stretch of a hanging curve so it leaves the port along the plug (`dir`) and meets the
- * rope smoothly: a cubic from the port, out along the plug, into the rope's own direction. */
+ * rope smoothly: a cubic from the port, out along the plug, into the rope's own direction.
+ *
+ * Gravity decides, not the plug (sign-off r160, 27 November 2026: "when i said physics based i meant more
+ * gravity"). A rope that falls away from the side its port faces (a top-row port whose cable hangs below)
+ * drops straight from the port, with no hook up and back. A rope that heads off mostly sideways keeps
+ * only as much of the plug's straight boot as it heads the plug's way, so it never jogs out and back. */
 function leadInto(hung: Pt[], dir: 1 | -1 | undefined, lead: number): Pt[] {
   if (dir == null || hung.length < 6) return hung;
   const p0 = hung[0]!;
-  // A cable that has to turn back on itself (a top-row port whose rope falls away below) bends round
-  // in a short, wide hook rather than standing up as a spike.
-  const turnsBack = (hung[Math.min(hung.length - 1, 4)]!.y - p0.y) * dir < 0;
-  const bootLen = turnsBack ? lead * 0.4 : lead;
+  const ahead = hung[Math.min(hung.length - 1, 4)]!;
+  const along = ((ahead.y - p0.y) * dir) / (Math.hypot(ahead.x - p0.x, ahead.y - p0.y) || 1);
+  if (along < 0.2) return hung;
+  const bootLen = lead * along;
   // The plug's rigid boot: straight out of the port.
   const boot = { x: p0.x, y: p0.y + dir * bootLen };
   // Hand over a few plug lengths along the rope, and never past a share of it.
@@ -218,8 +223,8 @@ function leadInto(hung: Pt[], dir: 1 | -1 | undefined, lead: number): Pt[] {
   const q = hung[k]!;
   const after = hung[k + 1]!;
   const tl = Math.hypot(after.x - q.x, after.y - q.y) || 1;
-  const reach = Math.min(lead * (turnsBack ? 3 : 2), Math.hypot(q.x - boot.x, q.y - boot.y) / 2);
-  const c1 = { x: boot.x, y: boot.y + dir * lead * (turnsBack ? 0.5 : 0.8) };
+  const reach = Math.min(lead * 2, Math.hypot(q.x - boot.x, q.y - boot.y) / 2);
+  const c1 = { x: boot.x, y: boot.y + dir * bootLen * 0.8 };
   const c2 = { x: q.x - ((after.x - q.x) / tl) * reach, y: q.y - ((after.y - q.y) / tl) * reach };
   const out: Pt[] = [p0];
   for (let i = 0; i < k; i++) {
