@@ -66,7 +66,7 @@ export interface AccountInfo {
 }
 
 /** Why Undo or Redo cannot be pressed just now. The words for each are `EDITS_OFF` (`hintWords.ts`). */
-export type EditsOff = 'viewOnly' | 'phoneCanvas' | 'save' | 'nothingToUndo' | 'nothingToRedo';
+export type EditsOff = 'viewOnly' | 'phoneCanvas' | 'save' | 'idea' | 'nothingToUndo' | 'nothingToRedo';
 
 /**
  * The shell's full contract. `Shell` renders only from these props and the

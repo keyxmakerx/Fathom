@@ -255,7 +255,7 @@ export function PaletteSheet({ search, onClose, initialQuery = '', layer = false
                         <Marked text={entry.action.label} query={query} />
                       </span>
                       <span className="palette__why">{entry.action.disabled ?? ''}</span>
-                      {on && !disabled ? <span className="palette__enter">{entry.action.group === 'go' ? 'Enter to open' : 'Enter to run'}</span> : entry.action.hint ? <kbd className="palette__hint">{entry.action.hint}</kbd> : null}
+                      {on && !disabled ? <span className="palette__enter">{entry.action.group === 'go' ? 'Enter to open' : 'Enter to run'}</span> : entry.action.hint && !disabled ? <kbd className="palette__hint">{entry.action.hint}</kbd> : null}
                     </>
                   ) : entry.kind === 'elsewhere' ? (
                     <>

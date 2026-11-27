@@ -255,7 +255,9 @@ describe('Bar — a greyed Undo or Redo says why', () => {
   it('a greyed one says why, in its hint and its title, and shows no keys', () => {
     const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, undoOff: 'save', redoOff: 'nothingToRedo' }));
     const undo = tag(markup, 'bar-undo');
-    expect(undo).toContain('disabled');
+    // Not `disabled`: a disabled button is not a Tab stop, and its reason is the point.
+    expect(undo).toContain('aria-disabled="true"');
+    expect(undo).not.toMatch(/ disabled/);
     expect(undo).toContain(`data-hint-more="${EDITS_OFF.save.hint}"`);
     expect(undo).toContain(`title="${EDITS_OFF.save.hint}"`);
     expect(undo).not.toContain('data-hint-keys');

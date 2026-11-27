@@ -538,7 +538,7 @@ button.shell-search {
   cursor: pointer;
 }
 
-.shell-chip--ink:not(:disabled):hover {
+.shell-chip--ink:not(:disabled):not([aria-disabled='true']):hover {
   background: var(--control-bg-hover);
   border-color: var(--control-line-hover);
   box-shadow: none;
@@ -549,7 +549,8 @@ button.shell-search {
   border-color: var(--control-line-hover);
 }
 
-.shell-chip--ink:disabled {
+.shell-chip--ink:disabled,
+.shell-chip--ink[aria-disabled='true'] {
   opacity: 0.45;
   cursor: default;
 }
@@ -607,7 +608,7 @@ button.shell-search {
   border-left: var(--rule-hair) solid var(--control-line);
 }
 
-.shell-bar__undoredo > .shell-chip--ink:not(:disabled):hover,
+.shell-bar__undoredo > .shell-chip--ink:not(:disabled):not([aria-disabled='true']):hover,
 .shell-bar__zoom > button:not(:disabled):hover {
   background: var(--control-bg-hover);
   box-shadow: none;
