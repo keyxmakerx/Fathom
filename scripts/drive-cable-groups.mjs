@@ -116,6 +116,8 @@ async function selectCableOfKind(page, kind) {
   for (const id of ids) {
     await clickCable(page, id);
     await page.waitForTimeout(150);
+    // A cable's Details are a tab of the right-hand dock; a press shows only its quick card.
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
     const text = await page.locator('.drawing-editor__panel').innerText();
     if (new RegExp(`KIND\\s*\\n\\s*${kind}\\b`, 'i').test(text) || text.toLowerCase().includes(`kind\n${kind}`)) return id;
   }
@@ -197,10 +199,10 @@ async function dashedCableIds(page) {
  * landing. */
 async function openDesignInRacks(page, designId) {
   await page.waitForSelector('.home__design-row', { timeout: 10_000 });
-  // An EXACT match on the id span itself, not a substring of the row's
-  // whole text — `design-drive` is itself a substring of `design-drive-2`.
-  const row = page.locator('.home__design-row').filter({ has: page.locator(`.home__design-name[title="${designId}"]`) });
-  await row.locator('button', { hasText: 'Canvas' }).click();
+  // A row no longer carries the design's id (its name is a button, and neither seeded design has a name), so
+  // the row is found by the order the harness lists them in: `design-drive`, then `design-drive-2`.
+  const row = page.locator('.home__design-row').nth(designId === 'design-drive-2' ? 1 : 0);
+  await row.locator('.home__design-name').click();
   await page.waitForSelector('.drawing', { timeout: 15_000 });
 }
 
@@ -408,7 +410,7 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('.shell-bar__brand').click();
   await page.waitForSelector('.home__design-row', { timeout: 10_000 });
-  check('the second design is listed on Home', await page.locator('.home__design-row', { has: page.locator('.home__design-name[title="design-drive-2"]') }).count() === 1);
+  check('both seeded designs are listed on Home', await page.locator('.home__design-row').count() === 2);
   await openDesignInRacks(page, 'design-drive-2');
   await openCableGroupsList(page);
   const secondDesignRows = await page.locator('.cable-groups-pop__row').count();
