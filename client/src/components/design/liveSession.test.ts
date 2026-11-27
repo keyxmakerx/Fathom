@@ -266,13 +266,13 @@ describe('what others do', () => {
     const { r, deviceId } = overwritten();
     expect(last(r).self).toEqual(person(ME, 'Ann Lee', 'AL'));
     expect(last(r).people).toEqual([person(THEM, 'Bob Roe', 'BR')]);
-    expect(last(r).overwrite?.lines).toEqual(['Bob Roe changed the role on an unnamed device just after you']);
+    expect(last(r).overwrite?.lines).toEqual(['Bob Roe changed the role on an unnamed device in R1 U4 just after you']);
     expect(last(r).overwrite?.items.map((i) => i.yours)).toEqual(["yours router → Bob's switch"]);
     expect(last(r).overwrite?.keep).toBe("Keep Bob's");
     expect(last(r).overwrite?.anchor).toBe('role');
     expect(last(r).overwrite?.element).toBe(deviceId);
     expect(last(r).overwrite?.items.map((i) => i.field)).toEqual(['role']);
-    expect(last(r).overwrite?.parts).toEqual([{ head: 'Bob Roe changed the role', on: 'an unnamed device', tail: ' just after you' }]);
+    expect(last(r).overwrite?.parts).toEqual([{ head: 'Bob Roe changed the role', on: 'an unnamed device in R1 U4', tail: ' just after you' }]);
     expect(findNode(last(r).doc, deviceId)!.fields['Device.role'].value).toBe('switch');
 
     r.live.putBack(last(r).overwrite!.items[0].id);

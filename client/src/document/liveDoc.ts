@@ -8,6 +8,7 @@ import type { CanonValue } from './canon';
 import {
   archiveField,
   assertHand,
+  edgesOut,
   everyEdgeIn,
   findEdge,
   findNode,
@@ -382,15 +383,37 @@ export function nameItHad(doc: Document, id: string): string | null {
   return had.get(id) ?? null;
 }
 
-/** A thing's own name: a device's hostname ("an unnamed device" without one), a rack's or a place's label. `null`
- * for a thing that has none, a cable or a port or a note, which is said by what it belongs to instead. */
-export function ownName(doc: Document, id: string): string | null {
+/** Where a device with no name stands, so two of them can be told apart: "in R1 U12" in a rack, "on Shelf 2" on a
+ * shelf. `null` when it stands nowhere that is drawn, or is taken away. */
+function whereItStands(doc: Document, deviceId: string): string | null {
+  const chassis = edgesOut(doc, deviceId, 'HasChassis')[0]?.to;
+  if (chassis === undefined) return null;
+  const mounted = edgesOut(doc, chassis, 'MountedIn')[0];
+  if (mounted !== undefined) {
+    const rack = ownName(doc, mounted.to, false);
+    const u = mounted.fields['MountedIn.position_u'];
+    const at = u?.presence === 'set' && typeof u.value === 'number' ? ` U${u.value}` : '';
+    return `in ${rack ?? 'a rack'}${at}`;
+  }
+  const shelf = edgesOut(doc, chassis, 'SitsOn')[0];
+  if (shelf !== undefined) return `on ${ownName(doc, shelf.to, false) ?? 'a shelf'}`;
+  return null;
+}
+
+/** A thing's own name: a device's hostname ("an unnamed device" without one, and where it stands when that is
+ * known: "an unnamed device in R1 U12"), a rack's or a place's label. `where: false` leaves the place off, for a
+ * sentence that already says it. `null` for a thing that has none, a cable or a port or a note, which is said by
+ * what it belongs to instead. */
+export function ownName(doc: Document, id: string, where = true): string | null {
   const node = findNode(doc, id);
   if (!node) return null;
   const own = NAME_FIELDS.map((k) => node.fields[k]).find((e) => e?.presence === 'set' && typeof e.value === 'string');
   if (own) return own.value as string;
+  if (kindOf(id) !== 'Device') return null;
   // One taken away is called what it was last called.
-  return kindOf(id) === 'Device' ? ((node.absentSince !== undefined ? nameItHad(doc, id) : null) ?? 'an unnamed device') : null;
+  if (node.absentSince !== undefined) return nameItHad(doc, id) ?? 'an unnamed device';
+  const at = where ? whereItStands(doc, id) : null;
+  return at === null ? 'an unnamed device' : `an unnamed device ${at}`;
 }
 
 function kindOf(id: string): string | null {
@@ -402,7 +425,7 @@ function kindOf(id: string): string | null {
 }
 
 /** What to call the thing a field is on: its device's hostname, or its own name. */
-export function elementName(doc: Document, id: string): string {
+export function elementName(doc: Document, id: string, where = true): string {
   let cur = id;
   for (let hop = 0; hop < 5; hop += 1) {
     const edge = findEdge(doc, cur);
@@ -411,7 +434,7 @@ export function elementName(doc: Document, id: string): string {
       continue;
     }
     if (!findNode(doc, cur)) break;
-    const own = ownName(doc, cur);
+    const own = ownName(doc, cur, where);
     if (own !== null) return own;
     if (kindOf(cur) === null) break;
     const up = everyEdgeIn(doc, cur).find((e) => e.absentSince === undefined);

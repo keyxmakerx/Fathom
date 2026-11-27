@@ -489,7 +489,9 @@ describe('the words of a notice', () => {
     const named = setDeviceField(base, deviceId, 'hostname', 'core-sw-01', { actor: ME, now: T0 + 5 });
     expect(elementName(named, chassisId)).toBe('core-sw-01');
     expect(elementName(named, deviceId)).toBe('core-sw-01');
-    expect(elementName(base, chassisId)).toBe('an unnamed device');
+    // Nothing names it, so it is told from another by where it stands.
+    expect(elementName(base, chassisId)).toBe('an unnamed device in R1 U4');
+    expect(elementName(base, chassisId, false)).toBe('an unnamed device');
   });
 });
 
