@@ -9,6 +9,7 @@ import { safeUrl } from '../../document/docs';
 import { useLearn } from './context';
 import { FIRST_TAB, library, titleOf } from './explainers';
 import './learn.css';
+import { useGhostRef } from '../shell/ghost';
 import { useModal } from '../shell/useModal';
 
 export type LearnView = { kind: 'library' } | { kind: 'entry'; id: string; from: 'library' | 'direct' };
@@ -122,11 +123,12 @@ function Library({ all, onOpen }: { all: readonly Explainer[]; onOpen: (id: stri
 export function LearnOverlay({ view, onView, onClose }: { view: LearnView; onView: (v: LearnView) => void; onClose: () => void }) {
   const api = useLearn();
   const ref = useRef<HTMLDivElement>(null);
+  const pageRef = useGhostRef(ref);
   useModal(ref, onClose, { focus: 'container' });
   if (!api) return null;
   const entry = view.kind === 'entry' ? (api.explainers.find((e) => e.id === view.id) ?? null) : null;
   return (
-    <div className="learn-overlay" role="dialog" aria-modal="true" aria-label="Learn" tabIndex={-1} ref={ref}>
+    <div className="learn-overlay" role="dialog" aria-modal="true" aria-label="Learn" tabIndex={-1} ref={pageRef}>
       <div className="learn-overlay__head">
         {view.kind === 'entry' ? (
           <button type="button" className="learn-link" onClick={() => onView({ kind: 'library' })}>

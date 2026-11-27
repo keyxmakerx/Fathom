@@ -6,6 +6,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import './phone.css';
+import { useGhostRef } from '../shell/ghost';
 import { useModal } from '../shell/useModal';
 
 /** The slice of the Barcode Detection API this uses (not in TypeScript's DOM library). */
@@ -112,6 +113,7 @@ export function ScanSheet({ onResult, onClose, message }: ScanSheetProps) {
   }, []);
 
   const dialogRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useGhostRef(dialogRef);
   useModal(dialogRef, onClose);
 
   const submit = (e: React.FormEvent) => {
@@ -121,7 +123,7 @@ export function ScanSheet({ onResult, onClose, message }: ScanSheetProps) {
   };
 
   return (
-    <div className="phone-scan" role="dialog" aria-modal="true" aria-label="Scan a label" ref={dialogRef}>
+    <div className="phone-scan" role="dialog" aria-modal="true" aria-label="Scan a label" ref={sheetRef}>
       <div className="phone-scan__head">
         <span className="phone-scan__title">Scan</span>
         <button type="button" className="phone-scan__close" onClick={onClose}>

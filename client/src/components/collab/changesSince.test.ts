@@ -11,6 +11,7 @@ import {
   parseSeen,
   sinceWords,
   SYSTEM_ACCOUNT_ID,
+  whoNamer,
   whoWord,
   whoWords,
   type SeenMarker,
@@ -155,5 +156,53 @@ describe('the system account', () => {
   it('is named as Fathom, never as a colleague or someone', () => {
     expect(whoWord(SYSTEM_ACCOUNT_ID, 'me', 'd')).toBe('Fathom (system change)');
     expect(whoWords([{ account: SYSTEM_ACCOUNT_ID }], () => null)).toBe('Fathom (system change)');
+  });
+});
+
+describe('naming a whole list of people', () => {
+  /** Browser storage holding the names one design has heard, counting how often it is read. */
+  function heard(names: Record<string, string>): { reads: () => number; restore: () => void } {
+    const had = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    let reads = 0;
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: () => {
+          reads += 1;
+          return JSON.stringify(names);
+        },
+        setItem: () => {},
+      },
+    });
+    return {
+      reads: () => reads,
+      restore: () => {
+        if (had) Object.defineProperty(globalThis, 'localStorage', had);
+        else delete (globalThis as { localStorage?: unknown }).localStorage;
+      },
+    };
+  }
+
+  it('says what whoWord says for each, and reads the names heard once', () => {
+    const store = heard({ bob: 'Bob Roe' });
+    try {
+      const nameOf = whoNamer('me', 'd');
+      expect(['me', 'bob', 'nobody-heard', SYSTEM_ACCOUNT_ID, 'bob', null].map(nameOf)).toEqual(['you', 'Bob Roe', 'a colleague', 'Fathom (system change)', 'Bob Roe', 'unknown']);
+      expect(store.reads()).toBe(1);
+      expect(whoWord('bob', 'me', 'd')).toBe('Bob Roe');
+    } finally {
+      store.restore();
+    }
+  });
+
+  it('reads nothing when every change is this person\'s own', () => {
+    const store = heard({ bob: 'Bob Roe' });
+    try {
+      const nameOf = whoNamer('me', 'd', 'me@example.com');
+      expect(['me', 'me'].map(nameOf)).toEqual(['me@example.com', 'me@example.com']);
+      expect(store.reads()).toBe(0);
+    } finally {
+      store.restore();
+    }
   });
 });

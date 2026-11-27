@@ -1,6 +1,9 @@
 // r15-start (mockup r15-f4.png): the "New here?" sample card for Home's centre, and the five first steps for its
-// right panel. The steps tick themselves (firstSteps.ts); hidden, they live under Help.
-import { FIRST_STEPS, type StepId } from './firstSteps';
+// right panel. The steps tick themselves (firstSteps.ts); hidden, they live under Help. A step not yet done says
+// how when pressed, and the next one says it without being asked.
+import { useState } from 'react';
+
+import { FIRST_STEPS, howTo, nextStep, type StartsWith, type StepId } from './firstSteps';
 
 export interface SampleCardProps {
   summary: string;
@@ -49,11 +52,20 @@ export function SampleCard({ summary, busy, disabled, error, onOpen, practice }:
 
 export interface GettingStartedProps {
   done: readonly StepId[];
+  /** Steps ticked since the list was last drawn: each ticks itself, once. */
+  fresh?: readonly StepId[];
+  /** Which button on this Home starts a design of one's own; the first step names it. */
+  startsWith?: StartsWith;
   onHide: () => void;
 }
 
-export function GettingStarted({ done, onHide }: GettingStartedProps) {
+export function GettingStarted({ done, fresh = [], startsWith = 'new-design', onHide }: GettingStartedProps) {
   const count = FIRST_STEPS.filter((s) => done.includes(s.id)).length;
+  const next = nextStep(done);
+  // One step says how at a time: the next one to begin with, then whichever the person presses.
+  const [open, setOpen] = useState<StepId | null>(next);
+  const before = count - FIRST_STEPS.filter((s) => fresh.includes(s.id)).length;
+  const share = (n: number) => `${(100 * n) / FIRST_STEPS.length}%`;
   return (
     <section className="first-steps" aria-label="Getting started">
       <div className="home__label">
@@ -67,21 +79,45 @@ export function GettingStarted({ done, onHide }: GettingStartedProps) {
         aria-valuenow={count}
         aria-label={`${count} of ${FIRST_STEPS.length} first steps done`}
       >
-        <span style={{ width: `${(100 * count) / FIRST_STEPS.length}%` }} />
+        <span className={before < count ? 'first-steps__fill first-steps__fill--grow' : 'first-steps__fill'} style={{ width: share(count), ['--from' as string]: share(before) }} />
       </div>
       <ol className="first-steps__list">
         {FIRST_STEPS.map((step, i) => {
           const ticked = done.includes(step.id);
-          return (
-            <li key={step.id} className={ticked ? 'first-steps__step first-steps__step--done' : 'first-steps__step'}>
+          const turn = fresh.indexOf(step.id);
+          const shown = !ticked && open === step.id;
+          const words = (
+            <>
               <span className="first-steps__n" aria-hidden="true">
                 {i + 1}
               </span>
               <span className="first-steps__label">
-                {step.label}
+                <span className="first-steps__text">{step.label}</span>
                 {ticked && <span className="first-steps__sr"> (done)</span>}
               </span>
               {step.note && <span className="first-steps__note">{step.note}</span>}
+            </>
+          );
+          return (
+            <li
+              key={step.id}
+              className={['first-steps__step', ticked ? 'first-steps__step--done' : '', turn >= 0 ? 'first-steps__step--fresh' : '', step.id === next ? 'first-steps__step--next' : ''].filter(Boolean).join(' ')}
+              style={turn >= 0 ? { ['--turn' as string]: turn } : undefined}
+            >
+              {ticked ? (
+                <div className="first-steps__row">{words}</div>
+              ) : (
+                <button type="button" className="first-steps__row first-steps__row--ask" aria-expanded={shown} onClick={() => setOpen(shown ? null : step.id)}>
+                  {words}
+                </button>
+              )}
+              {!ticked && (
+                <div className={shown ? 'first-steps__how first-steps__how--open' : 'first-steps__how'} aria-hidden={!shown}>
+                  <div className="first-steps__how-clip">
+                    <p>{howTo(step, startsWith)}</p>
+                  </div>
+                </div>
+              )}
             </li>
           );
         })}

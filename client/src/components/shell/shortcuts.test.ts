@@ -50,6 +50,19 @@ describe('the shortcuts table', () => {
     expect(matches(key('Enter'), 'rename')).toBe(false);
   });
 
+  it('lists holding Space to drag the view, which React Flow answers itself: on the sheet, with no key for a handler here', () => {
+    const hold = SHORTCUTS.find((s) => s.id === 'pan-hold');
+    expect(hold?.group).toBe('Canvas');
+    expect(hold?.keys).toEqual(['Space', 'Drag']);
+    expect(hold?.spec).toBeUndefined();
+    expect(matches(key(' '), 'pan-hold')).toBe(false);
+  });
+
+  it('says Escape clears the selection, and Escape alone is its key', () => {
+    expect(matches(key('Escape'), 'clear')).toBe(true);
+    expect(matches(key('Escape', { ctrlKey: true }), 'clear')).toBe(false);
+  });
+
   it('writes Cmd for Ctrl on a Mac', () => {
     expect(capsFor(['Ctrl', 'K'], true)).toEqual(['Cmd', 'K']);
     expect(shortcutText('find', false)).toBe('Ctrl+K');

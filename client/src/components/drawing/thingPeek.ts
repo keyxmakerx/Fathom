@@ -22,6 +22,8 @@ export type PeekTarget = { kind: 'device' | 'rack' | 'shelf' | 'cable'; id: stri
 const row = (key: string, value: string | null | undefined, none: string): ThingRow =>
   value != null && value.trim() !== '' ? { key, value, empty: false } : { key, value: none, empty: true };
 
+/** What the Model row says of a box with no catalogue model, as its panel does. */
+const NO_MODEL = 'No catalogue model';
 const units = (positionU: number, heightU: number) => (heightU <= 1 ? `U${positionU}` : `U${positionU}–U${positionU + heightU - 1}`);
 
 export function thingPeek(view: ClosetView, target: PeekTarget): ThingPeekCard | null {
@@ -45,7 +47,7 @@ function devicePeek(view: ClosetView, id: string): ThingPeekCard | null {
     return {
       title: chassis.hostname || UNNAMED_HOSTNAME,
       rows: [
-        row('Model', [chassis.vendor, chassis.model].filter(Boolean).join(' '), 'Typed by hand'),
+        row('Model', [chassis.vendor, chassis.model].filter(Boolean).join(' '), NO_MODEL),
         row('Where', racked ? `${racked.rack.label} · ${units(chassis.positionU, chassis.heightU)}` : null, 'Not placed'),
         row('Address', chassis.managementAddress, 'No address'),
         row('Ports', chassis.ports.length > 0 ? `${cabled} of ${chassis.ports.length} cabled` : null, 'No ports'),
@@ -58,7 +60,7 @@ function devicePeek(view: ClosetView, id: string): ThingPeekCard | null {
     return {
       title: occ.occupant.label || UNNAMED_HOSTNAME,
       rows: [
-        row('Model', occ.occupant.model, 'Typed by hand'),
+        row('Model', occ.occupant.model, NO_MODEL),
         row('Where', `${occ.rack.label} · ${occ.shelf.label || 'shelf'}`, 'Not placed'),
         row('Ports', occ.occupant.ports.length > 0 ? `${cabled} of ${occ.occupant.ports.length} cabled` : null, 'No ports'),
       ],
@@ -66,16 +68,25 @@ function devicePeek(view: ClosetView, id: string): ThingPeekCard | null {
   }
   const fix = findFixture(view, id);
   if (fix != null) {
+    // A device on a wall says what one in a rack says: its address and how many of its ports are cabled.
+    const device = fix.fixture.chassis;
+    const ports = fix.fixture.ports;
+    const cabled = ports.filter((p) => p.cable != null).length;
     return {
       title: fix.fixture.label || UNNAMED_HOSTNAME,
-      rows: [row('Model', fix.fixture.model, 'Typed by hand'), row('Where', fix.surface.label, 'Not placed')],
+      rows: [
+        row('Model', device != null ? [device.vendor, device.model].filter(Boolean).join(' ') : fix.fixture.model, NO_MODEL),
+        row('Where', fix.surface.label, 'Not placed'),
+        ...(device != null ? [row('Address', device.managementAddress, 'No address')] : []),
+        row('Ports', ports.length > 0 ? `${cabled} of ${ports.length} cabled` : null, 'No ports'),
+      ],
     };
   }
   const box = view.free.find((f) => f.id === id);
   if (box != null) {
     return {
       title: box.hostname || UNNAMED_HOSTNAME,
-      rows: [row('Model', box.model, 'Typed by hand'), row('Role', box.role, 'No role'), row('Ports', box.portCount > 0 ? String(box.portCount) : null, 'No ports')],
+      rows: [row('Model', box.model, NO_MODEL), row('Role', box.role, 'No role'), row('Ports', box.portCount > 0 ? String(box.portCount) : null, 'No ports')],
     };
   }
   return null;

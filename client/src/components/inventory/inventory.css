@@ -419,7 +419,12 @@
   overflow: hidden;
 }
 
-/* the heading's words are cut short with an ellipsis; the sort marker beside them never is */
+/* the caret brings its own padding, so the sort button gives none on that side */
+.inv-table__sort:not(:last-child) {
+  padding-right: 0;
+}
+
+/* a heading too long for its column is cut short with an ellipsis; the sort marker beside it never is */
 .inv-table__label {
   min-width: 0;
   overflow: hidden;
@@ -864,6 +869,8 @@
   background: color-mix(in srgb, var(--page) 72%, transparent);
   display: grid;
   place-items: center;
+  /* The wash fades in over the page and the box drops into place on it, as a menu does. */
+  animation: fathom-fade-in var(--m-pop) var(--m-ease);
 }
 
 .inv-paste__box {
@@ -874,6 +881,14 @@
   display: flex;
   flex-direction: column;
   gap: var(--s2);
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inv-paste,
+  .inv-paste__box {
+    animation: none;
+  }
 }
 
 .inv-paste__box h2 {
@@ -1877,8 +1892,8 @@
   border: var(--rule-hair) solid var(--control-line);
   border-radius: var(--radius-pop);
   background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
   -webkit-backdrop-filter: var(--pop-blur);
+  backdrop-filter: var(--pop-blur);
   box-shadow: var(--shadow-pop);
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
 }

@@ -30,6 +30,8 @@ export interface Shortcut {
 export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'tool-select', group: 'Canvas', keys: ['V'], what: 'Select tool: drag to box-select', spec: { key: 'v' } },
   { id: 'tool-pan', group: 'Canvas', keys: ['H'], what: 'Pan tool: drag to move the view', spec: { key: 'h' } },
+  // Held, not pressed: React Flow's own (`panActivationKeyCode`), so nothing here listens for it and it has no spec.
+  { id: 'pan-hold', group: 'Canvas', keys: ['Space', 'Drag'], what: 'Hold Space and drag to move the view, whichever tool is on' },
   { id: 'print', group: 'Canvas', keys: ['Ctrl', 'P'], what: 'Print or export', spec: { key: 'p', mod: true } },
   { id: 'go-back', group: 'Canvas', keys: ['Alt', 'Left'], what: 'Go back to where you were, like a browser', spec: { key: 'ArrowLeft', alt: true } },
   { id: 'go-forward', group: 'Canvas', keys: ['Alt', 'Right'], what: 'Go forward again', spec: { key: 'ArrowRight', alt: true } },
@@ -38,6 +40,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'zoom-fit', group: 'Canvas', keys: ['Shift', '1'], what: 'Fit the whole design in view', spec: { key: '!' } },
   { id: 'shortcuts', group: 'Canvas', keys: ['?'], what: 'Show this list of shortcuts', spec: { key: '?' } },
 
+  { id: 'select-focused', group: 'Selection', keys: ['Enter'], what: 'Select the device, rack, wall or cable the keyboard is on', spec: { key: 'Enter' } },
   { id: 'clear', group: 'Selection', keys: ['Esc'], what: 'Clear the selection or close what is open', spec: { key: 'Escape' } },
   { id: 'select-all', group: 'Selection', keys: ['Ctrl', 'A'], what: 'Select every box on the canvas', spec: { key: 'a', mod: true } },
   { id: 'nudge-up', group: 'Selection', keys: ['Up'], what: 'Move a rack device up one unit (a box: nudge it)', spec: { key: 'ArrowUp' } },

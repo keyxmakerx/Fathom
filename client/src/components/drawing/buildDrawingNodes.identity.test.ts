@@ -95,7 +95,7 @@ function baseInput(racks: RackView[]): BuildDrawingNodesInput {
     onFlipRow: noop,
     onFlipRack: noop,
     onSelectShelf: noop,
-    onOpenShelfOccupant: noop,
+    onSelectOccupant: noop,
     onHoverInlet: noopHover,
     surfacesLayout: { panels: [], floor: null },
     portalGroups: [],

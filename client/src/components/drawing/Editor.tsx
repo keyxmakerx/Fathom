@@ -61,6 +61,8 @@ import { RoutingTab, useRoutingLit } from './RoutingTab';
 import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, takeOutChange, holderOf, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
 import { loadJsonPref, saveJsonPref } from '../../prefs';
 import { InHeadMenu } from '../shell/PanelHead';
+import { openAboveMenu } from '../shell/clickAnswer';
+import { focusLeft, pressedByKey, rowAfter, rowsIn, usesArrows } from '../shell/menuKeys';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
@@ -362,7 +364,7 @@ function PortMacField({ port, actions }: { port: PortView; actions: EditorAction
           onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'port', id: port.id, field: 'mac', value: v }) : undefined}
         />
       </div>
-      <TypedNote shown={(port.mac ?? '').length > 0} />
+      <TypedNote shown={(port.mac ?? '').length > 0} why />
     </>
   );
 }
@@ -583,22 +585,24 @@ function PortCableSection({ view, port, actions }: { view: ClosetView; port: Por
 /** The Inventory board's own mark (`design/proposals/screens/Inventory.dc.html`
  * — "Stored as typed."), shown once a field carries a value: every field
  * this editor writes is `Origin::Hand` (`document/edit.ts`'s `assertHand`),
- * so a present value here is always one a person typed. `extra`, used only
- * for `management_address`, is the board's own ADR-0041 sentence stated
- * once, muted. */
+ * so a present value here is always one a person typed. */
 /** 'each' marks every field (the canvas panel); 'once' leaves it to the page, which says it once (Inventory). */
 export const TypedNoteMode = createContext<'each' | 'once'>('each');
 
-function TypedNote({ shown, extra }: { shown: boolean; extra?: string }) {
+/** `why` adds the reason. The first mark a panel shows gives it, so the two words are never met unexplained. */
+function TypedNote({ shown, why = false }: { shown: boolean; why?: boolean }) {
   const mode = useContext(TypedNoteMode);
   if (!shown || mode === 'once') return null;
   return (
     <div style={TYPED_NOTE_STYLE}>
       <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>Stored as typed.</strong>
-      {extra ? ` ${extra}` : ''}
+      {why ? ` ${TYPED_WHY}` : ''}
     </div>
   );
 }
+
+/** ADR-0041's sentence, as Docs and Plans say it. */
+const TYPED_WHY = 'Fathom does not redact what you type, only what you paste.';
 
 const MANAGEMENT_ADDRESS_NOTE =
   'Fathom does not redact what you type, only what you paste, so it is saved and exported exactly as written.';
@@ -1189,6 +1193,18 @@ function PortsInWords({ chassis }: { chassis: ChassisView }) {
           <li key={line}>{line}</li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** ADR-0051 §1: a box with no catalogue model draws from ports typed by hand and says so, in the words of the
+ * button that gives it one (`DEVICE_WORDS.giveModel`). `lead` is left out where a tag above already says it has
+ * no model. */
+function SketchNote({ lead = true }: { lead?: boolean }) {
+  return (
+    <div style={TYPED_NOTE_STYLE}>
+      {lead ? <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue model. </strong> : null}
+      Its ports are typed by hand.
     </div>
   );
 }
@@ -2045,6 +2061,70 @@ function elementsOf(selection: Selection, view: ClosetView): string {
   return ids.join(' ');
 }
 
+/**
+ * The ⋯ list in a device panel's head. It is a menu like any other (shell brief, "Under the bar": closed by a press
+ * elsewhere or by Esc). It once was neither: Esc folded the panel around it, and a press elsewhere left it open,
+ * over the next device picked. Open, it is the top thing in the panel: Esc shuts it and nothing behind it, and
+ * the focus goes back to its button. For the keyboard it is a menu as the bar's are (`shell/Popover.tsx`): opened
+ * from the keyboard it starts on its first row, the arrow keys go through its rows, and it shuts when the
+ * keyboard leaves it.
+ */
+function DeviceMore({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  // The last press in here came from the keyboard (`pressedByKey`).
+  const byKey = useRef(false);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const el = ref.current;
+      if (e.key !== 'Escape' || el == null || !el.open || openAboveMenu(el)) return;
+      el.open = false;
+      el.querySelector('summary')?.focus();
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const onPress = (e: PointerEvent) => {
+      const el = ref.current;
+      if (el != null && el.open && !(e.target instanceof Node && el.contains(e.target))) el.open = false;
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onPress, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onPress, true);
+    };
+  }, []);
+  return (
+    <details
+      className="dev-more"
+      data-testid="device-more"
+      ref={ref}
+      onClickCapture={(event) => {
+        byKey.current = pressedByKey(event);
+      }}
+      onToggle={(event) => {
+        if (event.currentTarget.open && byKey.current) rowsIn(event.currentTarget)[0]?.focus();
+      }}
+      onKeyDown={(event) => {
+        const el = event.currentTarget;
+        const on = document.activeElement;
+        if (!el.open || event.defaultPrevented || !(on instanceof HTMLElement) || !el.contains(on)) return;
+        const onButton = on.tagName === 'SUMMARY';
+        if (!onButton && usesArrows(on)) return;
+        const rows = rowsIn(el);
+        const next = rowAfter(event, onButton ? -1 : rows.indexOf(on), rows.length);
+        if (next == null) return;
+        event.preventDefault();
+        rows[next]?.focus();
+      }}
+      onBlur={(event) => {
+        if (event.currentTarget.open && focusLeft(event.currentTarget, event.relatedTarget)) event.currentTarget.open = false;
+      }}
+    >
+      {children}
+    </details>
+  );
+}
+
 /** A pick from the ⋯ list shuts it; a greyed item leaves it open, its reason showing. */
 function closeMoreOnPick(event: { target: EventTarget; currentTarget: HTMLElement }) {
   const item = (event.target as Element).closest?.('button');
@@ -2109,7 +2189,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'rack', id: rack.id, field: 'row', value: v }) : undefined}
           />
         </div>
-        <TypedNote shown={(rack.row ?? '').length > 0} />
+        <TypedNote shown={(rack.row ?? '').length > 0} why />
 
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Bay</div>
@@ -2120,7 +2200,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'rack', id: rack.id, field: 'bay', value: v }) : undefined}
           />
         </div>
-        <TypedNote shown={rack.bay != null} />
+        <TypedNote shown={rack.bay != null} why={(rack.row ?? '').length === 0} />
 
         {/* ADR-0051 §1 — "a rack's editor gains '+ add a
             shelf'". */}
@@ -2244,7 +2324,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'shelf', id: shelf.id, field: 'label', value: v }) : undefined}
           />
         </div>
-        <TypedNote shown={shelf.label.length > 0} />
+        <TypedNote shown={shelf.label.length > 0} why />
 
         <Field label="Rack" value={`${rack.label} · U${shelf.positionU}`} />
         <NumberField label="Height (U)" value={shelf.heightU} onCommit={actions.onEdit ? (n) => actions.onEdit!({ kind: 'shelf-size', id: shelf.id, heightU: n }) : undefined} />
@@ -2316,7 +2396,7 @@ function panelFor(
             <ReadNow deviceId={chassis.deviceId} />
             {actions.onEdit != null || more != null ? (
               <InHeadMenu>
-              <details className="dev-more" data-testid="device-more">
+              <DeviceMore>
                 <summary className="dev-more__button" aria-label="More for this device" title="More for this device">
                   ⋯
                 </summary>
@@ -2334,7 +2414,7 @@ function panelFor(
                     <SupplyAction label={DEVICE_WORDS.remove} onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(chassis.id)) : undefined} />
                   </div>
                 )}
-              </details>
+              </DeviceMore>
               </InHeadMenu>
             ) : null}
             </span>
@@ -2354,12 +2434,12 @@ function panelFor(
           <div className="dev-panel__chips">
             <FirmwareChip deviceId={chassis.deviceId} />
             <ReadingChip deviceId={chassis.deviceId} />
-            {chassisSketch ? <span className="dev-tag">Typed by hand</span> : null}
+            {chassisSketch ? <span className="dev-tag">No catalogue model</span> : null}
           </div>
           <ReadLine deviceId={chassis.deviceId} />
           <ReadDialogHost deviceId={chassis.deviceId} />
           {/* r30-device: said once for the whole panel, not under every field. */}
-          <TypedNote shown={[chassis.hostname, chassis.role, chassis.serial, chassis.managementAddress].some((v) => (v ?? '').length > 0)} />
+          <TypedNote shown={[chassis.hostname, chassis.role, chassis.serial, chassis.managementAddress].some((v) => (v ?? '').length > 0)} why />
         </div>
         <PanelFaceplate chassis={chassis} view={view} />
 
@@ -2375,14 +2455,7 @@ function panelFor(
               body: (
                 <>
                   <div className="drawing-editor__group">Device</div>
-                  {/* ADR-0051 §1 — "a box with no catalogue entry draws
-                      from ports typed by hand and says so." */}
-                  {chassisSketch ? (
-                    <div style={TYPED_NOTE_STYLE}>
-                      <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
-                      hand.
-                    </div>
-                  ) : null}
+                  {chassisSketch ? <SketchNote lead={false} /> : null}
                   <SwapModelControl chassisId={chassis.id} current={chassis.model} catalogue={catalogue} actions={actions} />
                   <div className="drawing-editor__field">
                     <div className="drawing-editor__field-label">Role</div>
@@ -2596,10 +2669,7 @@ function panelFor(
         <Field label="Kind" value={occupant.kind} />
         <Field label="Model" value={occupant.model ?? ABSENT} />
         {occupantSketch ? (
-          <div style={TYPED_NOTE_STYLE}>
-            <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
-            hand.
-          </div>
+          <SketchNote />
         ) : null}
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <Field label="Slot" value={String(occupant.slot)} />
@@ -2659,10 +2729,7 @@ function panelFor(
         <Field label="Model" value={fixture.model ?? ABSENT} />
         {fixture.form ? <Field label="Form" value={fixture.form} /> : null}
         {sketch ? (
-          <div style={TYPED_NOTE_STYLE}>
-            <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
-            hand.
-          </div>
+          <SketchNote />
         ) : null}
         <Field label="Surface" value={surface.label || surface.id} />
         <Field
@@ -2735,7 +2802,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!(setCableFieldChange(cable.id, 'label', v)) : undefined}
           />
         </div>
-        <TypedNote shown={(cable.label ?? '').length > 0} />
+        <TypedNote shown={(cable.label ?? '').length > 0} why />
 
         {/* "its two ends in words (device and port each side, or the
             outside label)". "Go to end A and
@@ -2779,7 +2846,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!(setCableFieldChange(cable.id, 'length_m', v)) : undefined}
           />
         </div>
-        <TypedNote shown={cable.lengthM != null} />
+        <TypedNote shown={cable.lengthM != null} why={(cable.label ?? '').length === 0} />
 
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Ownership</div>
@@ -2791,7 +2858,7 @@ function panelFor(
             onCommit={actions.onEdit ? (v) => actions.onEdit!(setCableFieldChange(cable.id, 'ownership', v)) : undefined}
           />
         </div>
-        <TypedNote shown={(cable.ownership ?? '').length > 0} />
+        <TypedNote shown={(cable.ownership ?? '').length > 0} why={(cable.label ?? '').length === 0 && cable.lengthM == null} />
 
         {/* UI-SPEC "Delete/Backspace on a selected cable calls onDisconnect
             — no confirmation dialog" — the panel's own version of the same

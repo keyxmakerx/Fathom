@@ -80,7 +80,7 @@ export const DEVICE_WORDS = {
   suggestCables: 'Suggest cables (LLDP)',
   addPort: 'Add a port',
   termix: 'Open in Termix',
-  takeOut: 'Take it out, spot not known',
+  takeOut: 'Take it out, place it later',
   duplicate: 'Duplicate',
   copyLink: 'Copy link',
   printLabel: 'Print label',

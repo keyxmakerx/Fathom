@@ -128,12 +128,13 @@ try {
   check('scan: with no camera or reader the sheet says so in words', /can't read barcodes|No camera|not allowed/.test(say), say);
   await shot('phone-02-scan.png');
   await page.getByRole('button', { name: 'Close' }).click();
-  check('scan: Close takes the sheet away', (await page.locator('.phone-scan').count()) === 0);
+  // The sheet itself: closed, it leaves a still copy that fades for a moment (`shell/ghost.ts`).
+  check('scan: Close takes the sheet away', (await page.locator('.phone-scan:not([data-ghost])').count()) === 0);
 
   const origin = new URL(BASE).origin;
   await scanType(`${origin}/scan#design-drive/${cableIds[0]}`);
   await page.waitForSelector('.inv-page', { timeout: 10_000 });
-  check('scan: a label for this design opens its cable page', (await page.locator('.phone-scan').count()) === 0 && /THE RUN|the run/i.test(await page.locator('.inv-page').innerText()));
+  check('scan: a label for this design opens its cable page', (await page.locator('.phone-scan:not([data-ghost])').count()) === 0 && /THE RUN|the run/i.test(await page.locator('.inv-page').innerText()));
   check('scan: the address is the ordinary Inventory address', await page.evaluate((id) => decodeURIComponent(location.hash).includes(`o=cable:${id}`), cableIds[0]));
   check('scan: the cable page lists the corrections waiting, with Accept', /corrections waiting/i.test(await page.locator('.inv-corr').first().innerText()) && (await page.getByRole('button', { name: 'Accept' }).count()) > 0);
   check('scan: nothing scrolls sideways on the cable page', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
@@ -155,14 +156,19 @@ try {
   await page.waitForTimeout(800);
   check('canvas: the drawing tools are folded away', !(await shown('.shell-canvas-bar__group')));
   // r116: Undo is in the bar on every view (the bottom pill is the camera only); a narrow bar folds it into More.
+  // Greyed, it says why: in the bar as its tip, in More beside its name.
   const undoOff = async () => {
-    if ((await page.locator('[data-testid="bar-undo"]').count()) > 0) return page.locator('[data-testid="bar-undo"]').isDisabled();
+    const inBar = page.locator('[data-testid="bar-undo"]');
+    if ((await inBar.count()) > 0) return { off: await inBar.isDisabled(), why: await inBar.getAttribute('data-hint-more') };
     await page.locator('[data-testid="shell-more"]').click();
-    const off = await page.locator('.shell-popover__row', { hasText: /^Undo$/ }).first().isDisabled();
+    const row = page.locator('[data-testid="more-undo"]');
+    const found = { off: await row.isDisabled(), why: (await row.innerText()).replace(/\s+/g, ' ').replace(/^Undo\s*/, '').trim() };
     await page.keyboard.press('Escape');
-    return off;
+    return found;
   };
-  check('canvas: the bar says View only and Undo is off', (await page.getByText('View only').count()) > 0 && (await undoOff()));
+  const undoNow = await undoOff();
+  check('canvas: the bar says View only and Undo is off', (await page.getByText('View only').count()) > 0 && undoNow.off);
+  check('canvas: the greyed Undo says the Canvas is to look at on a phone', /Canvas is to look at/.test(undoNow.why ?? ''), JSON.stringify(undoNow));
   check('canvas: the minimap is folded away', !(await shown('.canvas-minimap')));
   await shot('phone-05-canvas.png');
   await context.close();

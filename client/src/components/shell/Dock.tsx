@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 
 import '../../styles/dock.css';
+import { hint } from './hints';
+import { DOCK_HINT } from './hintWords';
 import { clampWidth, keyedWidth, PANEL_MIN, type PanelId } from './panelSizing';
 
 /** How long a panel takes to slide shut before it is taken out of the page. Matches dock.css. */
@@ -162,6 +164,19 @@ export function DockSlot({ side, open, width, name, panel, max, onResize, onRese
   );
 }
 
+/** How much narrower the space beside the docks will be once every side panel has finished sliding (negative:
+ * wider). Until then a slot is laid out at the width its slide has reached, and what sits beside it has the rest. */
+export function dockTravelLeft(): number {
+  if (typeof document === 'undefined') return 0;
+  let px = 0;
+  for (const slot of document.querySelectorAll<HTMLElement>('.dock-slot')) {
+    const now = slot.getBoundingClientRect().width;
+    const full = slot.dataset.state === 'closing' ? 0 : parseFloat(slot.style.width) || now;
+    px += full - now;
+  }
+  return Math.round(px);
+}
+
 export interface DockTabProps {
   label: string;
   /** The accessible name; defaults to the label. */
@@ -181,11 +196,15 @@ export interface DockTabProps {
 export function DockTab({ label, name, open, marked, markNote, testId, sideId, onClick }: DockTabProps) {
   const text = name ?? (open ? `Close ${label.toLowerCase()}` : `Open ${label.toLowerCase()}`);
   const hover = marked && markNote ? `${text}. ${markNote}` : text;
+  // The word on the tab without its count ("Checks 3"), and what that panel is for.
+  const tabWord = label.replace(/\s+\d+$/, '');
+  const wordHint = DOCK_HINT[tabWord];
   return (
     <button
       type="button"
       className={`dock-tab${open ? ' dock-tab--on' : ''}${marked ? ' dock-tab--marked' : ''}`}
       aria-label={text}
+      {...(wordHint != null ? hint(tabWord, marked && markNote ? `${wordHint} ${markNote}.` : wordHint, undefined, 'left') : {})}
       title={hover}
       aria-expanded={open}
       data-testid={testId}

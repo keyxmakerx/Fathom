@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
-import { createRack, createSketchDevice, placeChassis, removeChassis, UnknownReferenceError } from './commands';
+import { createRack, createSketchDevice, moveChassis, placeChassis, removeChassis, UnknownReferenceError } from './commands';
 import { connectToOutside, setCableField } from './cables';
-import { setRackField } from './edit';
-import { LOCAL_ACTOR, edgesIn, edgesOut, emptyDocument, findEdge, findNode, formatNodeId, type Document } from './model';
+import { setDeviceField, setRackField } from './edit';
+import { moveFree } from './freeform';
+import { LOCAL_ACTOR, edgesIn, edgesOut, emptyDocument, findEdge, findNode, formatNodeId, readLayoutPinFields, type Document } from './model';
 import { addNote, removeNote } from './notes';
 import { setSupplyField } from './supplies';
 import { newUlid } from './ulid';
-import { UndoConflictError, batchActor, conflict, redo, undo, undoable } from './undo';
+import { UndoConflictError, batchActor, conflict, redo, redoSkipping, undo, undoSkipping, undoSteps, undoable } from './undo';
 
 const NOW = 1_700_000_000_000;
 const ACTOR_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -84,19 +85,130 @@ describe('undoable', () => {
     expect(listB.map((b) => b.id)).toEqual([byA2.batches[1].id]);
   });
 
-  it('excludes a batch that has already been reversed', () => {
+  it('lists neither a change that has been undone nor the undo of it', () => {
     const { doc } = docWithRack(ACTOR_A, NOW);
     const createBatchId = doc.batches[0].id;
     const undone = undo(doc, createBatchId, { actor: ACTOR_A, now: NOW + 1 });
-    // The create batch is reversed; the undo batch itself (also by A) is not.
-    const list = undoable(undone, ACTOR_A);
-    expect(list.map((b) => b.id)).toEqual([undone.batches[1].id]);
+    // The undo is a step forward (a redo), not a step back: listed here, a second Undo took back the first.
+    expect(undoable(undone, ACTOR_A)).toEqual([]);
+    expect(undoSteps(undone, ACTOR_A).redo.map((b) => b.id)).toEqual([undone.batches[1].id]);
   });
 
   it('never lists a LOCAL-stamped batch (nobody signed in wrote it)', () => {
     const { doc } = docWithRack(LOCAL_ACTOR, NOW);
     expect(undoable(doc, ACTOR_A)).toEqual([]);
     expect(undoable(doc, LOCAL_ACTOR)).toEqual([]);
+  });
+});
+
+describe('undoSteps: Undo and Redo pressed several times', () => {
+  // A rack dragged to three places, as the canvas saves it: one batch a drag, each writing the rack's pin.
+  const PLACES = [{ x: -48, y: 80 }, { x: -96, y: 136 }, { x: -64, y: 208 }];
+  function dragged(): { doc: Document; rackId: string } {
+    const { doc, rackId } = docWithRack(ACTOR_A, NOW);
+    let working = doc;
+    PLACES.forEach((at, i) => {
+      working = moveFree(working, [{ id: rackId, ...at }], { actor: ACTOR_A, now: NOW + 1 + i });
+    });
+    return { doc: working, rackId };
+  }
+  /** Where the rack's pin says it is; `null` with no pin, when it stands in its bay. */
+  const at = (doc: Document, rackId: string): { x: number; y: number } | null => {
+    const edge = edgesOut(doc, rackId, 'HasLayoutPin')[0];
+    const pin = edge ? findNode(doc, edge.to) : undefined;
+    if (!pin || pin.absentSince !== undefined) return null;
+    const { x, y } = readLayoutPinFields(pin);
+    return x === undefined || y === undefined ? null : { x, y };
+  };
+  let clock = NOW + 100;
+  /** One press, as the bar makes it: the first step of its kind, or nothing when there is none. */
+  const press = (doc: Document, key: 'undo' | 'redo'): Document => {
+    const step = undoSteps(doc, ACTOR_A)[key][0];
+    clock += 1;
+    return step == null ? doc : (key === 'undo' ? undo : redo)(doc, step.id, { actor: ACTOR_A, now: clock });
+  };
+
+  it('goes one change further back at every Undo, to the start', () => {
+    const { doc, rackId } = dragged();
+    const one = press(doc, 'undo');
+    expect(at(one, rackId)).toEqual(PLACES[1]);
+    const two = press(one, 'undo');
+    // Not back at the third place: the second Undo takes the second drag, not the first Undo.
+    expect(at(two, rackId)).toEqual(PLACES[0]);
+    const three = press(two, 'undo');
+    expect(at(three, rackId)).toBeNull();
+    // The rack's creation is the one step left, and then there is none.
+    expect(undoable(three, ACTOR_A).map((b) => b.label)).toEqual(['create rack']);
+    const four = press(three, 'undo');
+    expect(undoable(four, ACTOR_A)).toEqual([]);
+    expect(press(four, 'undo')).toBe(four);
+  });
+
+  it('comes forward again one change at every Redo, oldest undone first', () => {
+    const { doc, rackId } = dragged();
+    const back = press(press(press(doc, 'undo'), 'undo'), 'undo');
+    const one = press(back, 'redo');
+    expect(at(one, rackId)).toEqual(PLACES[0]);
+    const two = press(one, 'redo');
+    expect(at(two, rackId)).toEqual(PLACES[1]);
+    const three = press(two, 'redo');
+    expect(at(three, rackId)).toEqual(PLACES[2]);
+    expect(undoSteps(three, ACTOR_A).redo).toEqual([]);
+    expect(press(three, 'redo')).toBe(three);
+    // And back again from there: a change that was undone and redone is a step back like any other.
+    expect(at(press(three, 'undo'), rackId)).toEqual(PLACES[1]);
+    expect(at(press(press(three, 'undo'), 'undo'), rackId)).toEqual(PLACES[0]);
+  });
+
+  it('has nothing to redo after a new change, and Undo then takes that change first', () => {
+    const { doc, rackId } = dragged();
+    const back = press(press(doc, 'undo'), 'undo');
+    expect(undoSteps(back, ACTOR_A).redo).toHaveLength(2);
+    const moved = moveFree(back, [{ id: rackId, x: 400, y: 16 }], { actor: ACTOR_A, now: NOW + 500 });
+    expect(undoSteps(moved, ACTOR_A).redo).toEqual([]);
+    // Redo once reached behind the new change for the older undo, and the rack went where it had never been dropped.
+    expect(press(moved, 'redo')).toBe(moved);
+    const one = press(moved, 'undo');
+    expect(at(one, rackId)).toEqual(PLACES[0]);
+    expect(at(press(one, 'undo'), rackId)).toBeNull();
+  });
+
+  it("leaves a colleague's changes out of both lists, and keeps one's own steps across them", () => {
+    const { doc, rackId } = dragged();
+    const one = press(doc, 'undo');
+    const theirs = setRackField(one, rackId, 'row', 'Row B', { actor: ACTOR_B, now: NOW + 600 });
+    const mine = undoSteps(theirs, ACTOR_A);
+    expect(mine.undo.map((b) => b.label)).toEqual(['move', 'move', 'create rack']);
+    expect(mine.redo.map((b) => b.label)).toEqual(['undo of move']);
+    expect(undoSteps(theirs, ACTOR_B).undo.map((b) => b.label)).toEqual(['set Rack.row']);
+    expect(undoSteps(theirs, ACTOR_B).redo).toEqual([]);
+  });
+
+  it('reads a document an older client took back and forth as the two steps it is', () => {
+    // Undo pressed three times by a client that listed an undo as the next thing to undo:
+    // undo, undo of that undo, undo of that again. The third drag is undone, and that is all.
+    const { doc, rackId } = dragged();
+    const u1 = undo(doc, doc.batches.at(-1)!.id, { actor: ACTOR_A, now: NOW + 700 });
+    const u2 = undo(u1, u1.batches.at(-1)!.id, { actor: ACTOR_A, now: NOW + 701 });
+    const u3 = undo(u2, u2.batches.at(-1)!.id, { actor: ACTOR_A, now: NOW + 702 });
+    expect(at(u3, rackId)).toEqual(PLACES[1]);
+    const steps = undoSteps(u3, ACTOR_A);
+    expect(steps.redo.map((b) => b.id)).toEqual([u3.batches.at(-1)!.id]);
+    expect(steps.undo.map((b) => b.id)).toEqual([doc.batches[2].id, doc.batches[1].id, doc.batches[0].id]);
+    expect(at(press(u3, 'undo'), rackId)).toEqual(PLACES[0]);
+    expect(at(press(u3, 'redo'), rackId)).toEqual(PLACES[2]);
+  });
+
+  it('counts a reversal of a step that is no longer one as a change of its own', () => {
+    // An older client's Redo reached behind a newer change for an undo that change had put away.
+    const { doc, rackId } = dragged();
+    const undone = press(doc, 'undo');
+    const undoId = undone.batches.at(-1)!.id;
+    const moved = moveFree(undone, [{ id: rackId, x: 400, y: 16 }], { actor: ACTOR_A, now: NOW + 800 });
+    const reached = redo(moved, undoId, { actor: ACTOR_A, now: NOW + 801 });
+    const steps = undoSteps(reached, ACTOR_A);
+    expect(steps.undo[0]!.id).toBe(reached.batches.at(-1)!.id);
+    expect(steps.redo).toEqual([]);
   });
 });
 
@@ -203,7 +315,7 @@ describe('conflict', () => {
     const byBBatch = byB.batches[1];
 
     const result = conflict(byB, createBatchId);
-    expect(result).toEqual({ kind: 'later-change', batchId: byBBatch.id, label: byBBatch.label, actor: ACTOR_B, at: NOW + 1 });
+    expect(result).toEqual({ kind: 'later-change', batchId: byBBatch.id, label: byBBatch.label, actor: ACTOR_B, at: NOW + 1, element: rackId });
 
     expect(() => undo(byB, createBatchId, { actor: ACTOR_A, now: NOW + 2 })).toThrow(UndoConflictError);
   });
@@ -237,6 +349,81 @@ describe('conflict', () => {
   it('does not conflict when the requesting actor owns the batch', () => {
     const { doc } = docWithRack(ACTOR_A, NOW);
     expect(conflict(doc, doc.batches[0].id, ACTOR_A)).toBeUndefined();
+  });
+});
+
+// A live design skips a field someone else has written since (ADR-0063 §6). Skipping answers for a field the undo
+// would write back. It once stood in for a refusal everywhere, so taking back an add removed the thing with a
+// colleague's edit on it, and said nothing.
+describe('undo in a live design — a thing someone else has changed is not removed', () => {
+  function placed(): { doc: Document; rackId: string; placeId: string; chassisId: string; deviceId: string } {
+    const { doc, rackId } = docWithRack(ACTOR_A, NOW);
+    const withDevice = placeChassis(doc, rackId, MODEL_1U, 1, 'front', { actor: ACTOR_A, now: NOW + 1 });
+    const chassisId = edgesIn(withDevice, rackId, 'MountedIn')[0].from;
+    return { doc: withDevice, rackId, placeId: withDevice.batches.at(-1)!.id, chassisId, deviceId: edgesIn(withDevice, chassisId, 'HasChassis')[0].from };
+  }
+
+  function refusal(run: () => unknown): UndoConflictError['conflict'] {
+    try {
+      run();
+    } catch (error) {
+      if (error instanceof UndoConflictError) return error.conflict;
+      throw error;
+    }
+    throw new Error('went through');
+  }
+
+  it('refuses to take back a placing once someone else has named the device', () => {
+    const { doc, placeId, deviceId } = placed();
+    const named = setDeviceField(doc, deviceId, 'hostname', 'sw-01', { actor: ACTOR_B, now: NOW + 2 });
+
+    const c = refusal(() => undoSkipping(named, placeId, { actor: ACTOR_A, now: NOW + 3 }));
+    expect(c).toMatchObject({ kind: 'later-change', actor: ACTOR_B, element: deviceId, batchId: named.batches.at(-1)!.id });
+    expect(findNode(named, deviceId)!.absentSince).toBeUndefined();
+  });
+
+  it('refuses to take back a placing once someone else has moved the device', () => {
+    const { doc, rackId, placeId, chassisId } = placed();
+    const moved = moveChassis(doc, chassisId, rackId, 7, 'front', { actor: ACTOR_B, now: NOW + 2 });
+
+    const c = refusal(() => undoSkipping(moved, placeId, { actor: ACTOR_A, now: NOW + 3 }));
+    expect(c).toMatchObject({ kind: 'later-change', actor: ACTOR_B, element: edgesOut(moved, chassisId, 'MountedIn')[0].id });
+  });
+
+  it('refuses to take a removal back again once someone else has named what it brought back', () => {
+    const { doc, chassisId, deviceId } = placed();
+    const removed = removeChassis(doc, chassisId, { actor: ACTOR_A, now: NOW + 2 });
+    const back = undoSkipping(removed, removed.batches.at(-1)!.id, { actor: ACTOR_A, now: NOW + 3 }).doc;
+    const undoId = back.batches.at(-1)!.id;
+    const named = setDeviceField(back, deviceId, 'hostname', 'sw-01', { actor: ACTOR_B, now: NOW + 4 });
+
+    const c = refusal(() => redoSkipping(named, undoId, { actor: ACTOR_A, now: NOW + 5 }));
+    expect(c).toMatchObject({ kind: 'later-change', actor: ACTOR_B, element: deviceId });
+    expect(findNode(named, deviceId)!.absentSince).toBeUndefined();
+  });
+
+  it('still takes back a field of its own beside a field someone else wrote on the same thing', () => {
+    const { doc, deviceId } = placed();
+    const mine = setDeviceField(doc, deviceId, 'hostname', 'sw-01', { actor: ACTOR_A, now: NOW + 2 });
+    const mineId = mine.batches.at(-1)!.id;
+    const theirs = setDeviceField(mine, deviceId, 'management_address', '10.0.0.1', { actor: ACTOR_B, now: NOW + 3 });
+
+    const r = undoSkipping(theirs, mineId, { actor: ACTOR_A, now: NOW + 4 });
+    expect(r.skipped).toEqual([]);
+    expect(findNode(r.doc, deviceId)!.fields['Device.hostname']).toBeUndefined();
+    expect(findNode(r.doc, deviceId)!.fields['Device.management_address'].value).toBe('10.0.0.1');
+  });
+
+  it('still leaves a move someone else made after its own, and names it', () => {
+    const { doc, rackId, chassisId } = placed();
+    const mine = moveChassis(doc, chassisId, rackId, 3, 'front', { actor: ACTOR_A, now: NOW + 2 });
+    const mineId = mine.batches.at(-1)!.id;
+    const theirs = moveChassis(mine, chassisId, rackId, 7, 'front', { actor: ACTOR_B, now: NOW + 3 });
+
+    const r = undoSkipping(theirs, mineId, { actor: ACTOR_A, now: NOW + 4 });
+    expect(r.doc).toBe(theirs);
+    expect(r.skipped.map((s) => s.key)).toContain('MountedIn.position_u');
+    expect(r.skipped.every((s) => s.by === ACTOR_B)).toBe(true);
   });
 });
 

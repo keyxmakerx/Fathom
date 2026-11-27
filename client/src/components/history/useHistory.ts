@@ -8,8 +8,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchHistory, fetchVerify, verifyWords, type HistoryEntry } from '../../api/history';
 import { openDesign } from '../../api/payload';
 import { describeSave, outlineIds, type SaveChange } from '../../document/historyDiff';
-import type { Document } from '../../document/model';
+import type { Batch, Document } from '../../document/model';
 import { readPlain } from '../../document/plain';
+import { historyWordsOf } from '../design/changeToast';
+
+/** What one save changed. A save that drew nothing different is said by its changes, in History's words and in the
+ * lower case the rest of the line is written in ("address changed · switch-2"). */
+function saveChange(before: Document | null, after: Document): SaveChange {
+  const wordsOf = historyWordsOf(after);
+  return describeSave(before, after, (batch: Batch) => {
+    const words = wordsOf(batch);
+    return words.charAt(0).toLowerCase() + words.slice(1);
+  });
+}
 
 const PAGE = 15;
 /** Chain entries asked of the server at a time: several pages of the list. */
@@ -183,7 +194,7 @@ export function useHistory(organisationId: string, designId: string, active: boo
           const prev = saves[i + 1];
           const before = prev ? await load(prev.designVersion) : null;
           if (!live) return;
-          const change = describeSave(before, after);
+          const change = saveChange(before, after);
           changes.current.set(v, change);
           setSummaries((m) => new Map(m).set(v, change.summary));
         } catch {
@@ -204,7 +215,7 @@ export function useHistory(organisationId: string, designId: string, active: boo
         let change = changes.current.get(version);
         if (!change && saves) {
           const prev = saves[saves.findIndex((s) => s.designVersion === version) + 1];
-          change = describeSave(prev ? await load(prev.designVersion) : null, doc);
+          change = saveChange(prev ? await load(prev.designVersion) : null, doc);
           changes.current.set(version, change);
         }
         if (mine !== pickSeq.current) return; // a later pick or Back to now won
@@ -216,6 +227,11 @@ export function useHistory(organisationId: string, designId: string, active: boo
     },
     [load, saves],
   );
+
+  const back = useCallback(() => {
+    pickSeq.current += 1;
+    setPicked(null);
+  }, []);
 
   const showOlder = useCallback(() => {
     const next = shown + PAGE;
@@ -243,9 +259,6 @@ export function useHistory(organisationId: string, designId: string, active: boo
     error,
     picked,
     pickVersion,
-    back: () => {
-      pickSeq.current += 1;
-      setPicked(null);
-    },
+    back,
   };
 }

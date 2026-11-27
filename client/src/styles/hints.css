@@ -1,0 +1,102 @@
+/* The hint card (`components/shell/Hints.tsx`): a control's name, what it does, and its shortcut. One frosted
+   surface like the port peek's, nearly solid so nothing reads through it. It never takes a click. */
+
+.hint {
+  position: fixed;
+  left: 0;
+  top: 0;
+  /* Over menus and pop-overs (--z-modal + 3), under nothing: it is the last thing said. */
+  z-index: calc(var(--z-modal, 20) + 6);
+  pointer-events: none;
+}
+
+/* Moving along a row of tools: the card slides to the next one. */
+.hint--glide {
+  transition: transform var(--m-hover, 120ms) var(--m-ease, ease);
+}
+
+.hint__card {
+  box-sizing: border-box;
+  max-width: 272px;
+  padding: 6px var(--s2) 7px;
+  border: var(--rule-hair, 1px) solid var(--control-line);
+  border-radius: var(--radius-pop, 0);
+  background: color-mix(in srgb, var(--pop-solid, var(--surface)) 96%, transparent);
+  -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  box-shadow: var(--shadow-pop, 0 16px 40px rgb(0 0 0 / 0.28));
+  color: var(--ink);
+  font-size: var(--t-small);
+  line-height: 16px;
+  animation: hint-in var(--m-hover, 120ms) var(--m-ease, ease) both;
+}
+
+.hint__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.hint__name {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hint__keys {
+  display: inline-flex;
+  gap: 3px;
+  flex: none;
+}
+
+.hint__key {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: 14px;
+  padding: 0 4px;
+  border: var(--rule-hair, 1px) solid var(--control-line);
+  color: var(--muted);
+  background: var(--page);
+}
+
+.hint__more {
+  margin-top: 2px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+/* It drops in under its control, rises in over one, and comes from the right beside one. */
+.hint[data-from='below'] .hint__card {
+  --hint-dx: 0;
+  --hint-dy: 3px;
+}
+.hint[data-from='right'] .hint__card {
+  --hint-dx: 3px;
+  --hint-dy: 0;
+}
+
+@keyframes hint-in {
+  from {
+    opacity: 0;
+    transform: translate(var(--hint-dx, 0), var(--hint-dy, -3px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hint--glide {
+    transition: none;
+  }
+  .hint__card {
+    animation: none;
+  }
+}
+
+@media print {
+  .hint {
+    display: none;
+  }
+}

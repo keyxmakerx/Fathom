@@ -4,7 +4,8 @@
 // (this project's own precedent — `document/undo.ts`'s file header, and
 // every other `*.test.ts` beside a pure module in this tree).
 
-import { batchActor } from '../../document/undo';
+import { batchActor, undoSteps } from '../../document/undo';
+import { historyPartsOf } from '../design/changeToast';
 import { decodeUlid } from '../../document/ulid';
 import { LOCAL_ACTOR, type Batch, type Document } from '../../document/model';
 
@@ -18,72 +19,34 @@ export function batchWhenMs(batchId: string): number {
   return Number(decodeUlid(batchId) >> 80n);
 }
 
-/** How many hops `batch` sits down its own `.reverses` chain — 0 for a
- * plain (never-reversing) batch, 1 for an undo of one, 2 for a redo of
- * THAT undo (which is, structurally, just another `.reverses`-carrying
- * batch — `reverseBatch`'s own doc, `document/undo.ts`: `undo` and `redo`
- * are the same mechanism, differing only in the label prefix), and so on.
- * Odd is "currently undone, waiting to be redone"; even (including 0) is
- * "currently at the original, nothing to redo" — the parity `redoable`
- * below reads off this to tell the two apart, since `Batch` itself carries
- * no "was this an undo or a redo" flag beyond its own label text. */
-function reversalDepth(doc: Document, batch: Batch): number {
-  let depth = 0;
-  let current: Batch | undefined = batch;
-  while (current?.reverses !== undefined) {
-    depth += 1;
-    current = doc.batches.find((b) => b.id === current!.reverses);
-  }
-  return depth;
-}
-
-/** ADR-0053 §1: "redo is the undo of that [undo]." The most recent batch,
- * stamped `accountId`, that nothing later has itself reversed, AND whose
- * own `reversalDepth` is odd — "currently undone." `undefined` when there
- * is nothing of the signed-in account's own left to redo, including right
- * after a redo itself (`reversalDepth` even again — see that function's own
- * doc): a redo is not itself further redoable, only undoable again, the
- * same ordinary way `document/undo.ts`'s own `undoable` already offers
- * every unreversed batch of an account's, redo batches included. */
+/** ADR-0053 §1: "redo is the undo of that [undo]." The undo of `accountId`'s own that Redo takes back next,
+ * `undefined` when there is none: nothing has been undone, every undo has been redone, or a change made since
+ * has put the undone steps behind it (`document/undo.ts` `undoSteps`). */
 export function redoable(doc: Document, accountId: string): Batch | undefined {
-  const reversed = new Set(doc.batches.map((b) => b.reverses).filter((r): r is string => r !== undefined));
-  for (let i = doc.batches.length - 1; i >= 0; i -= 1) {
-    const batch = doc.batches[i];
-    if (reversed.has(batch.id)) continue; // already redone, or itself reversed, by something later
-    if (batch.reverses === undefined) continue; // a plain batch is never a redo candidate
-    const actor = batchActor(doc, batch);
-    if (actor === undefined || actor === LOCAL_ACTOR) continue;
-    if (actor !== accountId) continue;
-    if (reversalDepth(doc, batch) % 2 !== 1) continue; // even depth: already back at the original
-    return batch;
-  }
-  return undefined;
+  return undoSteps(doc, accountId).redo[0];
 }
 
-/** ADR-0053 §4: "who and when from provenance" — the signed-in account's own
- * batches read by name (their own address, the one thing this client holds
- * for them, `state/sessionState.ts`'s own `ActiveSession.address`); anyone
- * else's by a short id, since this client has no directory of other
- * accounts' addresses to read a name from. `undefined`/`LOCAL_ACTOR` (a
- * mixed batch, or one pre-dating accounts entirely) reads as `'local'` —
- * true of the data, not a guess dressed as a name. */
-export function whoLabel(actor: string | undefined, accountId: string | null, ownAddress: string | null): string {
+/** ADR-0053 §4: "who and when from provenance". `nameOf` is the word every other history uses for a person
+ * (`whoWord`, sign-off rua-ui-audit): "you", the name this design has heard for them, or "a colleague", and never
+ * a piece of an account id. `undefined`/`LOCAL_ACTOR` (a mixed batch, or one pre-dating accounts entirely) reads
+ * as `'local'` — true of the data, not a guess dressed as a name. */
+export function whoLabel(actor: string | undefined, nameOf: (account: string) => string): string {
   if (actor === undefined || actor === LOCAL_ACTOR) return 'local';
-  if (accountId !== null && actor === accountId) return ownAddress ?? shortId(actor);
-  return shortId(actor);
-}
-
-const SHORT_ID_CHARS = 8;
-
-function shortId(id: string): string {
-  return id.length <= SHORT_ID_CHARS ? id : id.slice(0, SHORT_ID_CHARS);
+  return nameOf(actor);
 }
 
 export interface TrailRow {
   batchId: string;
   whenMs: number;
   who: string;
+  /** The account the change is attributed to, for the row to show on request. `null` when it is nobody's. */
+  account: string | null;
+  /** What changed, in History's words (`historyPartsOf`). */
   what: string;
+  /** What it was changed on, where the words do not already say. */
+  on: string | null;
+  /** The label as it was recorded. */
+  label: string;
   why: string | null;
   /** ADR-0053 §4: "sealed when present in the last version opened or
    * saved, pending otherwise." */
@@ -95,18 +58,67 @@ export interface TrailRow {
  * `withBatch`, always appended), which is also what puts an undo's own
  * entry above the change it reverses without any extra sort: an undo batch
  * is always minted after the batch it reverses. */
-export function trailRows(
-  doc: Document,
-  accountId: string | null,
-  ownAddress: string | null,
-  sealedBatchIds: ReadonlySet<string>,
-): TrailRow[] {
-  return [...doc.batches].reverse().map((batch) => ({
-    batchId: batch.id,
-    whenMs: batchWhenMs(batch.id),
-    who: whoLabel(batchActor(doc, batch), accountId, ownAddress),
-    what: batch.label,
-    why: batch.comment ?? null,
-    sealed: sealedBatchIds.has(batch.id),
-  }));
+export function trailRows(doc: Document, nameOf: (account: string) => string, sealedBatchIds: ReadonlySet<string>): TrailRow[] {
+  const partsOf = historyPartsOf(doc);
+  return [...doc.batches].reverse().map((batch) => {
+    const actor = batchActor(doc, batch);
+    const { said, to } = partsOf(batch);
+    return {
+      batchId: batch.id,
+      whenMs: batchWhenMs(batch.id),
+      who: whoLabel(actor, nameOf),
+      account: actor === undefined || actor === LOCAL_ACTOR ? null : actor,
+      what: said,
+      on: to,
+      label: batch.label,
+      why: batch.comment ?? null,
+      sealed: sealedBatchIds.has(batch.id),
+    };
+  });
+}
+
+/** One line of a row's record: what it is, and its value. */
+export interface RecordLine {
+  label: string;
+  value: string;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** How far a clock is from UTC, as a log or another time zone needs it said: "UTC-06:00", "UTC+05:30", "UTC". */
+export function utcOffset(minutesAhead: number): string {
+  if (minutesAhead === 0) return 'UTC';
+  const two = (n: number) => String(n).padStart(2, '0');
+  const m = Math.abs(minutesAhead);
+  return `UTC${minutesAhead < 0 ? '-' : '+'}${two(Math.floor(m / 60))}:${two(m % 60)}`;
+}
+
+/** The whole moment, where the row shows only the hour and minute: "20 Nov 2026 21:14:07 (UTC-06:00)", in this
+ * browser's own time as the row is, with how far that is from UTC. `null` for a batch whose id carries no time. */
+export function recordWhen(ms: number): string | null {
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const d = new Date(ms);
+  const two = (n: number) => String(n).padStart(2, '0');
+  const clock = `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} ${clock} (${utcOffset(-d.getTimezoneOffset())})`;
+}
+
+/** The record behind a row, for whoever needs it: the whole moment, the name and the whole account id behind
+ * the word in the Who column, and the label as it was written. A press on the row shows these, so a keyboard and
+ * a touch screen reach what a pointer reads off the row by resting on it. `self` is the person reading: their own
+ * rows carry their address, and nobody else's row ever does. */
+export function recordLines(row: TrailRow, self: { accountId: string | null; address: string | null }): RecordLine[] {
+  const lines: RecordLine[] = [];
+  const when = recordWhen(row.whenMs);
+  if (when !== null) lines.push({ label: 'When', value: when });
+  if (row.account === null) {
+    lines.push({ label: 'Account', value: 'No single account is recorded for this change' });
+  } else {
+    // "you" and "a colleague" are already on the row, and say no more here.
+    const named = row.account === self.accountId ? self.address : row.who === 'a colleague' ? null : row.who;
+    if (named != null) lines.push({ label: 'Account', value: named });
+    lines.push({ label: 'Account id', value: row.account });
+  }
+  lines.push({ label: 'Recorded as', value: row.label });
+  return lines;
 }

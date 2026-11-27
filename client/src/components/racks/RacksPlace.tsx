@@ -35,6 +35,8 @@ import { openCanvasSpots } from './canvasSpots';
 import { requestRename } from '../drawing/NameEdit';
 import type { PaletteAction } from '../shell/palette';
 import { usePaletteActions } from '../shell/paletteRegistry';
+import { viewActions } from '../shell/viewActions';
+import { canvasToolRow, zoomButtons } from '../shell/CanvasBar';
 import { shortcutText } from '../shell/shortcuts';
 import { createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
@@ -106,6 +108,8 @@ import { RoutingContext, type RoutingApi } from '../drawing/RoutingTab';
 import { TracePanel } from '../trace/TracePanel';
 import { useTraceElsewhere } from '../trace/traceElsewhere';
 import { InSideSlot, type SideTab } from '../shell/sideSlot';
+import { SaveBanner, type SaveBannerProps } from '../history/SaveBanner';
+import { focusToAnswer } from './focusRequest';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController, type TraceEnd } from '../trace/useTraceController';
 import { recordFirstSteps, sampleOfDesign } from '../home/firstSteps';
@@ -113,7 +117,7 @@ import { sample as sampleSpec } from '../home/sampleNetwork';
 import { SampleChip } from '../home/SampleChip';
 import { restoreTo } from '../../document/restore';
 import { readyQuestions } from '../home/sampleQuestions';
-import { PracticeNote, ReadyQuestions } from '../trace/ReadyQuestions';
+import { PracticeNote, ReadyQuestions, sampleCard } from '../trace/ReadyQuestions';
 import { TieCard } from '../ties/TieCard';
 import { PlanBand } from '../plans/PlanBand';
 import { STAGE_WORD } from '../plans/plansModel';
@@ -164,6 +168,7 @@ import { useJumpBack } from './useJumpBack';
 import { levelsFor } from './jumpTree';
 import { EMPTY_HINT, autoOpenEquipment } from './emptyHints';
 import { cameraStopAt } from '../drawing/geometry';
+import { cameraForStop } from './zoomAim';
 import { siteLinkTouching } from '../../document/siteLinks';
 import { useSiteLinkFindings } from '../checks/siteLinkChecks';
 
@@ -336,8 +341,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
   /** The History panel, shown in the editor's place, and the line over the canvas while a
-   * past save is shown. Absent unless History is open. */
-  historyView?: { panel: ReactNode; banner: string | null };
+   * past save is shown, with its own way back. Absent unless History is open. */
+  historyView?: { panel: ReactNode; banner: SaveBannerProps | null };
   /** The cable ids the Cables list shows, or `null` when it shows them all — for "as shown on screen" in print. */
   onShownCablesChange?: (ids: ReadonlySet<string> | null) => void;
   /** The Cables list's own storage key (`fathom.cables.<designId>`), one
@@ -367,6 +372,9 @@ function tidySentence(text: string): string {
 }
 
 const NO_TARGETS: ReadonlySet<string> = new Set();
+
+/** What floats over the drawing: a fit keeps the closet clear of all three. */
+const fitCovers = () => ({ tools: canvasToolRow(), zoom: zoomButtons(), card: sampleCard() });
 
 /** Other words Ctrl K finds a device's actions by. */
 const PALETTE_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
@@ -518,12 +526,19 @@ export function RacksPlace(props: RacksPlaceProps) {
   // per distinct `initialFocus` value — `DesignPlace.tsx` gives every "Show
   // on rack" click a fresh object, so identity itself is the "asked again"
   // signal, the same edge-triggered shape `Drawing.tsx`'s own camera moves
-  // already use.
+  // already use. `doc` is a new object after every change, so the request
+  // answered last is kept: a change is not a request (`focusRequest.ts`).
   const [openRequest, setOpenRequest] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
+  // A device on a shelf or a wall has no config drawer to bring the camera to it; the drawing is asked to show it.
+  const [showRequest, setShowRequest] = useState<{ deviceId: string } | null>(null);
+  const answeredFocus = useRef<Selection | null>(null);
   useEffect(() => {
-    if (initialFocus == null || doc == null) return;
-    setSelection(initialFocus);
-    if (initialFocus.kind === 'chassis') setOpenRequest({ id: initialFocus.id, view: 'config' });
+    const focus = focusToAnswer(initialFocus, doc != null, answeredFocus.current);
+    if (focus == null) return;
+    answeredFocus.current = focus;
+    setSelection(focus);
+    if (focus.kind === 'chassis') setOpenRequest({ id: focus.id, view: 'config' });
+    if (focus.kind === 'chassis' || focus.kind === 'occupant' || focus.kind === 'fixture') setShowRequest({ deviceId: focus.id });
     onZoomChange(CAMERA_STOPS.faceplate);
     // Edge-triggered on the `initialFocus` object identity and `doc` becoming available;
     // `onZoomChange` is a stable setter from `App.tsx`.
@@ -1960,7 +1975,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       id: 'rename',
       label: named('Rename', deviceName || rackName),
       keywords: ['name', 'hostname', 'label'],
-      disabled: renameTarget === null ? 'Select a device or rack first' : look === 'diagram' ? 'Switch to the Rack look to rename on the canvas' : undefined,
+      disabled: renameTarget === null ? 'Select a device or rack first' : look === 'diagram' ? 'Switch to the Canvas view to rename' : undefined,
       run: () => renameTarget !== null && requestRename(renameTarget),
     };
     if (chassisId !== null) {
@@ -2147,6 +2162,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       shellProps.onPlaceChange('inventory');
     },
   };
+  usePaletteActions('views', () => viewActions(mainView));
   // The Doing ▾ menu: what you can set about from here. A job that needs a device says so until one is chosen.
   const needsDevice = selectedChassis == null ? 'select a device first' : undefined;
   const doing: NonNullable<ShellProps['doing']> = [
@@ -2154,7 +2170,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     { id: 'down', label: DEVICE_WORDS.itsDown, onSelect: canDraw && selectedChassis != null ? () => trouble.start(selectedChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
     { id: 'trace', label: DEVICE_WORDS.trace, onSelect: selectedChassis != null ? () => trace.openFrom(selectedChassis) : undefined, hint: needsDevice },
   ];
-  // The zoom stops the bottom pill opens upward with: the camera keeps its middle and takes the stop's zoom.
+  // The zoom stops the bottom pill opens upward with: the camera takes the stop's zoom and lands on what is
+  // selected, or on the nearest thing when the middle of the view is empty. Going in from the Closet stop, the
+  // Rack stop lands on a rack (`zoomAim.ts`).
   const zoomStops: ShellProps['zoomStops'] = {
     stops: [
       { id: 'closet', label: 'Closet' },
@@ -2165,13 +2183,12 @@ export function RacksPlace(props: RacksPlaceProps) {
     current: cameraStopAt(shellProps.zoom),
     onGo: (id) => {
       const control = cameraHub.control;
-      const box = document.querySelector('.shell__drawing .react-flow')?.getBoundingClientRect();
-      if (control == null || box == null) return;
-      const vp = control.get();
+      if (control == null) return;
       const zoom = CAMERA_STOPS[id as keyof typeof CAMERA_STOPS] / 100;
-      const cx = (box.width / 2 - vp.x) / vp.zoom;
-      const cy = (box.height / 2 - vp.y) / vp.zoom;
-      control.set({ x: box.width / 2 - cx * zoom, y: box.height / 2 - cy * zoom, zoom }, true);
+      const from = control.get();
+      const onRack = id === 'rack' && cameraStopAt(Math.round(from.zoom * 100)) === 'closet' ? { top: canvasToolRow(), foot: zoomButtons() } : null;
+      const camera = cameraForStop(document.querySelector('.shell__drawing .react-flow'), from, zoom, id === 'faceplate' || id === 'inside', onRack);
+      if (camera != null) control.set(camera, true);
     },
   };
 
@@ -2247,9 +2264,9 @@ export function RacksPlace(props: RacksPlaceProps) {
       <ChecksContext.Provider value={checks.api}>
       <NoteAuthorsContext.Provider value={noteAuthors}>
       {historyView?.banner != null ? (
-        <div className="history-banner" role="status" data-testid="history-banner">
-          {historyView.banner}
-        </div>
+        <InSideSlot id="canvas-note">
+          <SaveBanner {...historyView.banner} />
+        </InSideSlot>
       ) : null}
       <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
       <PlansContext.Provider value={plans.store}>
@@ -2295,6 +2312,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onEdit={canDraw ? handleEdit : undefined}
           initialViewport={resumeView.initialViewport}
           fitWholeOnOpen={isSample}
+          covers={fitCovers}
           onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
           onMove={handleMove}
@@ -2338,6 +2356,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           groupClearRequest={groupClear}
           canDraw={canDraw && jot === null && shelfOpen === null}
           openRequest={openRequest}
+          showRequest={showRequest}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
           onTraceFrom={trace.openFrom}
@@ -2354,7 +2373,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       )}
       {doc != null && look === 'rack' && shellProps.lens === 'links' ? (
         <div className="drawing-lens-key" data-testid="links-lens-rack-note">
-          <span>The Links lens draws in the Diagram look</span>
+          <span>The Links lens draws in the Diagram view</span>
           <button type="button" className="drawing-lens-key__go" onClick={() => changeLook('diagram')}>
             Show Diagram
           </button>
@@ -2470,8 +2489,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} />
         </InSideSlot>
       ) : null}
-      {doc != null && jot == null && !trace.open ? <ReadyQuestions folded={look === 'diagram'} questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
-      {doc != null && jot == null && !trace.open && !checks.open && planted > 0 ? <PracticeNote count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
+      {/* Both stay mounted while an open device or a trace has the canvas, so Hide and the fold last the visit. */}
+      {doc != null ? <ReadyQuestions away={jot != null || trace.open} folded={look === 'diagram'} questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow, look !== 'diagram')} /> : null}
+      {doc != null && planted > 0 ? <PracticeNote away={jot != null || trace.open || checks.open} count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
       {doc != null && jot == null ? (
         <InSideSlot id="trace">
           <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} continueIn={traceContinuation} elsewhere={traceElsewhere} />

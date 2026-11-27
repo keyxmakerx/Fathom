@@ -92,9 +92,10 @@ const NMAP = `<?xml version="1.0" encoding="UTF-8"?>
 <host><status state="up"/><address addr="10.0.99.50" addrtype="ipv4"/></host></nmaprun>`;
 const XXE = '<?xml version="1.0"?><!DOCTYPE nmaprun [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><nmaprun><host><hostnames><hostname name="&xxe;"/></hostnames></host></nmaprun>';
 
-const dialog = (page) => page.locator('.imp');
+// The importer itself, not the still copy it leaves for a moment as it closes (`shell/ghost.ts`).
+const dialog = (page) => page.locator('.imp:not([data-ghost])');
 async function openAndDrop(page, name, text, mime = 'text/csv') {
-  if ((await page.locator('.imp').count()) === 0) await page.getByRole('button', { name: 'Open importer' }).click();
+  if ((await dialog(page).count()) === 0) await page.getByRole('button', { name: 'Open importer' }).click();
   await page.waitForSelector('.imp__drop');
   await page.locator('input[type=file]').setInputFiles({ name, mimeType: mime, buffer: Buffer.from(text) });
 }
@@ -207,10 +208,9 @@ try {
       check('Undo brings the old serial back', dev(await state(page), 'fw-01')?.serial === 'SRX-0001');
     }
   }
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await page.waitForTimeout(150);
 
-  // Another person edits fw-01 while the Check step is open: that row is left alone and reported.
+  // Another person edits fw-01 while the Check step is open: that row is left alone and reported. fw-01 holds
+  // SRX-0001, which this file differs from. (A second Undo here would go one import further back and empty it.)
   await openAndDrop(page, 'late.csv', 'name,serial\nfw-01,LATE-FILE\n');
   await page.getByRole('button', { name: 'Match columns' }).click();
   await page.getByRole('button', { name: 'Check', exact: true }).click();

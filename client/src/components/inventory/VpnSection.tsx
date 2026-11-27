@@ -2,7 +2,7 @@
 // provider and a range, then its members are added one device at a time with their VPN address,
 // whether each is an exit node, and the subnet routes each offers. Calls `document/overlays.ts`
 // directly and hands the result to `applyDocChange`, as the rest of this panel does. The canvas
-// draws what is here when Show › VPNs is ticked.
+// draws what is here when Layers › VPNs is ticked.
 
 import { useMemo, useState } from 'react';
 
@@ -246,7 +246,7 @@ export function VpnSection({ doc, applyDocChange, canDraw, filter }: { doc: Docu
         ) : null}
       </div>
       <p className="vpns__note">
-        A mesh VPN such as Tailscale, NetBird or ZeroTier, or a WireGuard tunnel. Show › VPNs draws each one on the Diagram look.
+        A mesh VPN such as Tailscale, NetBird or ZeroTier, or a WireGuard tunnel. Layers › VPNs draws each one in the Diagram view.
       </p>
       {adding && canDraw ? (
         <AddVpn

@@ -763,9 +763,18 @@ export function NetworksPanel(props: NetworksPanelProps) {
           ) : null}
 
           {vlanRows.length === 0 && subnetRows.length === 0 && dockerRows.length === 0 && unattachedContainerRows.length === 0 ? (
-            <div className="networks-panel__muted" style={{ gridColumn: '1 / -1' }}>
-              No networks match this filter.
-            </div>
+            totalCount + derived.dockerUnattachedContainers.length === 0 ? (
+              // None in the design at all: say so, and offer the way to add the first.
+              <EmptyState className="networks-panel__none" title="No networks yet." compact action={canDraw ? { label: 'Add network', onClick: () => setAdding(true) } : undefined}>
+                {canDraw
+                  ? 'A network is a VLAN, a subnet or a Docker network. Add one and say which devices and ports are on it.'
+                  : 'A network is a VLAN, a subnet or a Docker network. Nobody has added one to this design yet.'}
+              </EmptyState>
+            ) : (
+              <div className="networks-panel__muted" style={{ gridColumn: '1 / -1' }}>
+                No networks match this filter.
+              </div>
+            )
           ) : null}
         </div>
 

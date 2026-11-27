@@ -3,6 +3,7 @@
 // carries a config is only compared; anything else says why it was left. "Add" is the only write.
 import { useEffect, useId, useRef, useState, type JSX } from 'react';
 
+import { useGhostRef } from '../shell/ghost';
 import { changed, type FolderChanges, type FolderRow } from './configFolder';
 import './paste.css';
 import '../suggest/suggest.css';
@@ -35,6 +36,7 @@ export function FolderCard({ rows, onAdd, onClose, refusal }: FolderCardProps): 
   const writable = rows.filter((r) => r.outcome === 'attach' || r.outcome === 'add');
   const [ticked, setTicked] = useState<ReadonlySet<string>>(() => new Set(writable.map((r) => r.file)));
   const ref = useRef<HTMLDivElement>(null);
+  const cardRef = useGhostRef(ref);
   const headId = useId();
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export function FolderCard({ rows, onAdd, onClose, refusal }: FolderCardProps): 
   const destroyed = rows.reduce((n, r) => n + r.destroyed, 0);
 
   return (
-    <div className="paste-card suggest-card" role="dialog" aria-labelledby={headId} data-testid="folder-card" ref={ref}>
+    <div className="paste-card suggest-card" role="dialog" aria-labelledby={headId} data-testid="folder-card" ref={cardRef}>
       <div className="paste-card__head" id={headId}>
         Configs from a folder
       </div>

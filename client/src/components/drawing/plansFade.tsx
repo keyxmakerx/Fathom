@@ -8,6 +8,7 @@ import type { Edge, Node } from '@xyflow/react';
 import type { Canon } from '../checks/checksModel';
 import { useChecksApi, useChecksShow } from '../checks/checksStore';
 import { usePlansState } from '../plans/plansStore';
+import { MIN_ZOOM } from './geometry';
 import { applyPlans, focusMatch, type ResolvePort } from './plansMarks';
 
 const IDENTITY: Canon = (id) => id;
@@ -43,7 +44,7 @@ export function PlansCanvasBridge() {
   useEffect(() => {
     if (focus == null || token === 0) return;
     const { nodeIds } = focusMatch(rf.getNodes(), rf.getEdges(), focus, api?.store.get().canon ?? IDENTITY);
-    if (nodeIds.size > 0) void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding: 0.5, maxZoom: 1.25, duration: 400 });
+    if (nodeIds.size > 0) void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding: 0.5, minZoom: MIN_ZOOM, maxZoom: 1.25, duration: 400 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one move per token
   }, [token]);
 

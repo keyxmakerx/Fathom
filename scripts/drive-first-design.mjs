@@ -57,7 +57,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
-import { check, fails } from './drive-lib/kit.mjs';
+import { check, fails, lieOver } from './drive-lib/kit.mjs';
 import { openTheTrail } from './drive-lib/trail.mjs';
 
 const pw = await import(
@@ -797,6 +797,308 @@ async function runProof(browser, seed) {
     chassisAfterUndo === chassisBeforeUndo - 1 && undoRefusalAfterUndo === 0,
     `chassis before=${chassisBeforeUndo} after=${chassisAfterUndo}, undo refusal divs: ${undoRefusalAfterUndo}`,
   );
+
+  // -------------------------------------------------------------------
+  // Undo in Inventory, alone and then with someone else. One edit of a cell is one change: with a server behind
+  // it the table once wrote each edit twice, and the first Undo after it took back nothing anyone could see.
+  // Then the steward gives the second device an address, the drawer changes it, and the steward presses Undo.
+  // That address is the drawer's now: nothing is undone and a sentence says why. The next press goes one change
+  // further back. It once tried the same change again, press after press, and nothing the steward had done before
+  // it could be reached.
+  // -------------------------------------------------------------------
+  const ADDRESS = 'Mgmt address';
+  const showColumn = async (page, label) => {
+    if ((await page.locator('[role=columnheader]', { hasText: label }).count()) > 0) return;
+    await page.getByRole('button', { name: 'Columns' }).click();
+    await page.getByLabel(label, { exact: true }).check();
+    await page.getByRole('button', { name: 'Columns' }).click();
+  };
+  const toInventory = async (page) => {
+    await page.bringToFront();
+    await page.locator('.shell-bar').getByText('Inventory', { exact: true }).first().click();
+    await page.waitForSelector('.inv-table__row', { timeout: 15000 });
+    await showColumn(page, ADDRESS);
+  };
+  const columnOf = (page, label) => page.evaluate((l) => [...document.querySelectorAll('[role=columnheader]')].findIndex((h) => h.textContent.trim().startsWith(l)), label);
+  /** What each row shows under Mgmt address, top to bottom. */
+  const addresses = async (page) => {
+    const at = await columnOf(page, ADDRESS);
+    return page.evaluate((col) => [...document.querySelectorAll('.inv-table__row')].map((row) => row.querySelectorAll('[role=gridcell]')[col]?.textContent.trim() ?? ''), at);
+  };
+  /** Waits for a row to show `value` under a column; false when it never does. */
+  const cellShows = (page, row, label, value, timeout = 15000) =>
+    page
+      .waitForFunction(([r, l, v]) => {
+        const col = [...document.querySelectorAll('[role=columnheader]')].findIndex((h) => h.textContent.trim().startsWith(l));
+        return document.querySelectorAll('.inv-table__row')[r]?.querySelectorAll('[role=gridcell]')[col]?.textContent.trim() === v;
+      }, [row, label, value], { timeout })
+      .then(() => true, () => false);
+  const shows = (page, row, value, timeout = 15000) => cellShows(page, row, ADDRESS, value, timeout);
+  const editCell = async (page, row, label, value) => {
+    await page.locator('.inv-table__row').nth(row).locator('[role=gridcell]').nth(await columnOf(page, label)).dblclick();
+    await page.locator('input.inv-table__editor').fill(value);
+    await page.keyboard.press('Enter');
+    return cellShows(page, row, label, value);
+  };
+  const setAddress = (page, row, value) => editCell(page, row, ADDRESS, value);
+
+  await toInventory(one);
+  const unset = (await addresses(one))[0];
+  check('browser one (steward): Inventory lists the two devices, neither with an address', (await addresses(one)).length === 2 && (await addresses(one)).every((a) => a === unset), JSON.stringify(await addresses(one)));
+  check('browser one (steward): gives the first device an address', await setAddress(one, 0, '10.0.0.1'), JSON.stringify(await addresses(one)));
+  await one.locator('[data-testid="bar-undo"]').click();
+  check('browser one (steward): one Undo takes that address back', await shows(one, 0, unset, 5000), JSON.stringify(await addresses(one)));
+  await one.locator('[data-testid="bar-redo"]').click();
+  check('browser one (steward): and one Redo brings it back', await shows(one, 0, '10.0.0.1', 5000), JSON.stringify(await addresses(one)));
+  check('browser one (steward): gives the second device an address', await setAddress(one, 1, '10.0.0.2'), JSON.stringify(await addresses(one)));
+  await toInventory(two);
+  check("browser two (drawer): sees both addresses live, and changes the second", (await shows(two, 0, '10.0.0.1')) && (await shows(two, 1, '10.0.0.2')) && (await setAddress(two, 1, '10.0.0.99')), JSON.stringify(await addresses(two)));
+  await one.bringToFront();
+  check("browser one (steward): sees the drawer's address live", await shows(one, 1, '10.0.0.99'), JSON.stringify(await addresses(one)));
+
+  await one.locator('[data-testid="bar-undo"]').click();
+  await one.locator('[data-testid="live-note"]').waitFor({ timeout: 5000 }).catch(() => {});
+  const saidOnce = ((await one.locator('[data-testid="live-note"]').allInnerTexts())[0] ?? '').replace(/\s+/g, ' ').trim();
+  const afterOnce = await addresses(one);
+  check(
+    'browser one (steward): Undo leaves alone the address the drawer changed since, and says why',
+    /Nothing was undone: the mgmt address was changed by Drawer since\./.test(saidOnce) && afterOnce[0] === '10.0.0.1' && afterOnce[1] === '10.0.0.99',
+    `${saidOnce} ${JSON.stringify(afterOnce)}`,
+  );
+  check('browser one (steward): and says what pressing Undo again does', /Undo again takes back the change you made before it\./.test(saidOnce), saidOnce);
+  await one.screenshot({ path: `${SHOTS}s7-undo-after-another-1.png` });
+
+  await one.locator('[data-testid="bar-undo"]').click();
+  const wentBack = await shows(one, 0, unset, 5000);
+  const saidTwice = ((await one.locator('[data-testid="live-note"]').allInnerTexts())[0] ?? '').replace(/\s+/g, ' ').trim();
+  const afterTwice = await addresses(one);
+  check(
+    'browser one (steward): a second Undo goes one change further back, to the address given before',
+    wentBack && afterTwice[1] === '10.0.0.99',
+    JSON.stringify(afterTwice),
+  );
+  check('browser one (steward): and puts away the sentence about the press before', saidTwice === '', saidTwice);
+  await one.screenshot({ path: `${SHOTS}s7-undo-after-another-2.png` });
+
+  const forward = await one.locator('[data-testid="bar-redo"]').isEnabled();
+  if (forward) await one.locator('[data-testid="bar-redo"]').click();
+  check('browser one (steward): Redo brings that address back', forward && (await shows(one, 0, '10.0.0.1', 5000)), `Redo offered: ${forward} ${JSON.stringify(await addresses(one))}`);
+  await two.bringToFront();
+  check("browser two (drawer): ends with the steward's first address and its own second", (await shows(two, 0, '10.0.0.1')) && (await shows(two, 1, '10.0.0.99')), JSON.stringify(await addresses(two)));
+
+  // A refused Undo. The steward gives the second device an address again and the drawer tags that device. A tag is
+  // not a field of the device, so Undo cannot leave it alone and take back the rest: it is refused. History opens
+  // and says whose change stood in the way and what it was, by name and never by an id, and what the next press
+  // does. The refused step is set aside like the one before, and the next press goes on to the change behind it.
+  await one.bringToFront();
+  check('browser one (steward): gives the second device an address again', await setAddress(one, 1, '10.0.0.3'), JSON.stringify(await addresses(one)));
+  await two.bringToFront();
+  await showColumn(two, 'Tags');
+  check('browser two (drawer): tags that device', await editCell(two, 1, 'Tags', 'edge'));
+  await one.bringToFront();
+  await showColumn(one, 'Tags');
+  check("browser one (steward): sees the drawer's tag live", await cellShows(one, 1, 'Tags', 'edge'));
+  await one.locator('[data-testid="bar-undo"]').click();
+  await one.locator('.racks-trail__refusal').waitFor({ timeout: 5000 }).catch(() => {});
+  const refusedSaid = ((await one.locator('.racks-trail__refusal').allInnerTexts())[0] ?? '').replace(/\s+/g, ' ').trim();
+  check(
+    'browser one (steward): a refused Undo says in History whose change stood in the way and what it was, and what the next press does',
+    refusedSaid === 'Nothing was undone: an unnamed device was changed by Drawer since (tag added). Undo again takes back the change you made before it.',
+    refusedSaid,
+  );
+  check('browser one (steward): and quotes no id', !/[0-9A-HJKMNP-TV-Z]{26}/.test(refusedSaid) && !/\b(device|chassis|tag|tagged):/i.test(refusedSaid), refusedSaid);
+  check('browser one (steward): and has changed nothing', JSON.stringify(await addresses(one)) === JSON.stringify(['10.0.0.1', '10.0.0.3']), JSON.stringify(await addresses(one)));
+  await one.waitForTimeout(400); // History has slid in
+  await one.screenshot({ path: `${SHOTS}s7-undo-refused.png` });
+
+  // The trail under that sentence. It names people as every other history does, "you" and the name heard for a
+  // colleague, never the start of an account id, and says each change in words and what it was made to. The record
+  // stays readable: the whole account id behind a name and the label as it was written show when pointed at.
+  const trailTop = await one.evaluate(() =>
+    [...document.querySelectorAll('.racks-trail__row')].slice(0, 2).map((row) => {
+      const who = row.querySelector('.racks-trail__col--who');
+      const what = row.querySelector('.racks-trail__col--what');
+      return { who: who.textContent.trim(), account: who.title, what: what.textContent.trim(), recorded: what.querySelector('[title]')?.title ?? '' };
+    }),
+  );
+  check(
+    "browser one (steward): the trail names the drawer and says the tag in words, with the account and the label as recorded behind them",
+    trailTop[0]?.who === 'Drawer' && /^Drawer · account [0-9A-HJKMNP-TV-Z]{26}$/.test(trailTop[0].account) && trailTop[0].what === 'Tag added · an unnamed device' && trailTop[0].recorded === 'Recorded as: tag',
+    JSON.stringify(trailTop[0]),
+  );
+  check(
+    'browser one (steward): and reads "you" for its own change beneath that, in words too',
+    trailTop[1]?.who === 'you' && / · account [0-9A-HJKMNP-TV-Z]{26}$/.test(trailTop[1].account) && trailTop[1].what === 'Address changed · an unnamed device' && trailTop[1].recorded === 'Recorded as: set Device.management_address',
+    JSON.stringify(trailTop[1]),
+  );
+  await one.locator('[data-testid="bar-undo"]').click();
+  check(
+    'browser one (steward): the next Undo goes on to the change before the refused one, and the refusal is put away',
+    (await shows(one, 0, unset, 5000)) && (await addresses(one))[1] === '10.0.0.3' && (await one.locator('.racks-trail__refusal').count()) === 0,
+    `${JSON.stringify(await addresses(one))} refusals shown: ${await one.locator('.racks-trail__refusal').count()}`,
+  );
+
+  // History beside Inventory. Its list of saves opens where the person is: pressed from Inventory it once left for
+  // the canvas, and carried from the canvas to Inventory it was an empty panel. A past save is drawn on the canvas,
+  // so choosing one goes there, and leaving the canvas with one showing goes back to now. The field view draws no
+  // side panels, so a window narrowed to it closes History.
+  //
+  // Undo and Redo follow the key. The list of saves open with none chosen changes nothing about them: Ctrl+Z on
+  // the drawing undid there while the button was greyed. A save on show greys both, and each says why.
+  const offered = async (page) => `Undo ${await page.locator('[data-testid="bar-undo"]').isEnabled()}, Redo ${await page.locator('[data-testid="bar-redo"]').isEnabled()}`;
+  const LOOKING_BACK = 'You are looking at a save, not the design as it is now. Press Back to now in History.';
+  const whyGreyed = (page, id) => page.locator(`[data-testid="${id}"]`).evaluate((b) => ({ greyed: b.disabled, why: b.getAttribute('data-hint-more'), keys: b.getAttribute('data-hint-keys') }));
+  const gone = (page, selector, timeout = 5000) => page.waitForFunction((sel) => document.querySelector(sel) == null, selector, { timeout }).then(() => true, () => false);
+  const toPlace = async (page, name, landmark) => {
+    await page.locator('.shell-bar').getByText(name, { exact: true }).first().click();
+    await page.waitForSelector(landmark, { timeout: 15000 });
+  };
+  const offeredBefore = await offered(one);
+  const addressesNow = JSON.stringify(await addresses(one));
+  // The refused Undo above left History showing its Trail. Saves is the tab beside it.
+  if ((await one.locator('[data-testid="history-tab-saves"]').count()) === 0) await one.locator('[data-testid="dock-history"]').click();
+  if ((await one.locator('[data-testid="history-panel"]').count()) === 0) await one.locator('[data-testid="history-tab-saves"]').click();
+  const savesListed = await one.locator('.history__row').nth(1).waitFor({ timeout: 15000 }).then(() => true, () => false);
+  check(
+    'browser one (steward): History opens its list of saves beside Inventory',
+    savesListed && (await one.locator('.inv-table__row').count()) === 2,
+    `saves listed: ${await one.locator('.history__row').count()}, Inventory rows: ${await one.locator('.inv-table__row').count()}`,
+  );
+  await one.screenshot({ path: `${SHOTS}s7-history-beside-inventory.png` });
+  check('browser one (steward): the list of saves open, with none chosen, leaves Undo and Redo as they were', (await offered(one)) === offeredBefore, `before: ${offeredBefore}; with the list open: ${await offered(one)}`);
+  // A change made with the list open says so in a note, as with it closed. This address has been undone and redone
+  // so often that the label of the newest undo is cut short; the note still says what the change was. The note is
+  // about the design as it is now, so it goes when a save comes on show: its button would change the design behind
+  // the save.
+  const note = (page) =>
+    page.evaluate(() => {
+      const el = document.querySelector('.change-toast');
+      return el === null ? null : { words: el.querySelector('.change-toast__words')?.textContent ?? '', button: el.querySelector('.change-toast__button')?.textContent.trim() ?? null };
+    });
+  const noteStarts = (page, start) => page.waitForFunction((s) => document.querySelector('.change-toast__words')?.textContent.startsWith(s) === true, start, { timeout: 5000 }).catch(() => {});
+  await one.locator('[data-testid="bar-redo"]').click();
+  await noteStarts(one, 'Redone: ');
+  const redoneSaid = await note(one);
+  await one.locator('.change-toast__button').click({ timeout: 5000 }).catch(() => {});
+  await noteStarts(one, 'Undone: ');
+  const undoneSaid = await note(one);
+  check(
+    'browser one (steward): with the list of saves open a Redo says what it brought back, the Undo on its note takes it back and says so, and the design is as it was',
+    redoneSaid?.words === 'Redone: address changed' && redoneSaid.button === 'Undo' && undoneSaid?.words === 'Undone: address changed' && undoneSaid.button === 'Redo' && JSON.stringify(await addresses(one)) === addressesNow && (await offered(one)) === offeredBefore,
+    `${JSON.stringify(redoneSaid)} then ${JSON.stringify(undoneSaid)}; addresses ${JSON.stringify(await addresses(one))}; ${await offered(one)}`,
+  );
+  await one.locator('.history__row').nth(1).click();
+  const bannerShown = await one.locator('[data-testid="history-banner"]').waitFor({ timeout: 15000 }).then(() => true, () => false);
+  const noteOverSave = await note(one);
+  check('browser one (steward): that note goes when a save comes on show, and its Redo with it', bannerShown && noteOverSave === null, `banner: ${bannerShown}, note: ${JSON.stringify(noteOverSave)}`);
+  const bannerClear = await lieOver(one, '[data-testid="history-banner"]', '.shell-canvas-bar__group');
+  check('browser one (steward): the banner that names the save is clear of the canvas tools', bannerClear != null && !bannerClear.over, bannerClear?.said ?? 'the banner or the tools are not on the page');
+  check(
+    'browser one (steward): choosing a save there goes to the canvas, which draws it',
+    bannerShown && (await one.locator('.react-flow__pane').count()) === 1 && (await one.locator('.history__row--on').count()) === 1,
+    `banner: ${bannerShown}, canvas: ${await one.locator('.react-flow__pane').count()}, saves marked: ${await one.locator('.history__row--on').count()}`,
+  );
+  const undoWhy = await whyGreyed(one, 'bar-undo');
+  const redoWhy = await whyGreyed(one, 'bar-redo');
+  const chipWhy = await one.locator('.shell-bar__view-only').first().getAttribute('data-hint-more').catch(() => null);
+  check(
+    'browser one (steward): with a save on show Undo and Redo are greyed, and each says it is the save and how to leave it',
+    [undoWhy, redoWhy].every((b) => b.greyed && b.why === LOOKING_BACK && b.keys == null) && chipWhy === LOOKING_BACK,
+    `Undo: ${JSON.stringify(undoWhy)}; Redo: ${JSON.stringify(redoWhy)}; the View only chip: ${JSON.stringify(chipWhy)}`,
+  );
+  await toPlace(one, 'Inventory', '.inv-table__row');
+  const noneMarked = await gone(one, '.history__row--on');
+  check(
+    'browser one (steward): leaving the canvas with a save showing goes back to now: Inventory lists the design as it is, beside the saves with none marked',
+    noneMarked && JSON.stringify(await addresses(one)) === addressesNow && (await one.locator('.history__row').count()) > 1,
+    `${JSON.stringify(await addresses(one))} saves listed: ${await one.locator('.history__row').count()}, marked: ${await one.locator('.history__row--on').count()}`,
+  );
+  await toPlace(one, 'Canvas', '.react-flow__pane');
+  await one.waitForTimeout(400);
+  check('browser one (steward): and the canvas shows the design as it is now too', (await one.locator('[data-testid="history-banner"]').count()) === 0 && (await one.locator('.history__row--on').count()) === 0, `banners: ${await one.locator('[data-testid="history-banner"]').count()}`);
+  const backToNow = await offered(one);
+  await one.locator('[data-testid="dock-history"]').click();
+  const folded = await gone(one, '[data-testid="history-panel"]');
+  check(
+    'browser one (steward): back to now, Undo and Redo are offered as they were before History opened, and folding it changes nothing',
+    folded && backToNow === offeredBefore && (await offered(one)) === offeredBefore,
+    `before: ${offeredBefore}; back to now with the list open: ${backToNow}; folded: ${await offered(one)}`,
+  );
+  await toPlace(one, 'Inventory', '.inv-table__row');
+  await one.locator('[data-testid="dock-history"]').click();
+  await one.locator('.history__row').first().waitFor({ timeout: 15000 }).catch(() => {});
+  await one.setViewportSize({ width: 390, height: 844 });
+  const closedWhenNarrow = await gone(one, '[data-testid="history-panel"]');
+  await one.setViewportSize({ width: 1440, height: 900 });
+  // Undo has failed to come back to the bar here, rarely, and why is not known. When it does not, the check says
+  // what the bar holds, and whether a change of view puts it right, and the run goes on.
+  const barHolds = (page) =>
+    page.evaluate(() => {
+      const bar = document.querySelector('.shell-bar');
+      const parts = [...(bar?.children ?? [])].map((part) => `${String(part.className).split(' ')[0]} ${part.offsetWidth}`);
+      const reads = (el) => (el?.innerText ?? '').replace(/\s+/g, ' ').trim();
+      return `window ${window.innerWidth} wide, More ${document.querySelector('[data-testid="shell-more"]') ? 'shown' : 'not shown'}, bar: ${parts.join(', ')}; it reads: ${reads(bar)}; the page begins: ${reads(document.body).slice(0, 160)}`;
+    });
+  const undoBack = await one.locator('[data-testid="bar-undo"]').waitFor({ timeout: 15000 }).then(() => true, () => false);
+  let wideAgain = undoBack ? await offered(one) : `Undo is not in the bar (${await barHolds(one)})`;
+  if (!undoBack) {
+    await one.screenshot({ path: `${SHOTS}s7-undo-not-back.png` });
+    await toPlace(one, 'Canvas', '.react-flow__pane').catch(() => {});
+    await toPlace(one, 'Inventory', '.inv-table__row').catch(() => {});
+    const afterViews = await one.locator('[data-testid="bar-undo"]').waitFor({ timeout: 15000 }).then(() => true, () => false);
+    wideAgain += afterViews ? '; back in the bar after a change of view' : `; still not there after a change of view (${await barHolds(one)})`;
+  }
+  check(
+    'browser one (steward): a window narrowed to the field view closes History, and wide again Undo and Redo are offered as before',
+    closedWhenNarrow && (await one.locator('[data-testid="history-panel"]').count()) === 0 && wideAgain === offeredBefore,
+    `closed when narrow: ${closedWhenNarrow}; before: ${offeredBefore}; after: ${wideAgain}`,
+  );
+
+  // Undo of an add, once someone else has worked on what was added. The steward places a device and the drawer
+  // names it. Taking the placing back would take the device away with the drawer's name on it. Leaving a field
+  // alone does not answer for that, so the Undo is refused and says whose change it was. It once went through:
+  // the device left both screens and nothing was said.
+  const cellsOf = async (page, label) => {
+    const at = await columnOf(page, label);
+    return page.evaluate((col) => [...document.querySelectorAll('.inv-table__row')].map((row) => row.querySelectorAll('[role=gridcell]')[col]?.textContent.trim() ?? ''), at);
+  };
+  const rowsAre = (page, n, timeout = 15000) => page.waitForFunction((want) => document.querySelectorAll('.inv-table__row').length === want, n, { timeout }).then(() => true, () => false);
+  await two.bringToFront();
+  await showColumn(two, 'Where');
+  const whereBefore = await cellsOf(two, 'Where');
+  await one.bringToFront();
+  await toPlace(one, 'Canvas', '.react-flow__pane');
+  await openTheRail(one);
+  await dragPaletteItemOntoRack(one, 0, 2);
+  await two.bringToFront();
+  const thirdListed = await rowsAre(two, 3);
+  const whereAfter = await cellsOf(two, 'Where');
+  const newRow = whereAfter.findIndex((w) => !whereBefore.includes(w));
+  check("browser two (drawer): sees the device the steward has just placed, live", thirdListed && newRow >= 0, JSON.stringify(whereAfter));
+  // A click on a row's name opens its page, so the name is edited from the keys: Home, then F2.
+  await two.locator('.inv-table__row').nth(Math.max(newRow, 0)).locator('[role=gridcell]').nth(await columnOf(two, ADDRESS)).click();
+  await two.keyboard.press('Home');
+  await two.keyboard.press('F2');
+  await two.locator('input.inv-table__editor').fill('sw-03');
+  await two.keyboard.press('Enter');
+  const named = (page) => page.waitForFunction(() => [...document.querySelectorAll('.inv-table__row [role=gridcell]')].some((c) => c.textContent.trim() === 'sw-03'), null, { timeout: 15000 }).then(() => true, () => false);
+  check('browser two (drawer): names that device', await named(two));
+  await one.bringToFront();
+  await toPlace(one, 'Inventory', '.inv-table__row');
+  check("browser one (steward): sees the drawer's name on it live", (await rowsAre(one, 3)) && (await named(one)));
+  await one.locator('[data-testid="bar-undo"]').click();
+  await one.locator('.racks-trail__refusal').waitFor({ timeout: 5000 }).catch(() => {});
+  const addRefused = ((await one.locator('.racks-trail__refusal').allInnerTexts())[0] ?? '').replace(/\s+/g, ' ').trim();
+  check(
+    'browser one (steward): Undo does not take away a device the drawer has named since, and says whose change stood in the way',
+    /^Nothing was undone: sw-03 was changed by Drawer since \(name changed\)\./.test(addRefused) && (await one.locator('.inv-table__row').count()) === 3,
+    `${addRefused} rows: ${await one.locator('.inv-table__row').count()}`,
+  );
+  await one.waitForTimeout(400); // History has slid in
+  await one.screenshot({ path: `${SHOTS}s7-undo-add-refused.png` });
+  await two.bringToFront();
+  await two.waitForTimeout(1200); // a removal would have reached it by now
+  check('browser two (drawer): and still has the device it named', (await two.locator('.inv-table__row').count()) === 3 && (await named(two)), `rows: ${await two.locator('.inv-table__row').count()}`);
 
   await stewardCtx.close();
   await drawerCtx.close();

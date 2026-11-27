@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { DragEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
+import type { DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import {
   Background,
   ConnectionMode,
@@ -28,7 +28,8 @@ import './plans-canvas.css';
 import { compatible } from '../../document/compat';
 import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
 import { CollabLayer } from '../collab/CollabLayer';
-import { TraceBadges, useTraceFade } from '../trace/fade';
+import { TraceBadges, TraceCanvasBridge, useTraceFade } from '../trace/fade';
+import type { PathRoom } from '../trace/pathFrame';
 import { rackDeviceKey } from './rackKeys';
 import { NameEditContext, type NameEditApi } from './NameEdit';
 import { mediaCandidates } from '../checks/checksModel';
@@ -41,6 +42,7 @@ import { TroubleCanvasBridge, useTroubleFade } from './troubleFade';
 import type { PortTarget } from './plansMarks';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
+import { SAID_AS, cableSays, cablesSay } from './thingSays';
 import { viewShowsAny } from '../design/resume';
 import type { Bundle } from './bundles';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
@@ -51,6 +53,7 @@ import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, getDraggedUnits, PALETTE_DRAG_MIME } from './dnd';
 import {
   CAMERA_STOPS,
+  FIT_PADDING,
   MAX_ZOOM,
   MIN_ZOOM,
   RACK_HEADER_PX,
@@ -60,11 +63,17 @@ import {
   cameraStopAt,
   openingFit,
   overlapsRack,
+  paddingClearOf,
   rackAtPoint,
+  rackHeightPx,
+  restoredZoomAwaited,
   snapDropToU,
+  wheelFloor,
   zoomAboutPaneCentre,
   zoomBandAt,
   type CameraStop,
+  type FitCovers,
+  type FitSides,
   type ZoomBand,
 } from './geometry';
 import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
@@ -81,14 +90,17 @@ import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
 import { parseFreeNodeId } from './freeLayout';
 import { CanvasTools, type CanvasTool } from './CanvasTools';
+import { dockTravelLeft } from '../shell/Dock';
 import { InSideSlot } from '../shell/sideSlot';
+import { plainKeyIsElsewhere } from '../shell/keyOwner';
+import { enterOn, keepRing, KEYS_SAID } from './nodeKey';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { openElsewhere } from '../../api/estate';
 import { SHOW_DETAILS_EVENT } from '../shell/useRightTab';
 import { CableRunAsk, RackSizeAsk } from './AskCard';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
-import { doubleClickAnswer } from './doubleClick';
+import { doubleClickAnswer, holderDoubleClick } from './doubleClick';
 import { cableEndsOf, portFactsOf } from './menuFacts';
 import { holderOf } from './editorChanges';
 import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider, useLive, type LiveStore } from './liveStore';
@@ -107,6 +119,7 @@ import { groupBundles } from './bundles';
 import { litPathFor } from './paths';
 import { powerLeadHandle, type Facing } from './elevation';
 import {
+  closetFootprint,
   layoutRow,
   layoutSurfaces,
   mirroredRackX,
@@ -123,7 +136,7 @@ import { buildDrawingNodes, ownerNodeIdForPort } from './buildDrawingNodes';
 import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
 import { easeOut, glideOptions } from './motion';
-import { panToShow } from './keepInView';
+import { useMovedNodes } from './movedNodes';
 import { useSettle } from './useSettle';
 import { liveSagPath, markFreshCable } from './cableMotion';
 import { useCameraHub, type CameraHub } from './camera';
@@ -196,12 +209,9 @@ const SHAKE_MS = 220;
  * `useState(initialFocus ?? null)` sets it synchronously, before this
  * component's own first render, whenever the design was already loaded) —
  * the one case this defers to. */
-export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null): boolean {
-  return !(isFirstRun && selected?.kind === 'chassis');
+export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null, showPending = false): boolean {
+  return !(isFirstRun && (selected?.kind === 'chassis' || showPending));
 }
-
-/** Room left between an opened shelf box's inset and the pane's edge. */
-const INSET_MARGIN_PX = 24;
 
 /** A dropped fixture's rough height, so it lands below the pointer, not above. */
 const DROP_LIFT_PX = 90;
@@ -224,21 +234,22 @@ function surfaceDropAt(clientX: number, clientY: number, zoom: number): { surfac
   return null;
 }
 
-/** Fit every rack: used on mount, landing at the rack stop. */
-function rackFitViewOptions(racks: readonly { id: string }[], free: readonly { id: string }[] = []) {
+/** Fit every rack, and `also` what stands with them: used on mount, landing at the rack stop. */
+function rackFitViewOptions(racks: readonly { id: string }[], also: readonly { id: string }[] = []) {
   return {
-    nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...free],
-    padding: 0.1,
+    nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...also],
+    padding: FIT_PADDING as number | FitSides,
+    minZoom: MIN_ZOOM,
     maxZoom: CAMERA_STOPS.rack / 100,
   };
 }
 
 /** Fit every rack AND surface: the bar's own "Fit to view" — the whole
  * closet. `minZoom` goes below `MIN_ZOOM` to match the bar's own +/- floor. */
-function closetFitViewOptions(racks: readonly { id: string }[], surfaces: readonly { id: string }[], free: readonly { id: string }[] = []) {
+function closetFitViewOptions(racks: readonly { id: string }[], surfaces: readonly { id: string }[], also: readonly { id: string }[] = []) {
   return {
-    nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...surfaces.map((s) => ({ id: surfaceNodeId(s.id) })), ...free],
-    padding: 0.1,
+    nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...surfaces.map((s) => ({ id: surfaceNodeId(s.id) })), ...also],
+    padding: FIT_PADDING as number | FitSides,
     minZoom: 0.1,
     maxZoom: CAMERA_STOPS.rack / 100,
   };
@@ -345,6 +356,9 @@ export interface DrawingProps extends DrawingActions {
   /** Opens a device's config drawer or inside view, as a double-click does;
    * a new object each time (the same edge-triggered shape `fitRequest` has). */
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
+  /** Search's pick of a device: one on a shelf or a wall is brought into view at the faceplate stop (one in a
+   * rack unit has the config drawer's own move); a new object each time, like `openRequest`. */
+  showRequest?: { deviceId: string } | null;
   /** Missing links' Go: brings this cable into view; a new object each time, like `openRequest`. */
   revealRequest?: { cableId: string } | null;
   /** The devices picked together (two or more, by chassis id), or empty. Racked and free devices both count. */
@@ -364,6 +378,9 @@ export interface DrawingProps extends DrawingActions {
   /** The first fit takes in every surface too, not only the racks: the sample, whose walls and desk would
    * otherwise open off screen. */
   fitWholeOnOpen?: boolean;
+  /** What floats over the pane now: the tool row, the zoom buttons, and on a sample its question card. The opening
+   * fit and Fit to view keep what they frame clear of all three. */
+  covers?: () => { tools: Element | null; zoom: Element | null; card: Element | null };
   /** Called with the camera when a pan or zoom ends. */
   onViewportSettled?: (vp: Viewport) => void;
   /** The place's handle on the camera, for the Views menu. */
@@ -446,6 +463,7 @@ function DrawingInner({
   lookSwitched,
   initialViewport,
   fitWholeOnOpen = false,
+  covers,
   onViewportSettled,
   cameraHub,
   onPlace,
@@ -494,6 +512,7 @@ function DrawingInner({
   emptyHint,
   onAddEquipment,
   openRequest,
+  showRequest,
   revealRequest,
   onFinishCable,
   onGroupChange,
@@ -533,6 +552,9 @@ function DrawingInner({
   // A rack being dragged: where it is under the pointer, so it carries its devices and their cables
   // with it as it moves (sign-off r129), instead of jumping on drop.
   const [rackDrag, setRackDrag] = useState<{ id: string; position: { x: number; y: number } } | null>(null);
+  // Something is being dragged. Nothing else slides to its place meanwhile (`drawing.css`): a rack's devices
+  // are nodes of their own, and each slide left them a step behind the rack they are in.
+  const [nodeDragging, setNodeDragging] = useState(false);
   const [dropPreview, setDropPreview] = useState<DropPreview>({});
   const [shakingId, setShakingId] = useState<string | null>(null);
   // React Flow owns the camera; this component keeps only the stop and the
@@ -542,6 +564,8 @@ function DrawingInner({
   const startPct = initialViewport != null ? Math.round(initialViewport.zoom * 100) : Math.max(zoom, 1);
   const [cameraStop, setCameraStop] = useState<CameraStop>(() => cameraStopAt(startPct));
   const [zoomBand, setZoomBand] = useState<ZoomBand>(() => zoomBandAt(startPct));
+  // How far out the wheel and a pinch go: `MIN_ZOOM`, or as far out as the camera has been on this visit.
+  const [zoomFloor, setZoomFloor] = useState(() => wheelFloor(MIN_ZOOM, initialViewport?.zoom ?? MIN_ZOOM));
   useCameraHub(cameraHub);
   // Whether the restored camera is still in use: true until the first fit decides it shows nothing.
   const restoredCameraRef = useRef(initialViewport != null);
@@ -899,6 +923,54 @@ function DrawingInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowLayouts]);
 
+  // What a fit frames besides racks and surfaces: the free things, and the trays over and under the racks.
+  const alsoFramed = () => [...free.fitIds, ...rf.getNodes().filter((n) => n.type === 'tray').map((n) => ({ id: n.id }))];
+
+  // How far the tool row, the zoom buttons and a sample's card reach over the pane now; null with no pane to
+  // measure or nothing said to float over it.
+  const coversNow = (): { pane: { width: number; height: number }; reach: FitCovers } | null => {
+    const pane = containerRef.current;
+    const over = covers?.();
+    if (pane == null || over == null || pane.clientWidth === 0 || pane.clientHeight === 0) return null;
+    const paneBox = pane.getBoundingClientRect();
+    // One that is not on the page has no box, and so no reach.
+    const boxOf = (el: Element | null) => {
+      const box = el?.getBoundingClientRect();
+      return box != null && box.width > 0 && box.height > 0 ? box : null;
+    };
+    const tools = boxOf(over.tools);
+    const zoomButtons = boxOf(over.zoom);
+    const card = boxOf(over.card);
+    return {
+      pane: { width: pane.clientWidth, height: pane.clientHeight },
+      reach: {
+        top: tools != null ? tools.bottom - paneBox.top : 0,
+        bottom: zoomButtons != null ? paneBox.bottom - zoomButtons.top : 0,
+        corner: card != null && card.right > paneBox.left && card.bottom > paneBox.top ? { width: card.right - paneBox.left, height: card.bottom - paneBox.top } : null,
+      },
+    };
+  };
+
+  // A fit with room left for what floats over the pane; unchanged where nothing does.
+  const clearOfCovers = <T extends { nodes: { id: string }[]; maxZoom: number; padding: number | FitSides }>(options: T): T => {
+    const now = coversNow();
+    if (now == null) return options;
+    const sides = paddingClearOf(now.reach, rf.getNodesBounds(options.nodes.map((n) => n.id)), now.pane, options.maxZoom);
+    return sides == null ? options : { ...options, padding: sides };
+  };
+
+  // What a trace's path has room for: the pane as wide as it will be once the trace's panel has slid open beside
+  // it, less the tool row at the top, and at the foot the zoom buttons or the small map, whichever reaches higher
+  // (a path often ends in the corner the map sits in).
+  const pathRoom = (): PathRoom | null => {
+    const pane = containerRef.current;
+    if (pane == null || pane.clientWidth === 0 || pane.clientHeight === 0) return null;
+    const reach = coversNow()?.reach;
+    const map = pane.querySelector('.canvas-minimap')?.getBoundingClientRect();
+    const mapReach = map != null && map.height > 0 ? pane.getBoundingClientRect().bottom - map.top : 0;
+    return { width: Math.max(1, pane.clientWidth - dockTravelLeft()), height: pane.clientHeight, top: reach?.top ?? 0, bottom: Math.max(reach?.bottom ?? 0, mapReach) };
+  };
+
   // Fits every rack, no closer than the rack stop, on mount and when the set of
   // racks changes, once every rack has its position (a new one lands a render later).
   const rackIdsKey = view.racks.map((r) => r.id).join('|');
@@ -908,18 +980,25 @@ function DrawingInner({
   // documents — flips true on the first qualifying run and stays there, so
   // only that first run can ever be skipped.
   const hasFitOnceRef = useRef(false);
+  // The request to show a device that the camera answered last (its effect is further down, after the bar's zoom).
+  const handledShowRef = useRef<object | null>(null);
   useEffect(() => {
     if (!allRacksPositioned || view.racks.length === 0) return;
     const isFirstRun = !hasFitOnceRef.current;
     hasFitOnceRef.current = true;
-    if (!lookSwitched && !shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
+    if (!lookSwitched && !shouldFitOnMount(isFirstRun, selected, showRequest != null && showRequest !== handledShowRef.current)) return; // a pending focus wins outright, once
     if (isFirstRun && restoredCameraRef.current && initialViewport != null) {
-      // The camera was restored: that replaces the fit, unless it no longer shows any rack.
+      // The camera was restored: that replaces the fit, unless it no longer shows anything that is drawn. A wall,
+      // a desk and a box on the open canvas count as a rack does: a design left zoomed in on its desk reopens there.
       const pane = containerRef.current;
-      const rects = view.racks.flatMap((r) => {
-        const at = rackPositions[r.id];
-        return at == null ? [] : [{ x: at.x, y: at.y, width: RACK_NODE_WIDTH, height: rackNodeHeight(r) }];
-      });
+      const rects = [
+        ...view.racks.flatMap((r) => {
+          const at = rackPositions[r.id];
+          return at == null ? [] : [{ x: at.x, y: at.y, width: RACK_NODE_WIDTH, height: rackNodeHeight(r) }];
+        }),
+        ...[...surfacesLayout.panels, ...(surfacesLayout.floor != null ? [surfacesLayout.floor] : [])].map((p) => ({ x: p.x, y: p.y, width: p.widthPx, height: p.heightPx })),
+        ...free.rects(),
+      ];
       if (pane == null || viewShowsAny(initialViewport, { width: pane.clientWidth, height: pane.clientHeight }, rects)) {
         return;
       }
@@ -927,7 +1006,7 @@ function DrawingInner({
     }
     const whole = isFirstRun && fitWholeOnOpen;
     const raf = requestAnimationFrame(() => {
-      const wholeOptions = closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds);
+      const wholeOptions = clearOfCovers(closetFitViewOptions(view.racks, view.surfaces ?? [], alsoFramed()));
       const pane = containerRef.current;
       // The whole closet only when its names can still be read; otherwise the racks, at their own stop.
       let useWhole = whole;
@@ -936,7 +1015,7 @@ function DrawingInner({
         const fit = getViewportForBounds(bounds, pane.clientWidth, pane.clientHeight, wholeOptions.minZoom, wholeOptions.maxZoom, wholeOptions.padding);
         useWhole = openingFit(fit.zoom) === 'whole';
       }
-      void rf.fitView(useWhole ? wholeOptions : rackFitViewOptions(view.racks, free.fitIds));
+      void rf.fitView(useWhole ? wholeOptions : clearOfCovers(rackFitViewOptions(view.racks, alsoFramed())));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is
@@ -958,7 +1037,7 @@ function DrawingInner({
   useEffect(() => {
     if (fitRequest == null || fitRequest === prevFitRequestRef.current) return;
     prevFitRequestRef.current = fitRequest;
-    void rf.fitView(closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds));
+    void rf.fitView(clearOfCovers(closetFitViewOptions(view.racks, view.surfaces ?? [], alsoFramed())));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a press of the button refits
   }, [fitRequest, rf, view.racks, view.surfaces]);
 
@@ -1044,6 +1123,7 @@ function DrawingInner({
     (event, vp) => {
       personMovingRef.current = false;
       followCamera(vp);
+      setZoomFloor((floor) => wheelFloor(floor, vp.zoom));
       settled.settle(vp);
       onViewportSettledRef.current?.(vp);
       const pct = Math.round(vp.zoom * 100);
@@ -1188,28 +1268,11 @@ function DrawingInner({
     [],
   );
   const onSelectShelf = useCallback((shelfId: string) => onSelect({ kind: 'shelf', id: shelfId }), [onSelect]);
-  // A box on a shelf opens at the faceplate stop by the same continuous camera every other selection moves — never a second, independent jump.
-  // The details panel slides open during that glide and narrows the pane, which left the opened box's
-  // inset under the panel; once both have settled, pan just far enough to bring it back out.
-  const occupantOpenRef = useRef(0);
-  const onOpenShelfOccupant = useCallback(
-    (occupantId: string, centreX: number, centreY: number) => {
-      onSelect({ kind: 'occupant', id: occupantId });
-      const open = ++occupantOpenRef.current;
-      void rf.setCenter(centreX, centreY, { zoom: CAMERA_STOPS.faceplate / 100, ...GLIDE }).then(() => {
-        requestAnimationFrame(() => {
-          const pane = containerRef.current;
-          const inset = pane?.querySelector('.drawing-shelf__inset');
-          if (open !== occupantOpenRef.current || pane == null || inset == null) return;
-          const dx = panToShow(pane.getBoundingClientRect(), inset.getBoundingClientRect(), INSET_MARGIN_PX);
-          if (dx === 0) return;
-          const v = rf.getViewport();
-          void rf.setViewport({ ...v, x: v.x + dx }, { ...GLIDE });
-        });
-      });
-    },
-    [onSelect, rf],
-  );
+  // A press on a thing on a shelf selects it, as a press on a device in a rack does, and leaves the camera where
+  // it is. It used to glide to the faceplate stop: the thing left the pointer, so the second press of a
+  // double-click missed it, and a press far out answered with a jump. At the faceplate stop the selected thing
+  // still opens beside its shelf (`ShelfPlate.tsx`).
+  const onSelectOccupant = useCallback((occupantId: string) => onSelect({ kind: 'occupant', id: occupantId }), [onSelect]);
 
   // One tray node per (rack, side, far label) group — `portals.ts` does the grouping; `buildDrawingNodes.ts` lays the boxes out.
   const portalGroups = useMemo(() => groupPortals(view), [view]);
@@ -1222,23 +1285,9 @@ function DrawingInner({
   // (`rowLayouts`, above) never moves a surface: "positions stable across
   // flips," `rows.ts`'s own file header on why.
   //
-  // The row block's own width is the widest row's own rack count at the
-  // rack layout's own pitch (`RACK_NODE_WIDTH + RACK_GAP_PX`, one gap
-  // narrower than the count since there is no trailing gap); its height is
-  // every row band stacked, `rowBandY`'s own sum carried one row past the
-  // last. `panelHeightPx` — drawn at the height of a rack
-  // (`design/places/renders/Surfaces.png`, ADR-0051 §1/§2) — reads the
-  // TALLEST rack this closet actually holds (42U, this
-  // drawing's own reference height per `geometry.ts`'s file header, when
-  // there is none to read), so a wall lines up with whichever rack stands
-  // tallest beside it rather than an arbitrary one.
-  const rowsWidthPx = Math.max(
-    0,
-    ...rowLayouts.map((layout) => (layout.racks.length > 0 ? layout.racks.length * (RACK_NODE_WIDTH + RACK_GAP_PX) - RACK_GAP_PX : 0)),
-  );
-  const rowsHeightPx = rowBandY(rowLayouts, rowLayouts.length);
-  const tallestRackHeightU = Math.max(42, ...view.racks.map((r) => r.heightU));
-  const panelHeightPx = rackNodeHeight({ heightU: tallestRackHeightU });
+  // The row block's own footprint, and the least a panel is drawn (the height of the tallest rack here), are
+  // `closetFootprint`'s: the same numbers `closetRightPx` lays the panels out from.
+  const { rowsWidthPx, rowsHeightPx, panelHeightPx } = closetFootprint(view, RACK_NODE_WIDTH, rackHeightPx);
   const surfacesLayout = useMemo(
     () => layoutSurfaces(view.surfaces ?? [], rowsWidthPx, rowsHeightPx, panelHeightPx, U_PX, undefined, SURFACE_HEADER_PX),
     [view.surfaces, rowsWidthPx, rowsHeightPx, panelHeightPx],
@@ -1266,7 +1315,7 @@ function DrawingInner({
       onSelectShelf,
       onOpenShelf,
       onResizeShelf,
-      onOpenShelfOccupant,
+      onSelectOccupant,
       onHoverInlet: handleHoverCable,
       surfacesLayout,
       portalGroups,
@@ -1296,12 +1345,18 @@ function DrawingInner({
   // else about the pane centre. A person's own move reports its zoom at its end.
   useEffect(() => {
     if (personMovingRef.current) return;
+    // A restored camera tells the bar its zoom (on mount) rather than being reset to the bar's. Once the bar
+    // shows it the bar leads again; left waiting, + and - changed the number and never the drawing.
+    const awaited = restoredPctRef.current;
+    restoredPctRef.current = restoredZoomAwaited(awaited, zoom);
+    if (restoredPctRef.current != null) return;
     const live = rf.getViewport();
     if (Math.round(live.zoom * 100) === zoom) return;
-    if (restoredPctRef.current != null) {
-      // A restored camera tells the bar its zoom (on mount) rather than being reset to the bar's.
-      if (zoom !== restoredPctRef.current) return;
-      restoredPctRef.current = null;
+    if (awaited != null && initialViewport != null) {
+      // The canvas opens no further out than the wheel goes, so a camera left further out than that (a fit of
+      // a big closet) opened short of it. Put it where it was left, at once.
+      void rf.setViewport(initialViewport);
+      return;
     }
     const nextZoom = zoom / 100;
     if (GLIDE.duration > 0) barGlideRef.current = zoom;
@@ -1311,6 +1366,36 @@ function DrawingInner({
     else void rf.setViewport(pane == null ? { ...live, zoom: nextZoom } : zoomAboutPaneCentre(live, nextZoom, pane.clientWidth, pane.clientHeight), { ...GLIDE });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to the bar alone; the drawer and chassis are read as they are now.
   }, [zoom, rf]);
+
+  // Search's pick of a device on a shelf or a wall: glide to it at the faceplate stop. It is drawn inside its
+  // shelf's or its wall's node, so where it stands is read off the page. A device in a rack unit is left to the
+  // config drawer's move above. The request is kept until the device is drawn (the drawing may have only just
+  // mounted). After the bar's zoom effect, so that in a render with both this is the move that stands.
+  useEffect(() => {
+    if (showRequest == null || showRequest === handledShowRef.current) return undefined;
+    const { deviceId } = showRequest;
+    if (view.racks.some((r) => r.chassis.some((c) => c.id === deviceId))) {
+      handledShowRef.current = showRequest;
+      return undefined;
+    }
+    let frame = 0;
+    let tries = 0;
+    const attempt = () => {
+      const el = containerRef.current?.querySelector(`[data-device-chassis="${CSS.escape(deviceId)}"]`);
+      if (el == null) {
+        tries += 1;
+        if (tries < 30) frame = requestAnimationFrame(attempt);
+        return;
+      }
+      handledShowRef.current = showRequest;
+      const box = el.getBoundingClientRect();
+      const centre = rf.screenToFlowPosition({ x: box.left + box.width / 2, y: box.top + box.height / 2 }, { snapToGrid: false });
+      void rf.setCenter(centre.x, centre.y, { zoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
+    };
+    attempt();
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- answers the request alone; the racks are read as they are now.
+  }, [showRequest, rf]);
 
   // Pans the camera to the selected port's own owning box at the faceplate
   // stop (`buildDrawingNodes.ts` resolves which box that is). Already that close
@@ -1563,6 +1648,9 @@ function DrawingInner({
       sourceHandle: source.handleId,
       target: target.nodeId,
       targetHandle: target.handleId,
+      // Its name for a screen reader: its two ends, in place of React Flow's "Edge from <id> to <id>".
+      ariaLabel: cableSays(view, cable),
+      domAttributes: SAID_AS.cable,
       selectable: false, // selection is handled by CableEdge's own onClick, not React Flow's
       // Below a chassis's own `zIndex: 10`: names and ports draw above
       // cables, so pressing a port always starts a new cable.
@@ -1609,6 +1697,8 @@ function DrawingInner({
       sourceHandle: '__bundle__',
       target: chassisNodeId(bundle.chassisB),
       targetHandle: '__bundle__',
+      ariaLabel: cablesSay(view, bundle.members.length, bundle.chassisA, bundle.chassisB),
+      domAttributes: SAID_AS.cables,
       selectable: false,
       zIndex: 5,
       data: bundleData,
@@ -1677,18 +1767,17 @@ function DrawingInner({
       targetHandle: '__bundle__',
       selectable: false,
       focusable: false,
+      // A second picture of a cable that has its own name: nothing for a screen reader.
+      domAttributes: { 'aria-hidden': true },
       zIndex: 6,
       data: {},
     } satisfies CableOverlayEdgeType);
   }
 
-  // Every drawn cable's id, for the copy above the devices (`CableTopLayer`); the same array while the set is.
-  const topCableKey = edges.flatMap((e) => (e.type === 'cable' ? [e.id] : [])).join('|');
-  const topCableIds = useMemo(() => (topCableKey === '' ? [] : topCableKey.split('|')), [topCableKey]);
-
-  const handleNodeClick: NodeMouseHandler = useCallback(
-    (event, node) => {
-      if (free.onNodeClick(event, node)) return;
+  // What a press on a node selects. With Shift held it adds to, or takes from, what is already picked.
+  const pressNode = useCallback(
+    (press: { shiftKey: boolean }, node: RFNode) => {
+      if (free.onNodeClick(press, node)) return;
       // A wall, desk or ceiling: a click on its face or header, not on a fixture (which stops
       // the click itself), selects it.
       if (node.id.startsWith('surface:')) return onSelect({ kind: 'surface', id: node.id.slice('surface:'.length) });
@@ -1697,6 +1786,28 @@ function DrawingInner({
       onSelect(parsed.kind === 'rack' ? { kind: 'rack', id: parsed.id } : { kind: 'chassis', id: parsed.id });
     },
     [onSelect, free.onNodeClick],
+  );
+  const handleNodeClick: NodeMouseHandler = pressNode;
+
+  // Enter on the device, rack, shelf, wall or cable the keyboard is on selects it, as a press on it does
+  // (`nodeKey.ts`). A band of several cables has no press of its own, and no Enter. Escape clears the selection
+  // and leaves the keyboard where it was.
+  const handleCanvasKey = useCallback(
+    (event: ReactKeyboardEvent) => {
+      keepRing(event.nativeEvent);
+      const on = enterOn(event.nativeEvent);
+      if (on == null) return;
+      if (on.kind === 'edge') {
+        if (rf.getEdge(on.id)?.type === 'cable') onSelect({ kind: 'cable', id: on.id });
+        return;
+      }
+      const node = rf.getNode(on.id);
+      if (node == null) return;
+      // A shelf's press is its own (`ShelfPlate.tsx`), and never reaches the canvas's.
+      if (node.type === 'shelf') (node.data as ShelfPlateNodeType['data']).onSelectShelf();
+      else pressNode(event, node);
+    },
+    [rf, onSelect, pressNode],
   );
 
   // r116: a port or a cable has no inside, so a double-click on one opens its panel (ADR-0091 decision 3).
@@ -1722,17 +1833,19 @@ function DrawingInner({
       const freeBox = parseFreeNodeId(node.id);
       if (freeBox?.kind === 'box' && onOpenDevice) return openChassis(freeBox.id);
       if (free.onNodeDoubleClick(node)) return;
-      // A shelf: a double-click on a device on it opens that device; anywhere else on the tray steps into the shelf.
-      if (node.type === 'shelf') {
-        const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis');
-        if (onDevice) return openChassis(onDevice);
-        onOpenShelf?.((node.data as ShelfPlateNodeType['data']).shelf.id);
+      // A shelf or a wall: a double-click on a device on it opens that device; anywhere else on a shelf's tray steps
+      // into the shelf (`doubleClick.ts`).
+      if (node.type === 'shelf' || node.type === 'surface') {
+        const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis') ?? null;
+        const into = holderDoubleClick(node.type, onDevice);
+        if (into?.open === 'device') openChassis(into.id);
+        else if (into?.open === 'shelf') onOpenShelf?.((node.data as ShelfPlateNodeType['data']).shelf.id);
         return;
       }
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
       // r116: a double-click on a rack fits that rack to the view.
-      if (parsed?.kind === 'rack' && doubleClickAnswer('rack') === 'fit') void rf.fitView({ nodes: [{ id: node.id }], padding: 0.1, maxZoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
+      if (parsed?.kind === 'rack' && doubleClickAnswer('rack') === 'fit') void rf.fitView({ nodes: [{ id: node.id }], padding: 0.1, minZoom: MIN_ZOOM, maxZoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
     },
     [openChassis, onOpenDevice, onOpenShelf, openPanelFor, free.onNodeDoubleClick, rf],
   );
@@ -1740,10 +1853,21 @@ function DrawingInner({
   const chassisHeightUFor = (node: FlowNode): number =>
     node.type === 'chassis' ? (node.data as ChassisNodeData).chassis.heightU : 1;
 
-  const handleNodeDragStart: OnNodeDrag = useCallback((_event, node, dragged) => void free.onNodeDragStart(node, dragged), [free.onNodeDragStart]);
+  const handleNodeDragStart: OnNodeDrag = useCallback(
+    (_event, node, dragged) => {
+      setNodeDragging(true);
+      free.onNodeDragStart(node, dragged);
+    },
+    [free.onNodeDragStart],
+  );
 
+  const settleView = settled.settle;
   const handleNodeDrag: OnNodeDrag = useCallback(
     (_event, node, dragged) => {
+      // Held at the pane's edge the view pans by itself, and a pan's end is not announced until it stops. The
+      // view the stubs go by is told here, or a rack carried along with the view reads as off screen and its
+      // own cables are cut to stubs.
+      settleView(rf.getViewport());
       if (free.onNodeDrag(node, dragged)) return;
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'rack') {
@@ -1767,11 +1891,12 @@ function DrawingInner({
       const valid = !overlapsRack(rack, { id: parsed.id, positionU, heightU });
       setDropPreview({ [rack.id]: { fromU: positionU, toU: positionU + heightU - 1, valid } });
     },
-    [view.racks, rackPositions, free.onNodeDrag],
+    [view.racks, rackPositions, free.onNodeDrag, settleView, rf],
   );
 
   const handleNodeDragStop: OnNodeDrag = useCallback(
     (_event, node) => {
+      setNodeDragging(false);
       if (free.onNodeDragStop(node)) return;
       const parsed = parseNodeId(node.id);
       if (parsed == null) return;
@@ -2024,6 +2149,9 @@ function DrawingInner({
     }
 
     function onKeyDown(event: KeyboardEvent) {
+      // An arrow key, Delete or Backspace pressed on a button or a list outside the drawing that the keyboard
+      // walked to, or that used the key itself, is not for the selection (`keyOwner.ts`).
+      if (plainKeyIsElsewhere(event, containerRef.current)) return;
       // A device in a rack: Up and Down move it a unit, Ctrl+D duplicates, Ctrl+C and Ctrl+V copy and paste.
       if (
         rackDeviceKey(event, {
@@ -2126,6 +2254,19 @@ function DrawingInner({
   const troubled = useTroubleFade(planned.nodes, suggestedEdges);
   const faded = useChecksFade(troubled.nodes, troubled.edges);
   const shown = useTraceFade(faded.nodes, faded.edges);
+  // Last, so it sees each node as React Flow will: one that has only moved keeps its measured size, and its
+  // cables stay on the page while it moves (`movedNodes.ts`).
+  const shownNodes = useMovedNodes(shown.nodes);
+  // Every drawn cable's id, for the copy above the devices (`CableTopLayer`); the ones a Show, a plan or a
+  // trace has faded, which get no copy; and the ones "It's down" is checking, which a selected cable does not
+  // dim. The same array and sets while what is in them is the same.
+  const topCableKey = edges.flatMap((e) => (e.type === 'cable' ? [e.id] : [])).join('|');
+  const topCableIds = useMemo(() => (topCableKey === '' ? [] : topCableKey.split('|')), [topCableKey]);
+  const cablesMarked = (mark: 'checksFaded' | 'troubleLit') => shown.edges.flatMap((e) => (e.type === 'cable' && (e.data as { checksFaded?: boolean; troubleLit?: boolean } | undefined)?.[mark] === true ? [e.id] : [])).join('|');
+  const fadedCableKey = cablesMarked('checksFaded');
+  const fadedCableIds = useMemo(() => new Set(fadedCableKey === '' ? [] : fadedCableKey.split('|')), [fadedCableKey]);
+  const keptCableKey = cablesMarked('troubleLit');
+  const keptCableIds = useMemo(() => new Set(keptCableKey === '' ? [] : keptCableKey.split('|')), [keptCableKey]);
   // A name on the canvas edits in place only for someone who may edit.
   const nameEdit = useMemo<NameEditApi | null>(() => (canDraw && onRename ? { rename: onRename } : null), [canDraw, onRename]);
   // A tie on a run slides along it, or comes off when dragged clear (`CableRunMarks.tsx`).
@@ -2147,16 +2288,18 @@ function DrawingInner({
       ref={containerRef}
       data-camera-stop={cameraStop}
       data-zoom-band={zoomBand}
+      data-node-drag={nodeDragging ? '' : undefined}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDoubleClick={handleCableDoubleClick}
+      onKeyDown={handleCanvasKey}
       {...free.containerProps}
     >
       <CableCrossingKeys />
       <CableFocus container={containerRef} />
       <ReactFlow
-        nodes={shown.nodes}
+        nodes={shownNodes}
         edges={shown.edges}
         nodeTypes={ALL_NODE_TYPES}
         edgeTypes={ALL_EDGE_TYPES}
@@ -2178,7 +2321,7 @@ function DrawingInner({
         proOptions={PRO_OPTIONS}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
-        minZoom={MIN_ZOOM}
+        minZoom={zoomFloor}
         maxZoom={MAX_ZOOM}
         // Left-drag on empty canvas pans (Shift+drag is the marquee); the middle button, Space+drag, the wheel or a trackpad pan too (pinch zooms).
         panOnDrag={tool === 'pan' ? PAN_BUTTONS : MIDDLE_ONLY}
@@ -2209,6 +2352,7 @@ function DrawingInner({
         nodesConnectable={canDraw}
         elementsSelectable
         deleteKeyCode={null}
+        ariaLabelConfig={KEYS_SAID}
       >
         <Background gap={U_PX} size={1} />
         <CanvasMiniMap enabled={minimap === true} />
@@ -2229,13 +2373,14 @@ function DrawingInner({
             ))}
           </ViewportPortal>
         )}
-        <CableTopLayer cableIds={topCableIds} />
+        <CableTopLayer cableIds={topCableIds} faded={fadedCableIds} kept={keptCableIds} />
       </ReactFlow>
       {free.overlay}
       <InSideSlot id="canvas-tools">
         <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
       </InSideSlot>
       <ChecksCanvasBridge />
+      <TraceCanvasBridge room={pathRoom} />
       <TraceBadges />
       <PlansCanvasBridge />
       <AiPreviewCanvasBridge />

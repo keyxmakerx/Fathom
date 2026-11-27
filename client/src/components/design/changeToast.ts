@@ -2,7 +2,8 @@
 // Pure: which of the document's batches is a fresh one of yours, and how a batch's
 // working label reads in plain words. The component is `ChangeToast.tsx`.
 
-import { findEdge, findNode, parseEdgeId, parseNodeId, readChassisFields, readDeviceFields, readRackFields } from '../../document/model';
+import { nameItHad, ownName } from '../../document/liveDoc';
+import { everyEdgeIn, findEdge, findNode, parseEdgeId, parseNodeId, readChassisFields, readDeviceFields, readRackFields } from '../../document/model';
 import type { Batch, Document } from '../../document/model';
 import { batchActor } from '../../document/undo';
 
@@ -25,6 +26,7 @@ const WORDS: Readonly<Record<string, string>> = {
   'create surface': 'Surface added',
   'create board': 'Board added',
   'create rack': 'Rack added',
+  'create premises': 'Design started',
   'fix to': 'Fixed in place',
   'connect ports': 'Cable connected',
   'connect to outside': 'Cable connected',
@@ -155,12 +157,14 @@ export function batchSubject(doc: Document, batch: Batch): { name: string | null
     }
   }
   if (chassisId !== null && deviceId === null) {
-    const owner = doc.edges.find((e) => e.to === chassisId && edgeKind(e.id) === 'HasChassis');
+    const owner = everyEdgeIn(doc, chassisId).find((e) => edgeKind(e.id) === 'HasChassis');
     deviceId = owner?.from ?? null;
   }
   const device = deviceId === null ? undefined : findNode(doc, deviceId);
   const chassis = chassisId === null ? undefined : findNode(doc, chassisId);
-  const name = (device ? readDeviceFields(device).hostname : undefined) || (chassis ? readChassisFields(chassis).model : undefined) || null;
+  // A device whose adding was undone has its fields cleared: it is called what it was last called.
+  const had = (node: typeof device, id: string | null) => (node?.absentSince !== undefined && id !== null ? nameItHad(doc, id) : null);
+  const name = (device ? readDeviceFields(device).hostname : undefined) || (chassis ? readChassisFields(chassis).model : undefined) || had(device, deviceId) || had(chassis, chassisId) || null;
   const rackNode = rackId === null ? undefined : findNode(doc, rackId);
   const rack = (rackNode ? readRackFields(rackNode).label : undefined) || null;
   return { name, rack };
@@ -192,6 +196,132 @@ export function namedWords(doc: Document, batch: Batch): string {
   }
 }
 
+const REVERSAL = /^(undo|redo) of /;
+
+/** The change an undo or redo goes back to, behind however many undos and redos of it. `null` when the document
+ * no longer holds it. */
+function changeBehind(batch: Batch, byId: ReadonlyMap<string, Batch>): Batch | null {
+  let cur: Batch | undefined = batch;
+  for (let hop = 0; hop < 64 && cur?.reverses !== undefined; hop += 1) cur = byId.get(cur.reverses);
+  return cur === undefined || cur.reverses !== undefined ? null : cur;
+}
+
+/** What History calls a node: its own name, or for a chassis, a port or a place on the canvas what it belongs to.
+ * `null` for a thing with no name of its own, a cable or a note or a tag: that is said by what it is attached to. */
+function nodeSubject(doc: Document, id: string): string | null {
+  const kind = nodeKind(id);
+  if (kind === 'PhysicalPort') {
+    const chassis = everyEdgeIn(doc, id).find((e) => edgeKind(e.id) === 'HasPort');
+    return chassis === undefined ? null : nodeSubject(doc, chassis.from);
+  }
+  if (kind === 'Chassis') {
+    const device = everyEdgeIn(doc, id).find((e) => edgeKind(e.id) === 'HasChassis');
+    return device === undefined ? null : ownName(doc, device.from);
+  }
+  // Where a thing stands on the canvas is its pin, and a move is said by the thing moved.
+  if (kind === 'LayoutPin') {
+    const pinned = everyEdgeIn(doc, id).find((e) => edgeKind(e.id) === 'HasLayoutPin');
+    return pinned === undefined ? null : nodeSubject(doc, pinned.from);
+  }
+  return ownName(doc, id);
+}
+
+/** Changes whose words need nothing after them. The first thing drawn makes the design's one place, which nobody
+ * has named. */
+const SAYS_IT_ALL: ReadonlySet<string> = new Set(['create premises']);
+
+/** The one or two things a change was made to, by name. The things it adds or changes come first: a new rack is
+ * said by its own name and not by the place it stands in. A change that only joins things, a cable or a tag, is
+ * said by what it joins. None when there are more than two, or none has a name. */
+function subjectsOf(doc: Document, batch: Batch): string[] {
+  if (SAYS_IT_ALL.has(batch.label)) return [];
+  const own = new Set<string>();
+  const joined = new Set<string>();
+  const add = (names: Set<string>, id: string) => {
+    const name = nodeSubject(doc, id);
+    if (name !== null) names.add(name);
+  };
+  for (const op of batch.ops) {
+    if (op.type === 'add_node') add(own, op.node);
+    else if (op.type === 'add_edge') {
+      add(joined, op.from);
+      add(joined, op.to);
+    } else if (nodeKind(op.element) !== null) add(own, op.element);
+    else {
+      const edge = findEdge(doc, op.element);
+      if (edge !== undefined) {
+        add(joined, edge.from);
+        add(joined, edge.to);
+      }
+    }
+  }
+  const names = own.size > 0 ? [...own] : [...joined];
+  return names.length <= 2 ? names : [];
+}
+
+/** What a change did, and what it did it to where the words do not already say. */
+export interface HistoryWords {
+  said: string;
+  to: string | null;
+}
+
+const WORDS_FOR = new WeakMap<Document, Map<string, HistoryWords>>();
+
+/**
+ * How History says a change: the note's words and what it was made to ("Address changed", "switch-2"), and an undo
+ * or redo as what it took back or brought back ("Undone: address changed", "switch-2"). The label as recorded is
+ * not replaced by this; History shows it beside these words. Kept per document, so a list drawn again for the
+ * same document asks once.
+ */
+export function historyPartsOf(doc: Document): (batch: Batch) => HistoryWords {
+  let kept = WORDS_FOR.get(doc);
+  if (kept === undefined) {
+    kept = new Map();
+    WORDS_FOR.set(doc, kept);
+  }
+  const words = kept;
+  let byId: Map<string, Batch> | null = null;
+  const plain = (batch: Batch): HistoryWords => {
+    const named = namedWords(doc, batch);
+    if (named !== toastWords(batch.label)) return { said: named, to: null };
+    const subjects = subjectsOf(doc, batch);
+    return { said: named, to: subjects.length === 0 ? null : subjects.join(' and ') };
+  };
+  return (batch) => {
+    const known = words.get(batch.id);
+    if (known !== undefined) return known;
+    const reversal = REVERSAL.exec(batch.label);
+    let parts: HistoryWords;
+    if (reversal === null) {
+      parts = plain(batch);
+    } else {
+      byId ??= new Map(doc.batches.map((b) => [b.id, b]));
+      const change = changeBehind(batch, byId);
+      const behind = change === null ? null : plain(change);
+      parts = behind === null ? { said: toastWords(batch.label), to: null } : { said: `${reversal[1] === 'undo' ? 'Undone' : 'Redone'}: ${lowerFirst(behind.said)}`, to: behind.to };
+    }
+    words.set(batch.id, parts);
+    return parts;
+  };
+}
+
+/** `historyPartsOf` as one line: "Address changed · switch-2". */
+export function historyWordsOf(doc: Document): (batch: Batch) => string {
+  const partsOf = historyPartsOf(doc);
+  return (batch) => {
+    const { said, to } = partsOf(batch);
+    return to === null ? said : `${said} · ${to}`;
+  };
+}
+
+/** The note's words for an undo or a redo: "Undone: port added". Read from the change it goes back to, as History
+ * reads it, and not from its own label: a label is cut at sixty bytes (`document/undo.ts`), so after a few rounds
+ * of undo and redo it has lost the end that says what the change was. */
+function reversalWords(doc: Document, batch: Batch, redone: boolean): string {
+  const change = changeBehind(batch, new Map(doc.batches.map((b) => [b.id, b])));
+  return change === null ? toastWords(batch.label) : `${redone ? 'Redone' : 'Undone'}: ${lowerFirst(toastWords(change.label))}`;
+}
+
 export interface FreshChange {
   batchId: string;
   words: string;
@@ -217,7 +347,7 @@ export function freshOwnChange(prev: Document | null, next: Document, accountId:
     if (batchActor(next, batch) !== accountId) continue;
     const reversal = /^(undo|redo) of /.exec(batch.label);
     const kind = batch.reverses === undefined ? 'change' : reversal?.[1] === 'redo' ? 'redo' : 'undo';
-    return { batchId: batch.id, words: kind === 'change' ? namedWords(next, batch) : toastWords(batch.label), kind };
+    return { batchId: batch.id, words: kind === 'change' ? namedWords(next, batch) : reversalWords(next, batch, kind === 'redo'), kind };
   }
   return null;
 }

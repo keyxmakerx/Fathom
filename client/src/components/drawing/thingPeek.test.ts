@@ -26,7 +26,19 @@ const VIEW = {
   ],
   cables: [{ id: 'k1', kind: 'patch', media: 'cat6', sheath: 'blue', label: 'core run', lengthM: 3, ends: [{ portId: 'p1', chassisId: 'c1', rackId: 'r1' }, { portId: 'p9', chassisId: 'c2', rackId: 'r1' }] }],
   rows: [],
-  surfaces: [],
+  surfaces: [
+    {
+      id: 'w1',
+      label: 'Outside wall',
+      form: 'wall',
+      widthMm: null,
+      heightMm: null,
+      fixtures: [
+        { id: 'c7', kind: 'chassis', label: 'cam-01', model: 'G5', form: null, xMm: 0, yMm: 0, ports: [port('p7', 'eth0', true)], psuInlets: [], fixtures: [], chassis: chassis('c7', 'cam-01', 0, [port('p7', 'eth0', true)], '10.0.0.7') },
+        { id: 'x1', kind: 'passive', label: 'outlet', model: null, form: 'outlet', xMm: 0, yMm: 0, ports: [], psuInlets: [], fixtures: [] },
+      ],
+    },
+  ],
   unplaced: [],
   free: [],
   lines: [],
@@ -46,6 +58,20 @@ describe('thingPeek', () => {
     expect(thingPeek(VIEW, { kind: 'device', id: 'c2' })!.rows.find((r) => r.key === 'Address')).toEqual({ key: 'Address', value: 'No address', empty: true });
   });
 
+  it('says the same of a device on a wall, and leaves the address out for a thing that is not a device', () => {
+    expect(thingPeek(VIEW, { kind: 'device', id: 'c7' })!.rows.map((r) => [r.key, r.value])).toEqual([
+      ['Model', 'juniper EX2300'],
+      ['Where', 'Outside wall'],
+      ['Address', '10.0.0.7'],
+      ['Ports', '1 of 1 cabled'],
+    ]);
+    expect(thingPeek(VIEW, { kind: 'device', id: 'x1' })!.rows.map((r) => [r.key, r.value])).toEqual([
+      ['Model', 'No catalogue model'],
+      ['Where', 'Outside wall'],
+      ['Ports', 'No ports'],
+    ]);
+  });
+
   it('says how full a rack is', () => {
     const card = thingPeek(VIEW, { kind: 'rack', id: 'r1' })!;
     expect(card.title).toBe('A-04');
@@ -56,6 +82,11 @@ describe('thingPeek', () => {
   it("names what sits on a shelf, and a shelf's device by its own name", () => {
     expect(thingPeek(VIEW, { kind: 'shelf', id: 's1' })!.rows.find((r) => r.key === 'On it')!.value).toBe('modem');
     expect(thingPeek(VIEW, { kind: 'device', id: 'o1' })!.title).toBe('modem');
+  });
+
+  // "Typed by hand" once stood here, which read as the name of a model.
+  it('says a box with no model has no catalogue model, as its panel does', () => {
+    expect(thingPeek(VIEW, { kind: 'device', id: 'o1' })!.rows.find((r) => r.key === 'Model')).toEqual({ key: 'Model', value: 'No catalogue model', empty: true });
   });
 
   it('names both ends of a cable, its kind and length', () => {

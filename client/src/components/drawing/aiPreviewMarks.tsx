@@ -8,6 +8,7 @@ import type { Edge, Node } from '@xyflow/react';
 import { useAiPreview } from '../ai/aiPreview';
 import type { Canon } from '../checks/checksModel';
 import { useChecksApi, useChecksShow } from '../checks/checksStore';
+import { MIN_ZOOM } from './geometry';
 import { applyPlans, focusMatch, type ResolvePort } from './plansMarks';
 
 const IDENTITY: Canon = (id) => id;
@@ -74,7 +75,7 @@ export function AiPreviewCanvasBridge() {
     // The drawn copy reaches React Flow a frame after the store changes.
     const frame = requestAnimationFrame(() => {
       const { nodeIds } = focusMatch(rf.getNodes(), rf.getEdges(), focus, canon ?? api?.store.get().canon ?? IDENTITY);
-      if (nodeIds.size > 0) void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding: 0.5, maxZoom: 1.25, duration: 400 });
+      if (nodeIds.size > 0) void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding: 0.5, minZoom: MIN_ZOOM, maxZoom: 1.25, duration: 400 });
     });
     return () => cancelAnimationFrame(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one move per idea shown, and one once it is drawn

@@ -2,6 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '../ui/EmptyState';
 import { createPortal } from 'react-dom';
 
+import { useGhostRef } from './ghost';
+import { keysToSelection } from './keyOwner';
 import { cycleGroup, firstEnabled, highlightParts, matchActions, moveActive, noteOf, type PaletteAction } from './palette';
 import type { SearchHit } from './search';
 import type { ShellSearch } from './types';
@@ -45,17 +47,13 @@ function Marked({ text, query }: { text: string; query: string }) {
  * Arrow keys move over what can be chosen, Enter runs it, Esc closes.
  */
 export function CommandPalette(props: { search: ShellSearch; onClose: () => void }) {
-  // Outside #root, so marked as Fathom's own: base.css keeps its control styles to the app (rua-ui-audit).
-  return createPortal(
-    <div data-fathom-layer="">
-      <PaletteSheet {...props} />
-    </div>,
-    document.body,
-  );
+  return createPortal(<PaletteSheet {...props} layer />, document.body);
 }
 
-/** The sheet itself, apart from where it is mounted. */
-export function PaletteSheet({ search, onClose, initialQuery = '' }: { search: ShellSearch; onClose: () => void; initialQuery?: string }) {
+/** The sheet itself, apart from where it is mounted. `layer` says it hangs outside #root, so it is marked as
+ * Fathom's own: base.css keeps its control styles to the app (rua-ui-audit). */
+export function PaletteSheet({ search, onClose, initialQuery = '', layer = false }: { search: ShellSearch; onClose: () => void; initialQuery?: string; layer?: boolean }) {
+  const scrimRef = useGhostRef<HTMLDivElement>();
   const [query, setQuery] = useState(initialQuery);
   const [active, setActive] = useState(0);
   const [narrow, setNarrow] = useState<string | null>(null);
@@ -138,10 +136,12 @@ export function PaletteSheet({ search, onClose, initialQuery = '' }: { search: S
       openElsewhere(entry.hit.design, entry.hit.open);
       return;
     }
+    // The thing is picked from the keyboard: the arrow keys and Delete are for it, wherever the focus goes back to.
+    keysToSelection();
     search.choose(entry.hit.selection);
   }
 
-  function onKeyDown(event: React.KeyboardEvent) {
+  function onKeyDown(event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'preventDefault' | 'stopPropagation'>) {
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
@@ -161,13 +161,42 @@ export function PaletteSheet({ search, onClose, initialQuery = '' }: { search: S
     }
   }
 
+  // Every key is read from the box. Should the focus be off the sheet (a press on the list's scroll bar takes
+  // it), the next key brings it back and is answered all the same, so Esc always closes.
+  const keyRef = useRef(onKeyDown);
+  keyRef.current = onKeyDown;
+  useEffect(() => {
+    const onStrayKey = (event: KeyboardEvent) => {
+      const box = inputRef.current;
+      if (box == null || box.closest('.palette')?.contains(document.activeElement) === true) return;
+      box.focus();
+      keyRef.current(event);
+    };
+    document.addEventListener('keydown', onStrayKey, true);
+    return () => document.removeEventListener('keydown', onStrayKey, true);
+  }, []);
+
   const rowId = (i: number) => `${listId}-row-${i}`;
   const showShortcuts = allActions.find((a) => a.id === 'shortcuts');
   const nothing = query.trim() !== '' && entries.length === 0;
 
   return (
-    <div className="float-scrim float-scrim--top" onPointerDown={onClose}>
-      <div className="float-sheet palette" role="dialog" aria-modal="true" aria-label="Find or do anything" onPointerDown={(event) => event.stopPropagation()} onKeyDown={onKeyDown}>
+    <div ref={scrimRef} className="float-scrim float-scrim--top" data-fathom-layer={layer ? '' : undefined} onPointerDown={onClose}>
+      <div
+        className="float-sheet palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Find or do anything"
+        onPointerDown={(event) => event.stopPropagation()}
+        // The box is the one thing to focus: a press on a heading or the foot leaves the focus in it. The box
+        // takes its own presses, and the list's scroll bar keeps its drag.
+        onMouseDown={(event) => {
+          const el = event.target as HTMLElement;
+          const onScrollBar = el.scrollHeight > el.clientHeight && event.nativeEvent.offsetX >= el.clientWidth;
+          if (el !== inputRef.current && !onScrollBar) event.preventDefault();
+        }}
+        onKeyDown={onKeyDown}
+      >
         <div className="palette__box">
           <svg className="palette__icon" width="14" height="14" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
             <circle cx="4.5" cy="4.5" r="3.5" />

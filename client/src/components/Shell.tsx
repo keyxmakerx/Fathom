@@ -14,6 +14,7 @@ import { DetailsOpenContext } from './shell/clickAnswer';
 import { rememberedTab, SHOW_DETAILS_EVENT, useRightTab, type RightTab } from './shell/useRightTab';
 import { loadResume, patchResume } from './design/resume';
 import { isTypingTarget, matches } from './shell/shortcuts';
+import { useKeyOwner } from './shell/keyOwner';
 import type { ShellProps } from './shell/types';
 
 export type {
@@ -51,6 +52,8 @@ export function Shell({
   onZoomFit,
   canUndo,
   canRedo,
+  undoOff,
+  redoOff,
   onUndo,
   onRedo,
   onPrint,
@@ -75,6 +78,7 @@ export function Shell({
   onTrailOpenChange,
   children,
   viewOnly,
+  viewOnlyWhy,
   barExtra,
   band,
   menu,
@@ -97,6 +101,8 @@ export function Shell({
 }: ShellProps) {
   // r31-bar A: on the drawing, its own controls sit on it (a strip top left, a pill at the bottom), not in the bar.
   const toolsOnCanvas = place === 'racks';
+  // Whether the keyboard is going through the page, for the drawing's arrow keys, Delete and Backspace.
+  useKeyOwner();
 
   // ADR-0074: above the closet the same camera goes on to the building, the site and every site,
   // drawn from the folders over the canvas, which stays mounted beneath.
@@ -196,7 +202,7 @@ export function Shell({
     }
     return ref;
   }, []);
-  const slotIds = [...(sideTabs ?? []).map((t) => t.id), ...(toolsOnCanvas ? ['canvas-tools', 'jump-trail'] : [])];
+  const slotIds = [...(sideTabs ?? []).map((t) => t.id), ...(toolsOnCanvas ? ['canvas-tools', 'jump-trail', 'canvas-note'] : [])];
   const slots = sideTabs == null && !toolsOnCanvas ? null : Object.fromEntries(slotIds.map((id) => [id, sideEls[id] ?? null]));
   const chooseRight = useCallback(
     (t: RightTab) => {
@@ -276,6 +282,8 @@ export function Shell({
         presence={presence}
         canUndo={canUndo}
         canRedo={canRedo}
+        undoOff={undoOff}
+        redoOff={redoOff}
         onUndo={onUndo}
         onRedo={onRedo}
         onPrint={onPrint}
@@ -283,6 +291,7 @@ export function Shell({
         onShortcuts={onShortcuts}
         account={account}
         viewOnly={viewOnly}
+        viewOnlyWhy={viewOnlyWhy}
         barExtra={barExtra}
         menu={menu}
         adminPill={adminPill}

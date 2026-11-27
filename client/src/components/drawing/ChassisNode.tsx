@@ -5,7 +5,7 @@ import { PORT_GLYPHS } from '../ports';
 import { CheckBadge } from '../checks/CheckBadge';
 import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type InletView, type PortView, type Sheath } from './contract';
 import type { Facing } from './elevation';
-import { cardFrames, connectorName, faceplateLayoutFor, plateItems, portWhere, type PortBox } from './faceplate';
+import { cardFrames, faceplateLayoutFor, plateItems, portSays, portWhere, type PortBox } from './faceplate';
 import { onOpticDragOver, onOpticDrop } from './Parts';
 import { RAIL_PX, U_PX } from './geometry';
 import { useLive, useLiveStore } from './liveStore';
@@ -14,6 +14,7 @@ import { EditableName } from './NameEdit';
 import { isPanel } from './paths';
 import { pduUsage, pduUsageLabel } from './power';
 import { isLoosePort, portHandleFlags } from './missingLinks';
+import { ownPress } from './ownPress';
 import { SHEATH_VAR } from './sheath';
 
 /** Counts renders into `window.__cn` when a test harness has set it to a
@@ -93,7 +94,8 @@ export type ChassisNodeType = Node<ChassisNodeData, 'chassis'>;
 export type LiveDrag = { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
 
 /** One port on the plate, drawn where the unit has it. Zoomed out it is only
- * its handle, so a cable still has somewhere to end and no glyph is drawn. */
+ * its handle, so a cable still has somewhere to end and no glyph is drawn; it
+ * is out of reach there (`drawing-chassis__ports--undrawn`). */
 function PlatePort({
   box,
   port,
@@ -154,7 +156,7 @@ function PlatePort({
   );
   if (!glyphs) {
     return (
-      <div data-port-id={port.id} className="drawing-chassis__port drawing-chassis__port--bare" style={style} {...reveal}>
+      <div data-port-id={port.id} className="drawing-chassis__port drawing-chassis__port--bare" style={style}>
         {handle}
       </div>
     );
@@ -175,7 +177,8 @@ function PlatePort({
       onDragOver={(e) => onOpticDragOver(port, e)}
       onDrop={(e) => onOpticDrop(port, e)}
       onClick={(event: MouseEvent) => {
-        event.stopPropagation();
+        // The port's own press: it is not the device's, and the port's card still comes (`ownPress.ts`).
+        ownPress(event);
         onSelectPort(port.id);
       }}
     >
@@ -188,16 +191,6 @@ function PlatePort({
       {handle}
     </button>
   );
-}
-
-function portTip(port: PortView, layout: ReturnType<typeof faceplateLayoutFor>, inlet: InletView | null): string {
-  const where = portWhere(layout, port.id);
-  const state = port.cable != null ? 'cabled' : 'free';
-  const label = inlet != null ? inlet.slot || inlet.label : port.label ? `Port ${port.label}` : 'Port';
-  const optic = port.optic ? `optic ${port.optic.type ?? port.optic.part ?? 'fitted'}` : port.optic === null ? 'empty cage' : '';
-  return [label, connectorName(port.connector), where, optic, inlet != null && !inlet.fitted ? 'not fitted' : state]
-    .filter(Boolean)
-    .join(' · ');
 }
 
 /** The device plate: its ports drawn where the unit has them (`faceplate.ts`),
@@ -295,7 +288,9 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
                 {marks}
               </div>
             )}
-            <div className="drawing-chassis__ports">
+            {/* Until the ports are drawn they keep their place, so a cable still ends where its port is, and are
+                out of reach (`drawing.css`): a press, a pointer or a drag where one lies is the device's. */}
+            <div className={glyphs ? 'drawing-chassis__ports' : 'drawing-chassis__ports drawing-chassis__ports--undrawn'}>
               {cardFrames(layout, items).map((f) => {
                 const card = cardById.get(f.cardId);
                 return (
@@ -324,7 +319,7 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
                     liveDrag={liveDrag}
                     portSheath={portSheath}
                     litCableId={litCableId}
-                    tip={glyphs ? portTip(port, layout, inlet) : ''}
+                    tip={glyphs ? portSays(port, portWhere(layout, port.id), inlet) : ''}
                     onSelectPort={onSelectPort}
                     faded={data.checksFaded === true}
                   />

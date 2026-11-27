@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TraceHop, TraceResult } from '../../engine/engine';
-import { createTracePlayer, hopPhase, revealedResult, stepMs, TRACE_TOTAL_MS, traceKey } from './tracePlayback';
+import { createTracePlayer, hopPhase, revealedResult, stepMs, TRACE_FRAME_WAIT_MS, TRACE_TOTAL_MS, traceKey } from './tracePlayback';
 import { createTraceStore } from './traceStore';
 
 const hop = (n: number): TraceHop => ({ n, kind: 'device', title: `h${n}`, detail: [], nodes: [], why: '', source: '', scope: '', policies: [], unplaced: [], unplacedWhy: '' });
@@ -62,5 +62,80 @@ describe('the player', () => {
     createTracePlayer(store, () => true).play(result(6));
     expect(store.get().revealed).toBeNull();
     expect(store.get().result?.hops).toHaveLength(6);
+  });
+});
+
+describe('a framed path (a pressed question)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('lights no hop until the canvas says it has moved, then plays', () => {
+    const store = createTraceStore();
+    const player = createTracePlayer(store, () => false);
+    player.play(result(4), 1);
+    expect(store.get()).toMatchObject({ revealed: 0, frame: 1 });
+    expect(revealedResult(store.get().result!, store.get().revealed ?? null).hops).toHaveLength(0);
+    vi.advanceTimersByTime(stepMs(4) * 2);
+    expect(store.get().revealed).toBe(0);
+    store.set({ ...store.get(), framed: 1 });
+    expect(store.get().revealed).toBe(1);
+    vi.advanceTimersByTime(stepMs(4));
+    expect(store.get().revealed).toBe(2);
+    vi.advanceTimersByTime(stepMs(4) * 3);
+    expect(store.get()).toMatchObject({ revealed: null, frame: 1, framed: 1 });
+  });
+
+  it('does not wait for another frame, or for ever', () => {
+    const store = createTraceStore();
+    const player = createTracePlayer(store, () => false);
+    player.play(result(4), 2);
+    store.set({ ...store.get(), framed: 1 });
+    expect(store.get().revealed).toBe(0);
+    vi.advanceTimersByTime(TRACE_FRAME_WAIT_MS);
+    expect(store.get().revealed).toBe(1);
+    vi.advanceTimersByTime(stepMs(4));
+    expect(store.get().revealed).toBe(2);
+    // The canvas arriving late changes nothing.
+    store.set({ ...store.get(), framed: 2 });
+    expect(store.get().revealed).toBe(2);
+  });
+
+  it('settles with every hop when skipped during the wait, and the late wait does not restart it', () => {
+    const store = createTraceStore();
+    const player = createTracePlayer(store, () => false);
+    player.play(result(5), 1);
+    player.settle();
+    expect(store.get()).toMatchObject({ revealed: null, frame: 1 });
+    store.set({ ...store.get(), framed: 1 });
+    vi.advanceTimersByTime(TRACE_FRAME_WAIT_MS * 2);
+    expect(store.get().revealed).toBeNull();
+  });
+
+  it('keeps the frame when the hops are played again, and asks for no new one', () => {
+    const store = createTraceStore();
+    const player = createTracePlayer(store, () => false);
+    player.play(result(3), 1);
+    store.set({ ...store.get(), framed: 1 });
+    vi.advanceTimersByTime(5000);
+    player.play(result(3));
+    expect(store.get()).toMatchObject({ revealed: 1, frame: 1, framed: 1 });
+  });
+
+  it('carries the frame under reduced motion, with every hop showing at once', () => {
+    const store = createTraceStore();
+    createTracePlayer(store, () => true).play(result(6), 3);
+    expect(store.get()).toMatchObject({ revealed: null, frame: 3 });
+    expect(store.get().result?.hops).toHaveLength(6);
+  });
+
+  it('picks up an answer that changed during the wait', () => {
+    const store = createTraceStore();
+    const player = createTracePlayer(store, () => false);
+    player.play(result(4), 1);
+    const edited = { ...result(4), stopped: 'edited' };
+    store.set({ ...store.get(), result: edited });
+    store.set({ ...store.get(), framed: 1 });
+    expect(store.get().result).toBe(edited);
+    expect(store.get().revealed).toBe(1);
   });
 });

@@ -3,7 +3,8 @@ import { useReactFlow, useStore, type Viewport } from '@xyflow/react';
 
 import { visibleRect, type Rect } from './stubs';
 
-/** The visible canvas in flow space, updated when a pan or zoom ends (and on resize), never during the gesture. */
+/** The visible canvas in flow space, updated when a pan or zoom ends (and on resize), never during the gesture.
+ * A drag that pans the view is the one exception: it says where the view is at every step (`Drawing.tsx`). */
 export function useSettledView(): { rect: Rect; zoom: number; settle: (vp: Viewport) => void } {
   const rf = useReactFlow();
   const width = useStore((s) => s.width);

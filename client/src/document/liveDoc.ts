@@ -8,6 +8,7 @@ import type { CanonValue } from './canon';
 import {
   archiveField,
   assertHand,
+  everyEdgeIn,
   findEdge,
   findNode,
   parseNodeId,
@@ -127,6 +128,8 @@ export interface Overwrite {
   mine: { presence: FieldPresence | 'unknown'; value?: CanonValue };
   /** What stands now. */
   theirs: { presence: FieldPresence | 'unknown'; value?: CanonValue };
+  /** The record `theirs` came with. Absent when their change left no value there. */
+  theirsProv?: string;
   /** The device (or rack, label...) the field belongs to, by name. */
   on: string;
   /** The change was somebody putting their own value back. */
@@ -190,12 +193,20 @@ export function overwritesBy(before: Document, after: Document, change: Change, 
       by,
       mine: { presence: was.presence, value: was.value },
       theirs: { presence: now?.presence ?? 'unknown', value: now?.value },
+      ...(now !== undefined ? { theirsProv: now.prov } : {}),
       on: elementName(after, op.element),
       putBack: change.batch.label === PUT_BACK_LABEL,
       at: ctx.now,
     });
   }
   return out;
+}
+
+/** Whether the field still holds what the notice says it holds. Once anyone has written it again, this person
+ * included, the notice describes a value that is no longer there, and "Put mine back" would put back something
+ * older than what is. */
+export function overwriteStands(doc: Document, o: Overwrite): boolean {
+  return fieldEntry(doc, o.element, o.key)?.prov === o.theirsProv;
 }
 
 /** This person's own fields, written in this sitting within the window, on the
@@ -345,6 +356,51 @@ export function valueText(v: { presence: string; value?: CanonValue }): string {
 
 const NAME_FIELDS = ['Device.hostname', 'Rack.label', 'PassiveNode.label', 'Surface.label', 'Premises.label', 'Label.text', 'Line.label'];
 
+/** `elementName`'s answer when it found no name. */
+export const NO_NAME = 'this item';
+
+const NAMES_HAD = new WeakMap<Document['history'], Map<string, string>>();
+
+/** What a device, or its chassis's model, was last called before that was cleared. Undoing the adding of a device
+ * clears its fields as well as marking it absent, and whatever names it afterwards still has to say which it was. */
+export function nameItHad(doc: Document, id: string): string | null {
+  let had = NAMES_HAD.get(doc.history);
+  if (had === undefined) {
+    had = new Map();
+    for (const record of doc.history) {
+      if (record.field !== 'Device.hostname' && record.field !== 'Chassis.model') continue;
+      for (let i = record.entries.length - 1; i >= 0; i -= 1) {
+        const entry = record.entries[i]!;
+        if (entry.presence === 'set' && typeof entry.value === 'string' && entry.value !== '') {
+          had.set(record.element, entry.value);
+          break;
+        }
+      }
+    }
+    NAMES_HAD.set(doc.history, had);
+  }
+  return had.get(id) ?? null;
+}
+
+/** A thing's own name: a device's hostname ("an unnamed device" without one), a rack's or a place's label. `null`
+ * for a thing that has none, a cable or a port or a note, which is said by what it belongs to instead. */
+export function ownName(doc: Document, id: string): string | null {
+  const node = findNode(doc, id);
+  if (!node) return null;
+  const own = NAME_FIELDS.map((k) => node.fields[k]).find((e) => e?.presence === 'set' && typeof e.value === 'string');
+  if (own) return own.value as string;
+  // One taken away is called what it was last called.
+  return kindOf(id) === 'Device' ? ((node.absentSince !== undefined ? nameItHad(doc, id) : null) ?? 'an unnamed device') : null;
+}
+
+function kindOf(id: string): string | null {
+  try {
+    return parseNodeId(id).kind;
+  } catch {
+    return null;
+  }
+}
+
 /** What to call the thing a field is on: its device's hostname, or its own name. */
 export function elementName(doc: Document, id: string): string {
   let cur = id;
@@ -354,22 +410,15 @@ export function elementName(doc: Document, id: string): string {
       cur = edge.from;
       continue;
     }
-    const node = findNode(doc, cur);
-    if (!node) break;
-    const own = NAME_FIELDS.map((k) => node.fields[k]).find((e) => e?.presence === 'set' && typeof e.value === 'string');
-    if (own) return own.value as string;
-    let kind = '';
-    try {
-      kind = parseNodeId(cur).kind;
-    } catch {
-      break;
-    }
-    if (kind === 'Device') return 'an unnamed device';
-    const up = doc.edges.find((e) => e.to === cur && e.absentSince === undefined);
+    if (!findNode(doc, cur)) break;
+    const own = ownName(doc, cur);
+    if (own !== null) return own;
+    if (kindOf(cur) === null) break;
+    const up = everyEdgeIn(doc, cur).find((e) => e.absentSince === undefined);
     if (!up) break;
     cur = up.from;
   }
-  return 'this item';
+  return NO_NAME;
 }
 
 function listWords(words: readonly string[]): string {
@@ -434,11 +483,33 @@ export function droppedSentence(dropped: readonly Change[]): string {
   return `${dropped.length} of your changes no longer fit what others did, so they were left out.`;
 }
 
-/** What an undo or redo left alone because someone else changed it since. */
-export function skippedSentence(skipped: readonly { key: string }[], nothingDone: boolean): string {
-  const words = [...new Set(skipped.map((s) => fieldWords(s.key)))];
-  const list = words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+/** What pressing Undo or Redo again does after a press that could take nothing back: that step is set aside, so
+ * the next press goes on to the one behind it. Empty when there is none behind it. */
+export function pressAgainSentence(press: 'undo' | 'redo', more: boolean): string {
+  if (!more) return '';
+  return press === 'undo' ? 'Undo again takes back the change you made before it.' : 'Redo again brings back the next one.';
+}
+
+/** What an undo or redo left alone because someone else changed it since. When the press did nothing at all,
+ * `more` says whether another step stands behind the one it tried. `nameOf` names whoever changed it, when one
+ * person changed all of it; without it, or with several people, it is "someone else". */
+export function skippedSentence(
+  skipped: readonly { key: string; by?: string }[],
+  nothingDone: boolean,
+  press: 'undo' | 'redo' = 'undo',
+  more = false,
+  nameOf?: (account: string) => string,
+): string {
+  // The panel's word for each field, as the card for a change made just after yours says it ("the mgmt address").
+  const words = [...new Set(skipped.map((s) => `the ${panelLabel(s.key)}`))];
+  const list = listWords(words);
   const many = words.length > 1;
-  if (nothingDone) return `Nothing was undone: ${list} ${many ? 'were' : 'was'} changed by someone else since.`;
-  return `${list[0].toUpperCase()}${list.slice(1)} ${many ? 'were' : 'was'} left as ${many ? 'they are' : 'it is'}, because someone else changed ${many ? 'them' : 'it'} since.`;
+  const people = new Set(skipped.map((s) => s.by));
+  const one = people.size === 1 ? [...people][0] : undefined;
+  const who = nameOf !== undefined && one !== undefined ? nameOf(one) : 'someone else';
+  if (nothingDone) {
+    const said = `Nothing was ${press === 'undo' ? 'undone' : 'redone'}: ${list} ${many ? 'were' : 'was'} changed by ${who} since.`;
+    return [said, pressAgainSentence(press, more)].filter(Boolean).join(' ');
+  }
+  return `${list[0].toUpperCase()}${list.slice(1)} ${many ? 'were' : 'was'} left as ${many ? 'they are' : 'it is'}, because ${who} changed ${many ? 'them' : 'it'} since.`;
 }

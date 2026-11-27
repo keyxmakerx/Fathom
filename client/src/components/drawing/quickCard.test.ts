@@ -18,7 +18,15 @@ const VIEW = {
       heightU: 42,
       unitNumbering: 'ascending',
       chassis: [chassis('c1', 'sweetch', 'switch', ' 10.0.0.2 ', [port('p1', true), port('p2', false)]), chassis('c2', 'painite', 'access_point', null, [port('p9', true)])],
-      shelves: [],
+      shelves: [
+        {
+          id: 's1',
+          label: 'Shelf',
+          positionU: 6,
+          heightU: 1,
+          occupants: [{ id: 'c5', kind: 'chassis', label: 'nas-01', model: 'DS224+', slot: 1, ports: [port('p5', true), port('p6', false)], sketch: false, chassis: chassis('c5', 'nas-01', 'server', '10.0.0.5', [port('p5', true), port('p6', false)]) }],
+        },
+      ],
       freeRuns: [],
       row: null,
       bay: null,
@@ -26,7 +34,16 @@ const VIEW = {
   ],
   cables: [{ id: 'k1', kind: 'patch', media: 'cat6', sheath: 'blue', label: null, lengthM: 3, ends: [{ portId: 'p1', chassisId: 'c1', rackId: 'r1' }, { portId: 'p9', chassisId: 'c2', rackId: 'r1' }] }],
   rows: [],
-  surfaces: [],
+  surfaces: [
+    {
+      id: 'w1',
+      label: 'Outside wall',
+      form: 'wall',
+      widthMm: null,
+      heightMm: null,
+      fixtures: [{ id: 'c7', kind: 'chassis', label: 'ap-01', model: 'G5', form: null, xMm: 0, yMm: 0, ports: [port('p7', false)], psuInlets: [], fixtures: [], chassis: chassis('c7', 'ap-01', 'access_point', '10.0.0.7', [port('p7', false)]) }],
+    },
+  ],
   unplaced: [],
   free: [{ id: 'f1', hostname: 'nas', role: null, model: '', x: 0, y: 0, portCount: 0 }],
   lines: [],
@@ -47,6 +64,36 @@ describe('quickCard', () => {
     const card = quickCard(VIEW, { kind: 'device', id: 'c2' })!;
     expect(card.address).toBeNull();
     expect(card.kind).toBe('Access point');
+  });
+
+  it('gives a device on a wall the same: its kind, its address to copy, and its ports', () => {
+    const card = quickCard(VIEW, { kind: 'device', id: 'c7' })!;
+    // A double-click opens a device on a wall as it does one in a rack, and the card says so.
+    expect(card).toMatchObject({ kind: 'Access point', title: 'ap-01', address: '10.0.0.7', opens: true });
+    expect(card.rows.map((r) => [r.key, r.value])).toEqual([
+      ['Model', 'arista 7050SX3'],
+      ['Where', 'Outside wall'],
+      ['Ports', '0 of 1 cabled'],
+    ]);
+  });
+
+  it('gives a device on a shelf the same, and says where its shelf is', () => {
+    const card = quickCard(VIEW, { kind: 'device', id: 'c5' })!;
+    expect(card).toMatchObject({ kind: 'Server', title: 'nas-01', address: '10.0.0.5', opens: true });
+    expect(card.rows.map((r) => [r.key, r.value])).toEqual([
+      ['Model', 'DS224+'],
+      ['Where', 'Rack 1 · Shelf'],
+      ['Ports', '1 of 2 cabled'],
+    ]);
+  });
+
+  it('says what a shelf is and what is on it, with nothing to copy', () => {
+    const card = quickCard(VIEW, { kind: 'shelf', id: 's1' })!;
+    expect(card).toMatchObject({ kind: 'Shelf', title: 'Shelf', address: null, opens: false });
+    expect(card.rows.map((r) => [r.key, r.value])).toEqual([
+      ['Where', 'Rack 1 · U6'],
+      ['On it', 'nas-01'],
+    ]);
   });
 
   it('calls a free box with no role a device', () => {

@@ -41,6 +41,7 @@ import {
 import { LabelNode, type LabelNodeData } from './LabelNode';
 import { LineEdge, type LineEdgeData } from './LineEdge';
 import { parseNodeId } from './nodeId';
+import { SAID_AS, lineSays, looseDeviceSays } from './thingSays';
 import type { GripDrag } from './useGripDrag';
 import { WordMenu } from './WordMenu';
 
@@ -94,6 +95,8 @@ export interface FreeLayer {
   edges: RFEdge[];
   /** Every free node's id, for fitting the camera. */
   fitIds: { id: string }[];
+  /** Where each of them is drawn, as far as is known before the page has measured it. */
+  rects(): { x: number; y: number; width: number; height: number }[];
   /** What a free layer wants over and beside the canvas. */
   portal: ReactNode;
   overlay: ReactNode;
@@ -423,6 +426,9 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
         type: 'label',
         position: posOf(id),
         data,
+        // Its name for a screen reader (`thingSays.ts`): its own words, or what it is when it has none yet.
+        ariaLabel: l.text.trim() || (l.form === 'area' ? 'Area with no name' : l.form === 'note' ? 'Empty note' : 'Empty label'),
+        domAttributes: SAID_AS[l.form === 'text' ? 'label' : l.form],
         selected: selSet.has(id),
         draggable: canDraw && editing !== l.id,
         zIndex: l.form === 'area' ? 0 : 3,
@@ -440,14 +446,26 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
         onSquare: (side, drag, cancelled) => squareEnd(b.id, side, drag, cancelled),
         onSquareMove: (side, drag) => squareMove(b.id, side, drag),
       };
-      out.push({ id, type: 'freeBox', position: posOf(id), data, selected: selSet.has(id), draggable: canDraw, zIndex: 2, ...sizeKnown(id) } satisfies RFNode);
+      out.push({
+        id,
+        type: 'freeBox',
+        position: posOf(id),
+        data,
+        ariaLabel: looseDeviceSays(b.hostname, b.role, 'not in a rack'),
+        domAttributes: SAID_AS.device,
+        selected: selSet.has(id),
+        draggable: canDraw,
+        zIndex: 2,
+        ...sizeKnown(id),
+      } satisfies RFNode);
     }
     return out;
   }, [labels, boxes, editing, canDraw, selSet, posOf, sizeOf, squares, squareEnd, squareMove, actions, rf]);
 
   const edges = useMemo<RFEdge[]>(
-    () =>
-      lines.map((l) => {
+    () => {
+      const nameOf = (id: string) => boxById.get(id)?.hostname ?? '';
+      return lines.map((l) => {
         const a = rectOf(freeNodeId(l.aId));
         const b = rectOf(freeNodeId(l.bId));
         const sides = lineSides(a, b);
@@ -466,12 +484,16 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
           sourceHandle: sides.a,
           target: freeNodeId(l.bId),
           targetHandle: sides.b,
+          // Its name for a screen reader: its own words and the two boxes it joins.
+          ariaLabel: lineSays(l.label, nameOf(l.aId), nameOf(l.bId)),
+          domAttributes: SAID_AS.line,
           selectable: false,
           zIndex: 1,
           data,
         } satisfies RFEdge;
-      }),
-    [lines, rectOf, selected, onSelect],
+      });
+    },
+    [lines, boxById, rectOf, selected, onSelect],
   );
 
   const fitIds = useMemo(() => [...boxes.map((b) => ({ id: freeNodeId(b.id) })), ...labels.map((l) => ({ id: labelNodeId(l.id) }))], [boxes, labels]);
@@ -846,6 +868,11 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
     nodes,
     edges,
     fitIds,
+    rects: () =>
+      allNodeIds.map((id) => {
+        const r = rectOf(id);
+        return { x: r.x, y: r.y, width: r.w, height: r.h };
+      }),
     portal,
     overlay,
     onNodeClick,

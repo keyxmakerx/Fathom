@@ -3,7 +3,7 @@
 // (`thingPeek.ts`), so the two never disagree. Pure; the card is `QuickCard.tsx`.
 
 import type { ClosetView } from './contract';
-import { findChassis, findUnplacedChassis } from './lookup';
+import { findDevice } from './lookup';
 import type { Document } from '../../document/model';
 import { portPeek } from './portPeek';
 import { thingPeek, type PeekTarget, type ThingRow } from './thingPeek';
@@ -16,7 +16,7 @@ export interface QuickCardFacts {
   address: string | null;
   /** The peek's other rows; the address is not among them. */
   rows: ThingRow[];
-  /** A device can be opened inside with a double-click; the card says so. */
+  /** A device opens inside with a double-click, wherever it sits; the card says so. */
   opens: boolean;
 }
 
@@ -29,7 +29,8 @@ export function roleWord(role: string | null | undefined): string {
 }
 
 function deviceFacts(view: ClosetView, id: string): { role: string | null; address: string | null } {
-  const chassis = findChassis(view, id)?.chassis ?? findUnplacedChassis(view, id);
+  // Wherever it sits: in a rack, on a shelf, on a wall, or not placed yet.
+  const chassis = findDevice(view, id)?.chassis;
   if (chassis != null) return { role: chassis.role, address: chassis.managementAddress };
   const box = view.free.find((f) => f.id === id);
   return { role: box?.role ?? null, address: null };

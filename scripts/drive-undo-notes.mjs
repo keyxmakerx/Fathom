@@ -114,6 +114,19 @@ check('drive.tsx copied from drive-lib/harness.tsx', existsSync(PREVIEW_TSX));
 check('drive-seed.ts copied from drive-lib/seed.ts', existsSync(PREVIEW_SEED));
 check('drive-catalogue.json copied from drive-lib/catalogue.json', existsSync(PREVIEW_CATALOGUE));
 
+/** How many cables the drawing shows once it has settled. As a design opens they are drawn, taken away for a few
+ * milliseconds and drawn again, so one read straight after they first show can find none. */
+async function cablesDrawn(page) {
+  let last = -1;
+  for (let i = 0; i < 20; i += 1) {
+    const now = await page.locator('.react-flow__edge-cable').count();
+    if (now > 0 && now === last) return now;
+    last = now;
+    await page.waitForTimeout(150);
+  }
+  return last;
+}
+
 let viteProc = null;
 let browser = null;
 
@@ -143,23 +156,243 @@ try {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=trail`);
     await page.waitForSelector('.react-flow__edge-cable', { timeout: 15_000 });
-    check('trail: the cable is on the drawing before undo', (await page.locator('.react-flow__edge-cable').count()) === 1);
+    check('trail: the cable is on the drawing before undo', (await cablesDrawn(page)) === 1);
 
     await openTheTrail(page);
+    // A row says what changed in words and to what; the label as recorded is what the words show when pointed at.
+    const recordedAs = (row) => page.locator('.racks-trail__row').nth(row).locator('.racks-trail__col--what [title]').getAttribute('title');
     const rowsBefore = await page.locator('.racks-trail__row').allTextContents();
-    check('trail: "connect ports" is the newest row before undo', (rowsBefore[0] ?? '').includes('connect ports'));
+    check('trail: the cable connected is the newest row before undo', (rowsBefore[0] ?? '').includes('Cable connected · core-01 and acc-01') && (await recordedAs(0)) === 'Recorded as: connect ports', `${rowsBefore[0]} [${await recordedAs(0)}]`);
 
     await page.keyboard.press('Control+z');
     await page.waitForTimeout(1_800); // ADR-0053 §4: past SEAL_SETTLE_MS, so the new row reads sealed too
 
     const rowsAfter = await page.locator('.racks-trail__row').allTextContents();
-    check('trail: the top row reads "undo of connect ports"', (rowsAfter[0] ?? '').includes('undo of connect ports'), rowsAfter[0]);
-    check('trail: the reversed row still stands beneath it', (rowsAfter[1] ?? '').includes('connect ports'), rowsAfter[1]);
+    check('trail: the top row reads as that undone, recorded as "undo of connect ports"', (rowsAfter[0] ?? '').includes('Undone: cable connected · core-01 and acc-01') && (await recordedAs(0)) === 'Recorded as: undo of connect ports', `${rowsAfter[0]} [${await recordedAs(0)}]`);
+    check('trail: the reversed row still stands beneath it', (rowsAfter[1] ?? '').includes('Cable connected · core-01 and acc-01') && (await recordedAs(1)) === 'Recorded as: connect ports', `${rowsAfter[1]} [${await recordedAs(1)}]`);
     check('trail: the cable is off the drawing after undo', (await page.locator('.react-flow__edge-cable').count()) === 0);
     check('trail: no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
     await page.screenshot({ path: SHOTS + 's6i-trail.png' });
     console.log('    wrote ' + SHOTS + 's6i-trail.png');
+
+    // A press on a row opens the record behind it: what a pointer reads by resting on the row, for a keyboard and
+    // a touch screen too. Opening a record changes nothing in the design.
+    const me = (await page.evaluate(() => window.__driveActors__)).me;
+    const rowAt = (i) => page.locator('.racks-trail__row').nth(i);
+    const recordNow = () => page.locator('.racks-trail__record-line').evaluateAll((lines) => Object.fromEntries(lines.map((l) => [l.querySelector('dt').textContent, l.querySelector('dd').textContent])));
+    const focusedRow = () => page.evaluate(() => [...document.querySelectorAll('.racks-trail__row')].indexOf(document.activeElement));
+    await rowAt(0).click();
+    const pressed = await recordNow();
+    check(
+      'trail: a press on a row opens its record: the whole moment, the account id and the label as recorded',
+      /^\d{1,2} [A-Z][a-z]{2} \d{4} \d\d:\d\d:\d\d \(UTC/.test(pressed.When ?? '') && pressed['Account id'] === me && pressed['Recorded as'] === 'undo of connect ports' && (await rowAt(0).getAttribute('aria-expanded')) === 'true',
+      JSON.stringify(pressed),
+    );
+    await page.screenshot({ path: SHOTS + 's6i-trail-record.png' });
+    console.log('    wrote ' + SHOTS + 's6i-trail-record.png');
+    await rowAt(0).click();
+    check('trail: a second press closes it', (await page.locator('.racks-trail__record').count()) === 0 && (await rowAt(0).getAttribute('aria-expanded')) === 'false');
+
+    // The row's words can still be selected and copied: a drag over them is not a press.
+    const words = await rowAt(0).locator('.racks-trail__col--what').boundingBox();
+    await page.mouse.move(words.x + 1, words.y + words.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(words.x + 90, words.y + words.height / 2, { steps: 6 });
+    await page.mouse.up();
+    const dragged = await page.evaluate(() => getSelection().toString());
+    check('trail: a drag over a row selects its words and does not open the record', dragged.length > 3 && (await page.locator('.racks-trail__record').count()) === 0, JSON.stringify(dragged));
+    await page.evaluate(() => getSelection().removeAllRanges());
+
+    // By keyboard: Tab stops once in the rows, Down goes to the next row, Enter opens it, Tab leaves for the comment box.
+    await page.locator('[data-testid=history-tab-trail]').focus();
+    await page.keyboard.press('Tab');
+    const firstStop = await focusedRow();
+    await page.keyboard.press('ArrowDown');
+    const afterDown = await focusedRow();
+    await page.keyboard.press('Enter');
+    const byKey = await recordNow();
+    await page.keyboard.press('Tab');
+    const leftFor = await page.evaluate(() => document.activeElement?.id ?? '');
+    check(
+      'trail: by keyboard, Tab stops on the newest row, Down goes to the next, Enter opens its record, and Tab leaves for the comment box',
+      firstStop === 0 && afterDown === 1 && byKey['Recorded as'] === 'connect ports' && leftFor === 'racks-trail-comment',
+      `Tab: row ${firstStop}; Down: row ${afterDown}; Enter: ${JSON.stringify(byKey)}; Tab: #${leftFor}`,
+    );
+
+    // With a device selected the drawing moves it a unit on Up and Down. Pressed in the rows, the keys are the trail's.
+    const device = page.locator('.react-flow__node-chassis', { hasText: 'acc-01' }).first();
+    await device.click();
+    await openTheTrail(page);
+    const rowsWere = await page.locator('.racks-trail__row').count();
+    await rowAt(1).focus();
+    for (const key of ['ArrowDown', 'ArrowDown', 'ArrowUp']) await page.keyboard.press(key);
+    await page.waitForTimeout(400);
+    const rowsAfterKeys = await page.locator('.racks-trail__row').count();
+    const rowAfterKeys = await focusedRow();
+    // The same key with the keyboard on the drawing does move it, so the device could have moved.
+    await device.click();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(600);
+    await openTheTrail(page);
+    const rowsAfterDrawingKey = await page.locator('.racks-trail__row').count();
+    check(
+      'trail: with a device selected, the arrow keys pressed in the rows move between rows and leave the device where it is',
+      rowsAfterKeys === rowsWere && rowAfterKeys === 2 && rowsAfterDrawingKey === rowsWere + 1,
+      `rows ${rowsWere}; after three keys in the rows ${rowsAfterKeys}, on row ${rowAfterKeys}; after Down on the drawing ${rowsAfterDrawingKey}`,
+    );
+
+    // The keyboard goes to a button outside the drawing with Tab: the arrows, Delete and Backspace are that button's,
+    // and the selected device stays as it is. A press with the pointer gives them back to the selection.
+    const rowCount = () => page.locator('.racks-trail__row').count();
+    const walkTo = async (selector) => {
+      await page.locator(selector).focus();
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+      return page.evaluate(() => {
+        const el = document.activeElement;
+        return el instanceof HTMLButtonElement && el.closest('.drawing') == null ? (el.getAttribute('data-testid') ?? el.textContent) : null;
+      });
+    };
+    await device.click();
+    await openTheTrail(page);
+    const rowsBeforeWalk = await rowCount();
+    const walkedTo = await walkTo('[data-testid=history-tab-trail]');
+    for (const key of ['ArrowUp', 'ArrowDown', 'Delete', 'Backspace']) await page.keyboard.press(key);
+    await page.waitForTimeout(600);
+    const rowsAfterWalk = await rowCount();
+    const devicesAfterWalk = await device.count();
+    // The pointer pressed on that same button, which keeps the focus: the next Up is the selection's.
+    await page.locator('[data-testid=history-tab-trail]').click();
+    await page.keyboard.press('ArrowUp');
+    await page.waitForTimeout(600);
+    const rowsAfterPointer = await rowCount();
+    check(
+      'keys: on a button Tab went to, outside the drawing, the arrows, Delete and Backspace leave the selected device as it is; after a press with the pointer on that button, Up moves it',
+      walkedTo != null && rowsAfterWalk === rowsBeforeWalk && devicesAfterWalk === 1 && rowsAfterPointer === rowsBeforeWalk + 1,
+      `the keyboard on: ${walkedTo}; rows ${rowsBeforeWalk}, after the four keys ${rowsAfterWalk}, device there: ${devicesAfterWalk === 1}; after the pointer and Up ${rowsAfterPointer}`,
+    );
+
+    // A device picked in Search from the keyboard is the selection's to move, though the focus goes back to the button.
+    await walkTo('[data-testid=history-tab-trail]');
+    await page.keyboard.press('Control+k');
+    await page.locator('.palette input').waitFor({ timeout: 5_000 });
+    await page.keyboard.type('acc-01');
+    await page.waitForTimeout(400);
+    const firstFound = ((await page.locator('.palette [role=option][aria-selected=true]').first().textContent().catch(() => '')) ?? '').trim();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(900);
+    const backOn = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? document.activeElement?.tagName ?? null);
+    // No press with the pointer from here to the key: the trail is read as it stands.
+    const rowsBeforeFound = await rowCount();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(600);
+    const rowsAfterFound = await rowCount();
+    check(
+      'keys: a device picked in Search from the keyboard moves with Down, with the focus back on the button Tab had gone to',
+      firstFound.includes('acc-01') && backOn === 'history-tab-trail' && rowsBeforeFound > 0 && rowsAfterFound === rowsBeforeFound + 1,
+      `Search found: ${firstFound.slice(0, 40)}; the focus back on: ${backOn}; rows ${rowsBeforeFound} -> ${rowsAfterFound}`,
+    );
+
+    // A menu opened with the pointer has the keys while it is open, though the pointer was pressed last. Closed,
+    // they are the selection's again.
+    const rowsBeforeMenu = await rowCount();
+    await page.locator('[data-testid=shell-show]').click();
+    const menuOpen = (await page.locator('.shell-popover[role=menu]').count()) === 1;
+    for (const key of ['ArrowUp', 'ArrowDown', 'Delete', 'Backspace']) await page.keyboard.press(key);
+    await page.waitForTimeout(600);
+    const rowsWithMenu = await rowCount();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('ArrowUp');
+    await page.waitForTimeout(600);
+    const rowsAfterMenu = await rowCount();
+    check(
+      'keys: with a menu opened with the pointer the arrows, Delete and Backspace leave the selected device as it is; the menu closed, Up moves it',
+      menuOpen && rowsWithMenu === rowsBeforeMenu && rowsAfterMenu === rowsBeforeMenu + 1,
+      `menu open: ${menuOpen}; rows ${rowsBeforeMenu}, with the menu open ${rowsWithMenu}, after it closed and Up ${rowsAfterMenu}`,
+    );
+
+    const selectedDevices = () => page.locator('.drawing-chassis--selected').count();
+    // How far down its rack the device is drawn: the same whatever the camera does.
+    const downItsRack = async () => {
+      const d = await device.boundingBox();
+      const r = await page.locator('.react-flow__node-rack').first().boundingBox();
+      return d != null && r != null ? Math.round(d.y - r.y) : null;
+    };
+
+    // A pick in Search is answered once: it selects the device and opens it. Let go of with Escape, a level a press,
+    // the device is the person's to leave: a later change to the design selects nothing and opens nothing.
+    const held = async () => `${await selectedDevices()} selected, ${await page.locator('.drawing-config-drawer').count()} open`;
+    let letGo = 0;
+    for (; letGo < 5 && (await held()) !== '0 selected, 0 open'; letGo += 1) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+    }
+    const heldBeforeUndo = await held();
+    const downBeforeUndo = await downItsRack();
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(900);
+    const downAfterUndo = await downItsRack();
+    const heldAfterUndo = await held();
+    check(
+      'keys: a pick in Search is answered once: let go of with Escape, the device is not selected or opened again by a later Undo',
+      heldBeforeUndo === '0 selected, 0 open' && downBeforeUndo != null && downAfterUndo != null && downAfterUndo !== downBeforeUndo && heldAfterUndo === '0 selected, 0 open',
+      `after ${letGo} Escape: ${heldBeforeUndo}; Undo moved the device ${downBeforeUndo} -> ${downAfterUndo}; then: ${heldAfterUndo}`,
+    );
+
+    // Enter on the device the keyboard is on selects it, as a press on it does. The keyboard gets there with Tab, and
+    // no pointer is pressed from here on. Space is left alone: on the drawing it is held to pan.
+    const keyboardOnDevice = () =>
+      page.evaluate(() => document.activeElement?.classList.contains('react-flow__node-chassis') === true && (document.activeElement.textContent ?? '').includes('acc-01'));
+    const selectedBefore = await selectedDevices();
+    await device.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    const walkedToDevice = await keyboardOnDevice();
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(400);
+    const selectedAfterSpace = await selectedDevices();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(900);
+    const selectedAfterEnter = await selectedDevices();
+    const detailsSays = ((await page.locator('.drawing-editor__title').first().innerText().catch(() => '')) ?? '').trim();
+    const wasDown = await downItsRack();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(700);
+    const isDown = await downItsRack();
+    check(
+      'keys: Enter on the device the keyboard is on selects it and shows its Details, Space does not, and Down then moves it',
+      walkedToDevice && selectedBefore === 0 && selectedAfterSpace === 0 && selectedAfterEnter === 1 && detailsSays.includes('acc-01') && wasDown != null && isDown != null && isDown > wasDown + 2,
+      `the keyboard on the device: ${walkedToDevice}; selected ${selectedBefore}, after Space ${selectedAfterSpace}, after Enter ${selectedAfterEnter}; Details: ${detailsSays.slice(0, 30)}; down its rack ${wasDown} -> ${isDown}`,
+    );
+    // Escape steps out one level a press: the card that comes up beside the device the keyboard rests on goes
+    // first, then the selection. The keyboard stays on the device, so Enter selects it again.
+    const letGoOf = async () => {
+      const peekUp = await page.locator('.port-peek').count();
+      let escapes = 0;
+      for (; escapes < 3 && (await selectedDevices()) > 0; escapes += 1) {
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(500);
+      }
+      return { selected: await selectedDevices(), oneEach: escapes <= 1 + peekUp, escapes, peekUp, onDevice: await keyboardOnDevice() };
+    };
+    const afterMove = await letGoOf();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(700);
+    const selectedAgain = await selectedDevices();
+    // Straight after Enter, with no change between, React Flow has the device marked selected too, and on Escape
+    // takes the keyboard off it a frame later. It is put back.
+    const afterEnter = await letGoOf();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(700);
+    const selectedThird = await selectedDevices();
+    check(
+      'keys: Escape clears the selection and leaves the keyboard on the device, after a move and straight after Enter, so Enter selects it again',
+      afterMove.selected === 0 && afterMove.oneEach && afterMove.onDevice && selectedAgain === 1 && afterEnter.selected === 0 && afterEnter.oneEach && afterEnter.onDevice && selectedThird === 1,
+      `after a move: ${JSON.stringify(afterMove)}; Enter again: ${selectedAgain}; straight after Enter: ${JSON.stringify(afterEnter)}; Enter again: ${selectedThird}`,
+    );
+    await page.keyboard.press('Escape');
+    check('trail: no uncaught page errors after the record', pageErrors.length === 0, pageErrors.join(' | '));
     await page.close();
   }
 
@@ -173,7 +406,7 @@ try {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=conflict`);
     await page.waitForSelector('.react-flow__edge-cable', { timeout: 15_000 });
-    check('conflict: the cable is on the drawing before undo', (await page.locator('.react-flow__edge-cable').count()) === 1);
+    check('conflict: the cable is on the drawing before undo', (await cablesDrawn(page)) === 1);
 
     const colleague = (await page.evaluate(() => window.__driveActors__)).colleague;
 
@@ -182,14 +415,15 @@ try {
     await openTheTrail(page); // belt and braces: a refused undo opens it on its own too
 
     const refusal = await page.locator('.racks-trail__refusal').allTextContents();
+    // In words: what was changed, by whom as histories name people, and what that change was. No id is quoted.
     check(
-      "conflict: the refusal names the colleague's change",
-      refusal.some((t) => t.includes('add note') && t.includes(colleague)),
+      "conflict: the refusal says what was changed since, and what the colleague's change was",
+      refusal.some((t) => t.includes('Nothing was undone: core-01 was changed by a colleague since (note added).') && !t.includes(colleague)),
       refusal.join(' | '),
     );
     check('conflict: the cable is still on the drawing (nothing undone)', (await page.locator('.react-flow__edge-cable').count()) === 1);
     const rows = await page.locator('.racks-trail__row').allTextContents();
-    check('conflict: no "undo of" row landed', !rows.some((r) => r.includes('undo of')), rows.join(' | '));
+    check('conflict: no undo row landed', !rows.some((r) => r.includes('Undone')), rows.join(' | '));
     check('conflict: no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
     await page.screenshot({ path: SHOTS + 's6i-conflict.png' });
@@ -206,6 +440,8 @@ try {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=note`);
     await page.click('.react-flow__node-chassis >> nth=0');
+    // A click selects the device and shows its card. Its Details are a tab of the right-hand dock.
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
     await page.getByRole('tab', { name: 'Notes' }).click();
 
@@ -246,6 +482,8 @@ try {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=typed`);
     await page.click('.react-flow__node-chassis >> nth=0');
+    // A click selects the device and shows its card. Its Details are a tab of the right-hand dock.
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
     await page.getByRole('tab', { name: 'Notes' }).click();
 

@@ -138,6 +138,24 @@ describe('ShelfPlate (render-to-string)', () => {
     expect(markup).toContain('data-port-id="p3"');
   });
 
+  it("a port of a thing on a shelf says what it is, as the button's tip and as its name: a rack port's words", () => {
+    const cable = { cableId: 'c1', farPortId: 'far', farChassisId: 'sw-01', outsideCloset: false };
+    const s = shelf({
+      id: 'shelf-a01',
+      occupants: [
+        occupant({
+          id: 'sw-desk-01',
+          slot: 1,
+          ports: [port({ id: 'p1', label: '1', face: 'front', cable }), port({ id: 'p2', label: '2', face: 'front' }), port({ id: 'p3', label: '3', face: 'front' })],
+        }),
+      ],
+    });
+    const markup = renderShelf(baseData({ shelf: s }));
+    expect(markup).toMatch(/<button type="button" data-port-id="p1" title="Port 1 · RJ45 · cabled"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 1 · RJ45 · cabled"/);
+    expect(markup).toMatch(/<button type="button" data-port-id="p2" title="Port 2 · RJ45 · free"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 2 · RJ45 · free"/);
+    expect(markup).not.toContain('aria-label="1"');
+  });
+
   it('a non-patch-facing occupant (two ports or fewer) shows no ports at the rack stop', () => {
     const s = shelf({
       id: 'shelf-a01',

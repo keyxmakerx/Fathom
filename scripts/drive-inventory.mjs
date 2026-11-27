@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { barAction } from './drive-lib/bar.mjs';
+import { copiesMade, watchCopies } from './drive-lib/copies.mjs';
 import { check, fails, waitForServer } from './drive-lib/kit.mjs';
 
 const pw = await import(
@@ -124,6 +125,39 @@ try {
   check('only a window of the 602 rows is in the page', rendered > 10 && rendered < 80, `rows in DOM=${rendered}`);
   await shot('inventory-01-table.png');
 
+  // 1b — no column head is cut short: every column on, sorted by each column and by each pair.
+  const cutHeads = () => page.$$eval('.inv-table__label', (els) => els.filter((l) => l.scrollWidth > l.clientWidth).map((l) => l.textContent));
+  await page.getByRole('button', { name: 'Columns' }).click();
+  const columnBoxes = page.locator('.inv-toolbar__pop--columns input[type=checkbox]');
+  const turnedOn = [];
+  for (let i = 0; i < (await columnBoxes.count()); i += 1) {
+    if (await columnBoxes.nth(i).isChecked()) continue;
+    await columnBoxes.nth(i).check();
+    turnedOn.push(i);
+  }
+  await page.getByRole('button', { name: 'Columns' }).click();
+  const heads = page.locator('.inv-table__sort');
+  const headCount = await heads.count();
+  check('every device column is in the table', headCount >= 13, `heads=${headCount}`);
+  const cut = new Set(await cutHeads());
+  for (let i = 0; i < headCount; i += 1) {
+    await heads.nth(i).click();
+    for (const label of await cutHeads()) cut.add(`${label}, sorted`);
+    if (i + 1 === headCount) break;
+    await heads.nth(i + 1).click({ modifiers: ['Shift'] });
+    for (const label of await cutHeads()) cut.add(`${label}, in a two-key sort`);
+  }
+  check('no column head is cut short, sorted or not', cut.size === 0, [...cut].join(' | '));
+  await shot('inventory-01b-heads.png');
+  // Back to how the list opened: no sort, and the columns it started with.
+  await heads.nth(headCount - 1).click();
+  await heads.nth(headCount - 1).click();
+  check('the sort is cleared', (await page.locator('.inv-table__mark').count()) === 0);
+  await page.getByRole('button', { name: 'Columns' }).click();
+  for (const i of turnedOn) await columnBoxes.nth(i).uncheck();
+  await page.getByRole('button', { name: 'Columns' }).click();
+  check('the columns are back to the ones the list opened with', (await heads.count()) === headCount - turnedOn.length, `heads=${await heads.count()}`);
+
   // 2 — filter by name.
   const line = (await openFilter(page, 'Filter devices'));
   await line.fill('name~bulk-0042');
@@ -148,6 +182,9 @@ try {
   for (const label of ['Role', 'Mgmt address']) await page.getByLabel(label, { exact: true }).check();
   await page.getByRole('button', { name: 'Columns' }).click();
   const roleCell = page.locator('.inv-table__row [role=gridcell]').nth(3);
+  const addressCell = page.locator('.inv-table__row [role=gridcell]').nth(4);
+  const cellText = async (cell) => (await cell.innerText()).trim();
+  const noAddress = await cellText(addressCell);
   await roleCell.dblclick();
   await page.locator('select.inv-table__editor').selectOption('firewall');
   await page.keyboard.press('Tab');
@@ -158,12 +195,34 @@ try {
   check('role and management address were edited in place, Tab moving between them', rowText.includes('firewall') && rowText.includes('10.0.0.9'), rowText.replace(/\s+/g, ' '));
   await shot('inventory-02-edited.png');
 
-  // 5 — a refused value stays open with the reason.
-  await page.locator('.inv-table__row [role=gridcell]').nth(4).dblclick();
+  // 4b — one edit is one change, and one Undo takes it back. With a server behind the design the table once wrote
+  // each edit twice. This harness has no server and cannot show that: `drive-first-design.mjs` checks it.
+  await page.locator('[data-testid="bar-undo"]').click();
+  await page.waitForTimeout(300);
+  check('one Undo takes the address back and leaves the role', (await cellText(addressCell)) === noAddress && (await cellText(roleCell)) === 'firewall', `address "${await cellText(addressCell)}", role "${await cellText(roleCell)}"`);
+  await page.locator('[data-testid="bar-redo"]').click();
+  await page.waitForTimeout(300);
+  check('and one Redo brings it back', (await cellText(addressCell)) === '10.0.0.9', await cellText(addressCell));
+
+  // 5 — a refused value stays open with the reason, and Escape puts both away.
+  await addressCell.dblclick();
   await page.locator('input.inv-table__editor').fill('not-an-ip');
   await page.keyboard.press('Enter');
   check('a refused value shows why and keeps the editor open', (await page.locator('.inv-table__error').count()) === 1 && (await page.locator('input.inv-table__editor').count()) === 1);
   await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check(
+    'Escape closes the editor, and the reason goes with it',
+    (await page.locator('input.inv-table__editor').count()) === 0 && (await page.locator('.inv-table__error').count()) === 0 && (await cellText(addressCell)) === '10.0.0.9',
+    `editors ${await page.locator('input.inv-table__editor').count()}, reasons ${await page.locator('.inv-table__error').count()}, address "${await cellText(addressCell)}"`,
+  );
+
+  // 5b — Escape leaves the cell as it was. What was typed was once written on the way out, as Enter would.
+  await addressCell.dblclick();
+  await page.locator('input.inv-table__editor').fill('10.0.0.77');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check('Escape writes nothing of what was typed', (await cellText(addressCell)) === '10.0.0.9' && (await page.locator('input.inv-table__editor').count()) === 0, await cellText(addressCell));
 
   // 6 — a custom field is defined in the page and then fills a column.
   await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).click();
@@ -190,6 +249,7 @@ try {
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
   check('a new field becomes a column and takes a date', (await page.locator('.inv-table__row').first().innerText()).includes('2027-03-01'));
+  check('the head of a field somebody named is not cut short either', !(await cutHeads()).includes('Warranty ends'), (await cutHeads()).join(' | '));
   await shot('inventory-03-field.png');
 
   // 8 — paste rows (header + update + add) and bulk-tag them.
@@ -197,8 +257,23 @@ try {
   await page.getByRole('button', { name: 'Paste rows' }).click();
   await page.getByLabel('Pasted rows').fill('Name\tRole\nedge-fw\trouter\npasted-sw\tswitch');
   await page.waitForFunction(() => document.querySelector('.inv-paste [role=status]')?.textContent?.includes('1 to add, 1 to update'));
+  // Paste rows closes at once and leaves no fading copy: until Apply it holds what was pasted before the gate has
+  // read it. The importer shows only what the gate has passed, and leaves the way it came.
+  await watchCopies(page);
   await page.getByRole('button', { name: 'Apply' }).click();
   await page.waitForTimeout(800);
+  check('Paste rows is closed', (await page.locator('.inv-paste').count()) === 0);
+  check('and left no copy of itself, so nothing pasted stayed on the page', (await copiesMade(page)).length === 0);
+  await page.getByRole('button', { name: 'Import file' }).click();
+  await page.waitForSelector('.imp', { timeout: 5_000 });
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.imp:not([data-ghost])', { state: 'detached', timeout: 5_000 });
+  await page.waitForTimeout(500);
+  const importerOut = (await copiesMade(page)).filter((c) => c.kind === 'imp');
+  check('closed, the importer leaves one still copy that cannot be pressed, read or found', importerOut.length === 1 && importerOut[0].inert && importerOut[0].hidden === 'true' && importerOut[0].words === 0 && importerOut[0].named === 0, JSON.stringify(importerOut));
+  check('its wash clears while its box goes back the way it came', importerOut[0]?.leaves === 'fathom-wash-out' && importerOut[0]?.boxLeaves === 'fathom-pop-out', JSON.stringify(importerOut));
+  check('the copy of the importer is gone a moment later', (await page.locator('.imp').count()) === 0);
   await line.fill('name~pasted-sw');
   check('a pasted row was added', (await page.locator('.inv-table__row').count()) === 1);
   await page.getByLabel('Select all rows').check();
@@ -216,8 +291,13 @@ try {
   await barAction(page, 'print');
   await page.waitForSelector('[data-testid="print-panel"]', { timeout: 10_000 });
   check('the pack offers the Inventory table', await page.locator('[data-testid="print-section-inventory"]').isChecked());
+  const measured = await page.evaluate(() => document.querySelector('.print-panel .print-counter')?.getElementsByTagName('*').length ?? 0);
+  await copiesMade(page);
   await page.locator('[data-testid="print-panel-print"]').click();
   await page.waitForSelector('[data-testid="print-preview"]', { timeout: 10_000 });
+  // The panel holds a hidden pass that lays the pack out to count its pages. Its copy leaves that out.
+  const panelOut = (await copiesMade(page)).filter((c) => c.kind === 'print-panel');
+  check('closed, the Print panel leaves a copy without the pass that counts its pages', measured > 0 && panelOut.length === 1 && panelOut[0].unseen === false && panelOut[0].leaves === 'fathom-pop-out', JSON.stringify({ measured, panelOut }));
   const previewText = await page.locator('[data-testid="print-preview"]').innerText();
   check('the printed table is the filtered list', previewText.includes('Inventory · Devices') && previewText.includes('pasted-sw') && previewText.includes('filtered: tag:lab') && !previewText.includes('edge-fw'));
   await page.keyboard.press('Escape');

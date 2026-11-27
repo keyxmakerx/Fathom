@@ -3,7 +3,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { Bar, type BarProps } from './Bar';
+import { BAR_HINT, EDITS_OFF } from './hintWords';
 import { PopoverRow } from './Popover';
+import { shortcutText } from './shortcuts';
 
 beforeAll(() => {
   const store = new Map<string, string>();
@@ -80,9 +82,10 @@ describe('Bar — what is present where', () => {
 
   it('the brand is a way Home only when there is somewhere else to be', () => {
     expect(renderToStaticMarkup(createElement(Bar, BASE))).toContain('<span class="shell-bar__brand">Fathom</span>');
-    expect(renderToStaticMarkup(createElement(Bar, { ...BASE, onHome: () => {} }))).toContain(
-      '<button type="button" class="shell-bar__brand">Fathom</button>',
-    );
+    const away = renderToStaticMarkup(createElement(Bar, { ...BASE, onHome: () => {} }));
+    expect(away).toMatch(/<button type="button" class="shell-bar__brand"[^>]*>Fathom<\/button>/);
+    // The way Home says where it goes.
+    expect(away).toContain('data-hint="Home"');
   });
 });
 
@@ -233,5 +236,51 @@ describe('Bar — a long design name', () => {
     const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, path: [{ label: name, opensTree: true }] }));
     expect(markup).toContain(`<span class="shell-bar__path-text">${name}</span>`);
     expect(markup).toContain(`title="${name} · switch to another place or design"`);
+  });
+});
+
+describe('Bar — a greyed Undo or Redo says why', () => {
+  const tag = (markup: string, id: string) => markup.match(new RegExp(`<button[^>]*data-testid="${id}"[^>]*>`))?.[0] ?? '';
+
+  it('one that can be pressed says what a press does, with its keys', () => {
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, canUndo: true, canRedo: true }));
+    const undo = tag(markup, 'bar-undo');
+    expect(undo).not.toContain('disabled');
+    expect(undo).toContain(`data-hint-more="${BAR_HINT.undo}"`);
+    expect(undo).toContain(`data-hint-keys="${shortcutText('undo')}"`);
+    expect(undo).toContain(`title="Undo (${shortcutText('undo')})"`);
+    expect(tag(markup, 'bar-redo')).toContain(`title="Redo (${shortcutText('redo')})"`);
+  });
+
+  it('a greyed one says why, in its hint and its title, and shows no keys', () => {
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, undoOff: 'save', redoOff: 'nothingToRedo' }));
+    const undo = tag(markup, 'bar-undo');
+    expect(undo).toContain('disabled');
+    expect(undo).toContain(`data-hint-more="${EDITS_OFF.save.hint}"`);
+    expect(undo).toContain(`title="${EDITS_OFF.save.hint}"`);
+    expect(undo).not.toContain('data-hint-keys');
+    const redo = tag(markup, 'bar-redo');
+    expect(redo).toContain(`data-hint-more="${EDITS_OFF.nothingToRedo.hint}"`);
+    expect(redo).not.toContain('data-hint-keys');
+  });
+
+  it('a reason is not said on a button that can be pressed', () => {
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, canUndo: true, undoOff: 'save' }));
+    expect(tag(markup, 'bar-undo')).toContain(`data-hint-more="${BAR_HINT.undo}"`);
+    expect(markup).not.toContain(EDITS_OFF.save.hint);
+  });
+
+  it('greyed with no reason given, it reads as it always has', () => {
+    const undo = tag(renderToStaticMarkup(createElement(Bar, BASE)), 'bar-undo');
+    expect(undo).toContain('disabled');
+    expect(undo).toContain(`title="Undo (${shortcutText('undo')})"`);
+  });
+
+  it('the View only chip says a save is on show when that is why, and who can change that when it is not', () => {
+    const chip = (markup: string) => markup.match(/<span[^>]*shell-bar__view-only[^>]*>/)?.[0] ?? '';
+    expect(chip(renderToStaticMarkup(createElement(Bar, { ...BASE, viewOnly: true })))).toContain(`data-hint-more="${BAR_HINT.viewOnly}"`);
+    const save = chip(renderToStaticMarkup(createElement(Bar, { ...BASE, viewOnly: true, viewOnlyWhy: 'save' })));
+    expect(save).toContain(`data-hint-more="${EDITS_OFF.save.hint}"`);
+    expect(save).not.toContain('Someone who looks after it');
   });
 });

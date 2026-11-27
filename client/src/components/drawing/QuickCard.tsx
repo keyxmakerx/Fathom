@@ -14,11 +14,14 @@ import '../../styles/canvas-aids.css';
 
 import { copyText } from '../firmware/parts';
 import type { Document } from '../../document/model';
-import { clickAnswer, nextEscape, useDetailsOpen } from '../shell/clickAnswer';
+import { clickAnswer, nextEscape, openAbove, useDetailsOpen } from '../shell/clickAnswer';
+import { useGhostRef } from '../shell/ghost';
 import { SHOW_DETAILS_EVENT } from '../shell/useRightTab';
 import type { ClosetView } from './contract';
+import { OWN_PRESS_EVENT } from './ownPress';
 import { thingOf } from './PortPeek';
 import { quickCard, quickPortCard, type QuickCardFacts } from './quickCard';
+import { cardAnchor, placeCard, type Placed, type Row } from './quickCardPlace';
 import type { PeekTarget } from './thingPeek';
 
 /** What a card can speak for: the peek's things, and a port. */
@@ -27,9 +30,6 @@ type CardTarget = PeekTarget | { kind: 'port'; id: string };
 const CANVAS_SELECTOR = '.shell__drawing';
 /** A press that moves further than this is a drag or a pan, not a click. */
 const CLICK_SLOP_PX = 4;
-/** The dotted line between the thing and the card. */
-const LEADER_PX = 28;
-const EDGE = 8;
 
 interface Pinned {
   target: CardTarget;
@@ -37,16 +37,6 @@ interface Pinned {
   /** Where on the thing the click landed, as fractions of its box: a rack is tall and a cable long. */
   fx: number;
   fy: number;
-}
-
-interface Placed {
-  /** The leader's two ends and the card's corner, in window pixels. */
-  ax: number;
-  ay: number;
-  bx: number;
-  left: number;
-  top: number;
-  hidden: boolean;
 }
 
 /** The element for a target, found again when the canvas has redrawn the one that was clicked. */
@@ -67,15 +57,24 @@ function refind(target: CardTarget): HTMLElement | null {
   return null;
 }
 
-/** A device, shelf or rack hangs the card off its right edge (a rack at the height it was clicked, being
- * tall); a cable, which has no edge to speak of, from where it was clicked. */
-function anchorOf(p: Pinned, r: DOMRect): { x: number; y: number; left: number; right: number } {
-  if (p.target.kind === 'cable') {
-    const x = r.left + p.fx * r.width;
-    return { x, y: r.top + p.fy * r.height, left: x, right: x };
-  }
-  const y = p.target.kind === 'rack' ? r.top + p.fy * r.height : r.top + r.height / 2;
-  return { x: r.right, y, left: r.left, right: r.right };
+/** The shelf a thing sits on, as the row its card hangs off the end of (`quickCardPlace.ts`). At the faceplate
+ * stop the selected thing is opened beside the shelf, and the row reaches as far as that box. */
+function shelfRowOf(el: HTMLElement): Row | null {
+  const shelf = el.closest<HTMLElement>('.react-flow__node-shelf');
+  if (shelf == null || shelf === el) return null;
+  const s = shelf.getBoundingClientRect();
+  const opened = shelf.querySelector('.drawing-shelf__inset')?.getBoundingClientRect();
+  return { left: s.left, right: Math.max(s.right, opened?.right ?? s.right) };
+}
+
+/** The row a card hangs off the end of: its shelf for a thing on one; for a port, the device it is on. */
+function rowOf(kind: CardTarget['kind'], el: HTMLElement): Row | null {
+  if (kind === 'device') return shelfRowOf(el);
+  if (kind !== 'port') return null;
+  const shelf = shelfRowOf(el);
+  if (shelf != null) return shelf;
+  const device = el.closest<HTMLElement>('.react-flow__node-chassis, .drawing-surface__fixture')?.getBoundingClientRect();
+  return device != null ? { left: device.left, right: device.right } : null;
 }
 
 export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Document | null }) {
@@ -92,6 +91,8 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
     if (detailsOpen) setPinned(null);
   }, [detailsOpen]);
   const cardRef = useRef<HTMLDivElement>(null);
+  // Put away, the card leaves a still copy that fades out (`ghost.ts`).
+  const cardGhostRef = useGhostRef(cardRef);
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -133,20 +134,27 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       // The card is the top thing after a peek: Escape puts it away and nothing else, so a second Esc is the one
-      // that leaves an opened device (sign-off r60, r116).
-      if (nextEscape({ peek: document.querySelector('.port-peek') != null, card: pinnedRef.current != null }) !== 'card') return;
+      // that leaves an opened device (sign-off r60, r116). Search, a sheet or a menu opened over it goes first.
+      if (nextEscape({ above: openAbove(), peek: document.querySelector('.port-peek') != null, card: pinnedRef.current != null }) !== 'card') return;
       e.preventDefault();
       e.stopPropagation();
       close();
     };
+    // A thing that stops its own click sends it on by name (`ownPress.ts`).
+    const onOwnPress = (e: Event) => {
+      const click = (e as CustomEvent<MouseEvent>).detail;
+      if (click != null) onClick(click);
+    };
     document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('click', onClick);
+    window.addEventListener(OWN_PRESS_EVENT, onOwnPress);
     document.addEventListener('dblclick', close);
     document.addEventListener('contextmenu', close, true);
     window.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('click', onClick);
+      window.removeEventListener(OWN_PRESS_EVENT, onOwnPress);
       document.removeEventListener('dblclick', close);
       document.removeEventListener('contextmenu', close, true);
       window.removeEventListener('keydown', onKey, true);
@@ -181,15 +189,8 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
       const card = cardRef.current;
       if (canvas == null || card == null) return;
       const r = el.getBoundingClientRect();
-      const a = anchorOf(pinned, r);
-      const w = card.offsetWidth;
-      const h = card.offsetHeight;
-      // Right of the thing, or left of it when the canvas has no room on the right.
-      const right = a.right + LEADER_PX + w <= canvas.right - EDGE;
-      const left = right ? a.right + LEADER_PX : Math.max(canvas.left + EDGE, a.left - LEADER_PX - w);
-      const top = Math.max(canvas.top + EDGE, Math.min(a.y - h / 2, canvas.bottom - h - EDGE));
-      const off = busy || a.y < canvas.top || a.y > canvas.bottom || a.x < canvas.left || a.x > canvas.right;
-      const next: Placed = { ax: right ? a.right : a.left, ay: a.y, bx: right ? left : left + w, left, top, hidden: off };
+      const a = cardAnchor(pinned.target.kind, pinned, r, rowOf(pinned.target.kind, el));
+      const next = placeCard(a, { w: card.offsetWidth, h: card.offsetHeight }, canvas, busy);
       const key = `${next.ax}|${next.ay}|${next.bx}|${next.left}|${next.top}|${next.hidden}`;
       if (key !== last) {
         last = key;
@@ -222,9 +223,11 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
         </svg>
       )}
       <div
-        ref={cardRef}
+        ref={cardGhostRef}
         className="quick-card"
         role="dialog"
+        // The selection's own card: with it open, the arrow keys and Delete are still the selection's (`shell/keyOwner.ts`).
+        data-selection-card=""
         aria-label={`${facts.title}, in short`}
         data-testid="quick-card"
         data-print-omit=""

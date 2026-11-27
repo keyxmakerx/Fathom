@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
-import { base32Decode, totpCode } from './drive-lib/kit.mjs';
+import { base32Decode, seenThrough, totpCode } from './drive-lib/kit.mjs';
 
 const ROOT = process.env.FATHOM_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 // `CARGO_TARGET_DIR` is shared across worktrees in this project (NEXT.md
@@ -351,6 +351,36 @@ async function runDrive(tab) {
   await tab.waitForTimeout(1200); // the SaveQueue's own debounce plus one round trip
   const refusalCount = await tab.locator('.racks-place__refusal').count();
   check('9. place one device: it placed and saved with no refusal', refusalCount === 0, `refusal divs: ${refusalCount}`);
+
+  // -------------------------------------------------------------------
+  // 10. The built client frosts what floats. This drive runs the app as it is built, and the build is where the
+  // blur was lost: its minifier kept `-webkit-backdrop-filter` alone wherever that line was written second. The
+  // line being there is not the blur being seen: a sheet inside a wash that faded as a whole blurred the wash and
+  // left the drawing sharp. So each is looked at, with stripes laid over the drawing.
+  // -------------------------------------------------------------------
+  const blurred = (seen) => seen != null && seen.control > 5 && seen.through < 2;
+  const said = (seen) => (seen == null ? 'it does not lie over the drawing' : `stripes show through ${seen.through}, and ${seen.control} with its blur off`);
+  await tab.locator('[data-testid="shell-show"]').click();
+  await tab.locator('.shell-popover').first().waitFor({ timeout: 5000 });
+  const frost = await tab.locator('.shell-popover').first().evaluate((el) => getComputedStyle(el).backdropFilter);
+  check('10. frosted glass: the Layers menu blurs the drawing behind it', frost.includes('blur('), frost);
+  const menu = await seenThrough(tab, '.shell-popover', '.react-flow');
+  check('10. frosted glass: stripes laid over the drawing do not show through the Layers menu', blurred(menu), said(menu));
+  await tab.keyboard.press('Escape');
+  await tab.locator('.shell-popover').first().waitFor({ state: 'detached', timeout: 5000 });
+
+  await tab.keyboard.press('Control+k');
+  await tab.locator('.float-sheet.palette').waitFor({ timeout: 5000 });
+  const search = await seenThrough(tab, '.float-sheet.palette', '.react-flow');
+  check('10. frosted glass: nor through the Search sheet, behind its wash', blurred(search), said(search));
+  await tab.keyboard.press('Escape');
+  await tab.locator('.float-sheet.palette').waitFor({ state: 'detached', timeout: 5000 });
+
+  await tab.locator('[data-testid="shell-shortcuts"]').click();
+  await tab.locator('.float-sheet.shortcuts-sheet').waitFor({ timeout: 5000 });
+  const keys = await seenThrough(tab, '.float-sheet.shortcuts-sheet', '.react-flow');
+  check('10. frosted glass: nor through the Keyboard shortcuts sheet', blurred(keys), said(keys));
+  await tab.keyboard.press('Escape');
 }
 
 try {

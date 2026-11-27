@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CANVAS_PRESS_MS, clickAnswer, nextEscape } from './clickAnswer';
+import { CANVAS_PRESS_MS, clickAnswer, nextEscape, openAbove, openAboveMenu } from './clickAnswer';
 import { cameFromCanvasPress } from './useRightTab';
 
 describe('a click gives one answer (r116)', () => {
@@ -28,5 +28,31 @@ describe('Esc steps out one level (r116)', () => {
     expect(nextEscape({ peek: false, card: false, opened: true, selected: true })).toBe('leave');
     expect(nextEscape({ peek: false, card: false, opened: false, selected: true })).toBe('clear');
     expect(nextEscape({ peek: false, card: false })).toBeNull();
+  });
+
+  // Search, a sheet or a panel opened over the canvas is the top level: its Esc must not put the card away first.
+  it('answers nothing on the canvas while something floats over the page', () => {
+    expect(nextEscape({ above: true, peek: true, card: true, opened: true, selected: true })).toBeNull();
+    expect(nextEscape({ above: false, peek: false, card: true })).toBe('card');
+  });
+
+  it('counts any dialog or open menu as floating over the page, except the canvas\'s own card', () => {
+    const asked: string[] = [];
+    const page = (found: boolean) => ({ querySelector: (selector: string) => (asked.push(selector), found ? ({} as Element) : null) });
+    expect(openAbove(page(true))).toBe(true);
+    expect(openAbove(page(false))).toBe(false);
+    // On the page itself this is checked by the sample's drive: a selector that matches nothing reads as
+    // "nothing is open", and no test here has a page to ask. A menu inside a shut `<details>` is left out: the
+    // More list in Details is one, and counted, it sent the Esc for a hover card on to close Details as well.
+    expect(asked[0]).toBe('[role="dialog"]:not(.quick-card), [role="menu"]:not(details:not([open]) *)');
+  });
+
+  // The More list in Details takes an Esc for itself, unless something was opened over it since.
+  it('lets an open menu of the page ask the same of everything but itself', () => {
+    const own = { list: {} as Element, contains: (el: unknown) => el === own.list };
+    const page = (...found: Element[]) => ({ querySelectorAll: () => found as unknown as NodeListOf<Element> });
+    expect(openAboveMenu(own, page())).toBe(false);
+    expect(openAboveMenu(own, page(own.list))).toBe(false);
+    expect(openAboveMenu(own, page(own.list, {} as Element))).toBe(true);
   });
 });

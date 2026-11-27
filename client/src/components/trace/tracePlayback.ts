@@ -1,6 +1,7 @@
 // Path trace playback: when a result arrives the hops light one at a time, in order, then settle. The pure parts
 // (step length, which hops are showing) and a small player that steps the shared trace store. Reduced motion, a
-// click anywhere, or Esc goes straight to the settled state.
+// click anywhere, or Esc goes straight to the settled state. A pressed question's path is framed first: the hops
+// wait, none lit, until the canvas has moved to it.
 import type { TraceResult } from '../../engine/engine';
 import { prefersReducedMotion } from '../drawing/motion';
 import type { TraceStore } from './traceStore';
@@ -11,6 +12,8 @@ export const TRACE_TOTAL_MS = 1500;
 export const TRACE_STEP_MAX_MS = 180;
 /** The shortest a hop waits unless the total cap needs it shorter. */
 export const TRACE_STEP_MIN_MS = 120;
+/** The longest the hops wait for the canvas to reach a framed path, in milliseconds. */
+export const TRACE_FRAME_WAIT_MS = 1200;
 
 /** How long each hop stays alone before the next: 120 to 180ms, shorter only when the total cap needs it. */
 export function stepMs(hopCount: number): number {
@@ -37,8 +40,9 @@ export function traceKey(result: TraceResult): string {
 }
 
 export interface TracePlayer {
-  /** Light the hops one by one from the start (or settle at once when motion is reduced). */
-  play(result: TraceResult): void;
+  /** Light the hops one by one from the start (or settle at once when motion is reduced). With `frame`, the
+   * canvas is asked to move to the path first, and the hops wait until it says it has. */
+  play(result: TraceResult, frame?: number): void;
   /** Settle now: every hop showing. */
   settle(): void;
   /** Stop without touching the store (the trace is going away). */
@@ -47,11 +51,21 @@ export interface TracePlayer {
 
 export function createTracePlayer(store: TraceStore, reduced: () => boolean = prefersReducedMotion): TracePlayer {
   let timer: ReturnType<typeof setInterval> | null = null;
+  let wait: ReturnType<typeof setTimeout> | null = null;
+  let unwatch: (() => void) | null = null;
   let off: (() => void) | null = null;
+
+  function stopWaiting() {
+    if (wait != null) clearTimeout(wait);
+    wait = null;
+    unwatch?.();
+    unwatch = null;
+  }
 
   function cancel() {
     if (timer != null) clearInterval(timer);
     timer = null;
+    stopWaiting();
     off?.();
     off = null;
   }
@@ -80,24 +94,46 @@ export function createTracePlayer(store: TraceStore, reduced: () => boolean = pr
     };
   }
 
-  function play(result: TraceResult) {
-    cancel();
+  // One more hop each step, from the first. Whatever else the store holds (the frame) stays.
+  function run(result: TraceResult) {
     const count = result.hops.length;
-    if (reduced() || count <= 1) {
-      store.set({ result, revealed: null });
-      return;
-    }
     let shown = 1;
-    store.set({ result, revealed: shown });
-    listen();
     timer = setInterval(() => {
       shown += 1;
       if (shown >= count) {
         settle();
         return;
       }
-      store.set({ result: store.get().result ?? result, revealed: shown });
+      const s = store.get();
+      store.set({ ...s, result: s.result ?? result, revealed: shown });
     }, stepMs(count));
+  }
+
+  function play(result: TraceResult, frame?: number) {
+    cancel();
+    if (reduced() || result.hops.length <= 1) {
+      store.set({ ...store.get(), ...(frame == null ? {} : { frame }), result, revealed: null });
+      return;
+    }
+    listen();
+    if (frame == null) {
+      store.set({ ...store.get(), result, revealed: 1 });
+      run(result);
+      return;
+    }
+    // Everything fades and no hop is lit while the canvas moves. It says when it has arrived; the wait is capped,
+    // so a canvas that is not there cannot hold the hops back.
+    const begin = () => {
+      stopWaiting();
+      const s = store.get();
+      store.set({ ...s, result: s.result ?? result, revealed: 1 });
+      run(result);
+    };
+    store.set({ ...store.get(), result, revealed: 0, frame });
+    unwatch = store.subscribe(() => {
+      if (store.get().framed === frame) begin();
+    });
+    wait = setTimeout(begin, TRACE_FRAME_WAIT_MS);
   }
 
   return { play, settle, cancel };

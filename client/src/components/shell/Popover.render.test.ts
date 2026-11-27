@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { Popover, PopoverRow } from './Popover';
+import { Popover, PopoverRow, pressRow, rowSaid } from './Popover';
 
 // No DOM testing library is installed (the shell brief's tests section is explicit
 // that none may be added), so this is a render-to-string smoke test rather
@@ -60,9 +60,38 @@ describe('PopoverRow (render-to-string)', () => {
     expect(markup).not.toContain('disabled');
   });
 
-  it('renders disabled rows as genuinely disabled, not just styled to look it', () => {
+  it('marks a greyed row as off for a screen reader, and leaves it in reach of the keyboard so its reason is read', () => {
     const markup = renderToStaticMarkup(createElement(PopoverRow, { disabled: true, children: 'Site' }));
-    expect(markup).toContain('disabled=""');
+    expect(markup).toContain('aria-disabled="true"');
+    expect(markup).not.toContain('disabled=""');
+  });
+
+  it('a press on a greyed row does nothing and leaves the menu open, not just styled to look off', () => {
+    const did: string[] = [];
+    pressRow({ disabled: true, onSelect: () => did.push('acted') }, () => did.push('closed'));
+    expect(did).toEqual([]);
+  });
+
+  it('a press on a row that acts closes the menu first, then acts; a row with nothing to do does neither', () => {
+    const did: string[] = [];
+    pressRow({ disabled: false, onSelect: () => did.push('acted') }, () => did.push('closed'));
+    expect(did).toEqual(['closed', 'acted']);
+    pressRow({ disabled: false }, () => did.push('closed again'));
+    expect(did).toEqual(['closed', 'acted']);
+  });
+
+  it('draws a hint after the row\'s words, and reads the two apart', () => {
+    const markup = renderToStaticMarkup(createElement(PopoverRow, { disabled: true, hint: 'select a device first', children: "It's down" }));
+    expect(markup).toContain('<span class="shell-doing__hint">select a device first</span>');
+    expect(markup).toContain('aria-label="It&#x27;s down, select a device first"');
+    expect(rowSaid("It's down", 'select a device first')).toBe("It's down, select a device first");
+  });
+
+  it('reads a row with no hint, or one that is not plain words, from the row itself', () => {
+    expect(renderToStaticMarkup(createElement(PopoverRow, { children: 'Share' }))).not.toContain('aria-label');
+    expect(rowSaid('Share', undefined)).toBeUndefined();
+    expect(rowSaid('Share', '  ')).toBeUndefined();
+    expect(rowSaid(createElement('b', null, 'Share'), 'soon')).toBeUndefined();
   });
 
   it('marks the current row distinctly from a plain one', () => {

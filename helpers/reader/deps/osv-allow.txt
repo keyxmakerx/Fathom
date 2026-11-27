@@ -1,6 +1,8 @@
 # OSV.dev allow-list for the device reader's lockfile only (scripts/gate-reader.sh). Fathom's own
 # is deps/osv-allow.txt, and the format and rules are that file's. Empty: serde_json's closure has
-# no finding. The SSH part brings the rsa advisory the owner accepted on r87-reader-packages.
+# no finding. The SSH part brings the rsa advisory the owner accepted on r87-reader-packages, and
+# a notice that chrono is unmaintained, accepted on r148-reader-check-chrono.
 RUSTSEC-2023-0071 | 2026-11-03 | rsa 0.10.0-rc.18, Marvin. Private-key timing; the reader checks RSA host keys and never signs with an RSA private key (r87-reader-packages, first tick).
 GHSA-c38w-74pg-36hr | 2026-11-03 | Alias of RUSTSEC-2023-0071 (rsa 0.10.0-rc.18), same reason.
 GHSA-4grx-2x9w-596c | 2026-11-03 | Alias of RUSTSEC-2023-0071 (rsa 0.10.0-rc.18), same reason.
+RUSTSEC-2026-0543 | 2026-11-20 | chrono 0.4.45, "chrono is unmaintained". A notice; it describes no flaw. In the lockfile through russh-util 0.52.0, which lists chrono for wasm32 only: no Linux build of the reader compiles it (cargo tree -i chrono prints nothing for gnu or musl, x86-64 or 64-bit ARM). Remove when russh stops listing chrono (r148-reader-check-chrono, A).

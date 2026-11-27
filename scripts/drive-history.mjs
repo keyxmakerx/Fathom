@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { barAction } from './drive-lib/bar.mjs';
-import { check, fails, waitForServer } from './drive-lib/kit.mjs';
+import { check, fails, lieOver, waitForServer } from './drive-lib/kit.mjs';
 import { openTheTrail } from './drive-lib/trail.mjs';
 
 const pw = await import(
@@ -112,12 +112,64 @@ try {
   await page.waitForSelector('[data-testid="history-banner"]', { timeout: 10_000 });
   await page.waitForTimeout(800);
   check('a past save shows the banner', (await page.locator('[data-testid="history-banner"]').innerText()).startsWith('Showing the design just after'));
+  // The banner is what says a save is on show. The canvas tools lay over half of it: it shares their line where
+  // both fit, and takes the line under them in a narrower window.
+  for (const width of [1440, 1100]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(400);
+    const clear = await lieOver(page, '[data-testid="history-banner"]', '.shell-canvas-bar__group');
+    check(`the banner is clear of the canvas tools in a window ${width} wide`, clear != null && !clear.over, clear?.said ?? 'the banner or the tools are not on the page');
+    const inDrawing = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="history-banner"]')?.getBoundingClientRect();
+      const d = document.querySelector('.shell__drawing')?.getBoundingClientRect();
+      return b != null && d != null && b.left >= d.left && b.right <= d.right && b.top >= d.top;
+    });
+    check(`and it is whole inside the drawing in a window ${width} wide`, inDrawing);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(400);
   check('what changed is outlined', (await page.locator('.history-changed').count()) >= 1, String(await page.locator('.history-changed').count()));
   check('the picked row is marked', (await page.locator('.history__row--on').count()) === 1);
   check('Restore is offered on an older save', (await page.getByRole('button', { name: 'Restore this version' }).count()) === 1);
   await page.screenshot({ path: SHOTS + 'history-2-picked.png' });
 
-  await page.getByRole('button', { name: 'Back to now' }).click();
+  // The banner has its own way back. The other one is under the list of saves, a panel away.
+  const bannerBack = page.locator('[data-testid="history-banner"]').getByRole('button', { name: 'Back to now' });
+  const underPointer = await page.evaluate(() => {
+    const mid = (e) => {
+      const q = e.getBoundingClientRect();
+      return [q.left + q.width / 2, q.top + q.height / 2];
+    };
+    const banner = document.querySelector('[data-testid="history-banner"]');
+    const words = banner?.querySelector('[role="status"]');
+    const button = banner?.querySelector('button');
+    if (banner == null || words == null || button == null) return null;
+    const overWords = document.elementFromPoint(...mid(words));
+    return { wordsLetAPressThrough: overWords != null && !banner.contains(overWords), buttonTakesOne: document.elementFromPoint(...mid(button)) === button };
+  });
+  check(
+    'the banner has its own Back to now, and a press on its words still reaches the drawing',
+    (await bannerBack.count()) === 1 && underPointer?.wordsLetAPressThrough === true && underPointer.buttonTakesOne === true,
+    `buttons: ${await bannerBack.count()}, ${JSON.stringify(underPointer)}`,
+  );
+  if ((await bannerBack.count()) === 1) await bannerBack.click();
+  await page.waitForTimeout(500);
+  const afterBannerBack = {
+    banners: await page.locator('[data-testid="history-banner"]').count(),
+    marked: await page.locator('.history__row--on').count(),
+    outlined: await page.locator('.history-changed').count(),
+    panels: await page.locator('[data-testid="history-panel"]').count(),
+  };
+  check(
+    "the banner's Back to now goes back to now: no banner, no save marked, nothing outlined, and History stays open",
+    afterBannerBack.banners === 0 && afterBannerBack.marked === 0 && afterBannerBack.outlined === 0 && afterBannerBack.panels === 1,
+    JSON.stringify(afterBannerBack),
+  );
+
+  // The same save again, left by the button under the list of saves.
+  if (afterBannerBack.banners === 0) await page.locator('.history__row').nth(2).click();
+  await page.waitForSelector('[data-testid="history-banner"]', { timeout: 10_000 });
+  await page.locator('.history__actions').getByRole('button', { name: 'Back to now' }).click();
   await page.waitForTimeout(500);
   check('Back to now clears the banner', (await page.locator('[data-testid="history-banner"]').count()) === 0);
 

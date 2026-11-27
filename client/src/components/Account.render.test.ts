@@ -35,7 +35,7 @@ describe('the account screen', () => {
     const html = renderToStaticMarkup(
       createElement(Account, { address: 'owner@example.test', purpose: 'app-code' }),
     );
-    expect(html).toMatch(/holds the operator custody/i);
+    expect(html).toMatch(/is a server admin/i);
     expect(html).not.toContain('id="account-password"');
   });
 

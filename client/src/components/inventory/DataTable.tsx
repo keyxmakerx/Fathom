@@ -164,17 +164,27 @@ export function DataTable(props: DataTableProps) {
     setEditing({ cell, draft: seed ?? row.cells[col.key] ?? '' });
   };
 
+  // The editor a key has closed, as it stood at that key. Enter and Escape hand the keys back to the grid, which
+  // takes them from the editor before this table has drawn again, and the editor's blur then still sees itself
+  // open. It once wrote the cell a second time after Enter, as a second change of the same value, and wrote what
+  // was typed after Escape.
+  const closedRef = useRef<typeof editing>(null);
+  const close = () => {
+    closedRef.current = editing;
+    setEditing(null);
+  };
+
   /** Commits the open editor. Returns true when it closed. */
   const commit = (value: string): boolean => {
-    if (!editing) return true;
+    if (!editing || closedRef.current === editing) return true;
     const row = rows.find((r) => r.key === editing.cell.rowKey);
     const col = columns.find((c) => c.key === editing.cell.colKey);
     if (!row || !col) {
-      setEditing(null);
+      close();
       return true;
     }
     if ((row.cells[col.key] ?? '') === value.trim()) {
-      setEditing(null);
+      close();
       setError(null);
       return true;
     }
@@ -183,7 +193,7 @@ export function DataTable(props: DataTableProps) {
       setError(refusal);
       return false;
     }
-    setEditing(null);
+    close();
     setError(null);
     return true;
   };
@@ -215,7 +225,7 @@ export function DataTable(props: DataTableProps) {
     const backToGrid = () => scrollRef.current?.focus({ preventScroll: true });
     if (e.key === 'Escape') {
       e.preventDefault();
-      setEditing(null);
+      close();
       setError(null);
       backToGrid();
     } else if (e.key === 'Enter') {

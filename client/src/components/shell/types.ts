@@ -65,6 +65,9 @@ export interface AccountInfo {
   address: string;
 }
 
+/** Why Undo or Redo cannot be pressed just now. The words for each are `EDITS_OFF` (`hintWords.ts`). */
+export type EditsOff = 'viewOnly' | 'phoneCanvas' | 'save' | 'nothingToUndo' | 'nothingToRedo';
+
 /**
  * The shell's full contract. `Shell` renders only from these props and the
  * `children` it is given as the drawing (or Inventory's lists, or Home) —
@@ -107,6 +110,9 @@ export interface ShellProps {
 
   canUndo: boolean;
   canRedo: boolean;
+  /** Why Undo or Redo is greyed, when it is: the bar's hint and its folded menu say it. */
+  undoOff?: EditsOff | null;
+  redoOff?: EditsOff | null;
   onUndo: () => void;
   onRedo: () => void;
 
@@ -149,6 +155,9 @@ export interface ShellProps {
    * bar. Omitted or `false` on Home and everywhere a reader could not have
    * landed anyway. */
   viewOnly?: boolean;
+  /** Why the drawing cannot be changed, when it is not that this person may only look: a save from History is on
+   * show, or it is the phone's drawing. The chip's hint says it. */
+  viewOnlyWhy?: EditsOff | null;
 
   /** The live design's notices. Shown under the editor's fields, or at the
    * canvas's top right while no editor is open. */

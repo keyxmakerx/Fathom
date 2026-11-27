@@ -98,6 +98,15 @@ export function ChangeToast({ doc, accountId, undoBatchId, redoBatchId, onUndo, 
     arm(TOAST_MS);
   }, [doc, accountId, suppressed, arm, clearTimers]);
 
+  // Held back, a note already showing goes too: it is about the design as it is now, and its button would
+  // act on that while a save is on show.
+  useEffect(() => {
+    if (!suppressed) return;
+    clearTimers();
+    setShown(null);
+    setLeaving(false);
+  }, [suppressed, clearTimers]);
+
   useEffect(() => clearTimers, [clearTimers]);
 
   // The note belongs to its own change: once something else is the thing to undo, it goes.

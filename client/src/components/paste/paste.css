@@ -2,11 +2,13 @@
 .paste-card {
   position: absolute;
   left: 50%;
-  top: var(--s5, 24px);
+  /* Under the canvas tools (8px + their 34px + a gap), the line the question card keeps (`trace.css`). Higher up,
+     the tool row lay over the card's top edge. */
+  top: 52px;
   transform: translateX(-50%);
   z-index: calc(var(--z-modal) + 2);
   width: min(32rem, calc(100% - 2 * var(--s4)));
-  max-height: calc(100% - 2 * var(--s5, 24px));
+  max-height: calc(100% - 52px - var(--s5, 24px));
   overflow: auto;
   background: var(--page);
   color: var(--ink);
@@ -14,6 +16,25 @@
   padding: var(--s3) var(--s4);
   font-family: var(--sans);
   font-size: var(--t-small);
+  animation: paste-card-in var(--m-pop) var(--m-ease);
+}
+/* The card arriving: it fades and drops into place as a menu does (`fathom-pop-in`), keeping the half-width
+   shift that centres it. */
+@keyframes paste-card-in {
+  from { opacity: 0; transform: translate(-50%, -4px); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paste-card {
+    animation: none;
+  }
+}
+/* Closed, the card's still copy goes back the way it came (`shell/ghost.ts`), keeping the shift that centres it. */
+@keyframes paste-card-out {
+  to { opacity: 0; transform: translate(-50%, -4px); }
+}
+.paste-card[data-ghost] {
+  animation: paste-card-out var(--m-hover) var(--m-ease) both !important;
 }
 .paste-card__head {
   font-size: var(--t-micro);

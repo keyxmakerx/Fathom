@@ -12,15 +12,55 @@ export interface FirstStep {
   label: string;
   /** A few words beside the step, when it needs them. */
   note?: string;
+  /** How to do it, said plainly. Shown under the step that is next. */
+  how: string;
 }
 
+/** How Home lets a person start a design of their own: its New design button, the first card's Start drawing, or
+ * neither, for someone who may only open what others made. */
+export type StartsWith = 'new-design' | 'start-drawing' | 'none';
+
+const OPENING: Record<StartsWith, string> = {
+  'new-design': 'Press New design',
+  'start-drawing': 'Press Start drawing',
+  none: 'Open a design you may change',
+};
+
+const deviceHow = (startsWith: StartsWith): string => `${OPENING[startsWith]}, then drag a device from the Equipment tab onto the rack.`;
+
 export const FIRST_STEPS: readonly FirstStep[] = [
-  { id: 'device', label: 'Add your first device' },
-  { id: 'place', label: 'Put it in a rack or on a wall' },
-  { id: 'paste', label: 'Paste its config', note: 'credentials never kept' },
-  { id: 'cable', label: 'Connect two ports with a cable' },
-  { id: 'trace', label: 'Trace a path between two devices' },
+  { id: 'device', label: 'Add your first device', how: deviceHow('new-design') },
+  { id: 'place', label: 'Put it in a rack or on a wall', how: 'Drag the device onto a rack, a shelf or a wall.' },
+  {
+    id: 'paste',
+    label: 'Paste its config',
+    note: 'credentials never kept',
+    how: "Copy a device's config, then paste it onto the canvas. The sample is a safe place to try.",
+  },
+  { id: 'cable', label: 'Connect two ports with a cable', how: 'Zoom in until a device shows its ports, then drag from one port to another.' },
+  {
+    id: 'trace',
+    label: 'Trace a path between two devices',
+    how: 'Right-click a device and choose Trace from here. In the sample, Try a question has some ready.',
+  },
 ];
+
+/** How to do `step`. The first one names the button this Home really has, so nobody looks for one that is not there. */
+export function howTo(step: FirstStep, startsWith: StartsWith = 'new-design'): string {
+  return step.id === 'device' ? deviceHow(startsWith) : step.how;
+}
+
+/** Which button this Home has for a design of one's own. Until Home has loaded enough to know, it is taken to be
+ * New design, so the words do not change under a reader. */
+export function homeStartsWith(firstHome: boolean, mayMakeDesigns: boolean, known: boolean): StartsWith {
+  if (firstHome) return 'start-drawing';
+  return mayMakeDesigns || !known ? 'new-design' : 'none';
+}
+
+/** The step to do next: the first not yet ticked, or null when all five are. */
+export function nextStep(done: readonly StepId[]): StepId | null {
+  return FIRST_STEPS.find((s) => !done.includes(s.id))?.id ?? null;
+}
 
 export interface FirstStepsState {
   done: StepId[];
@@ -29,9 +69,11 @@ export interface FirstStepsState {
   samples: string[];
   /** Which sample each of those designs was made from, by sample id; a design opened before this was kept has none. */
   sampleOf: Record<string, string>;
+  /** The ticked steps Home has already drawn. One ticked since then ticks itself there, once. */
+  seen: StepId[];
 }
 
-const EMPTY: FirstStepsState = { done: [], hidden: false, samples: [], sampleOf: {} };
+const EMPTY: FirstStepsState = { done: [], hidden: false, samples: [], sampleOf: {}, seen: [] };
 const STEP_IDS = new Set<string>(FIRST_STEPS.map((s) => s.id));
 
 const key = (accountId: string | null | undefined): string => `fathom.firstSteps.${accountId ?? 'local'}`;
@@ -41,8 +83,11 @@ export function loadFirstSteps(accountId: string | null | undefined): FirstSteps
     const raw = localStorage.getItem(key(accountId));
     if (raw == null) return EMPTY;
     const parsed = JSON.parse(raw) as Partial<FirstStepsState>;
+    const done = Array.isArray(parsed.done) ? (parsed.done.filter((s) => STEP_IDS.has(s)) as StepId[]) : [];
     return {
-      done: Array.isArray(parsed.done) ? (parsed.done.filter((s) => STEP_IDS.has(s)) as StepId[]) : [],
+      done,
+      // Kept before `seen` was: every step ticked then has been drawn already.
+      seen: Array.isArray(parsed.seen) ? (parsed.seen.filter((s) => STEP_IDS.has(s)) as StepId[]) : done,
       hidden: parsed.hidden === true,
       samples: Array.isArray(parsed.samples) ? parsed.samples.filter((s): s is string => typeof s === 'string') : [],
       sampleOf:
@@ -92,6 +137,17 @@ export function stepsIn(doc: Document, isSample: boolean): StepId[] {
   });
   if (placed) out.add('place');
   return [...out];
+}
+
+/** The steps ticked since Home last drew the list, in the list's order. */
+export function freshSteps(state: FirstStepsState): StepId[] {
+  return FIRST_STEPS.map((s) => s.id).filter((id) => state.done.includes(id) && !state.seen.includes(id));
+}
+
+/** Home has drawn every ticked step: none of them is fresh the next time. */
+export function markStepsSeen(accountId: string | null | undefined): void {
+  const state = loadFirstSteps(accountId);
+  if (freshSteps(state).length > 0) save(accountId, { ...state, seen: [...state.done] });
 }
 
 /** Ticks what `doc` shows, plus `trace` when a trace ran; returns true when anything new ticked. */

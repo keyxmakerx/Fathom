@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseDesignWork, parseWork, type WorkRow } from '../../api/work';
-import { NO_FILTERS, initialsOfName, loadFilters, saveFilters, isLate, numberOf, sections, sitesOf, stateLine, whereOf, whoOf } from './workModel';
+import { DEVICE_WORDS } from '../drawing/contextMenuItems';
+import { NO_FILTERS, WORK_EMPTY, initialsOfName, loadFilters, saveFilters, isLate, numberOf, sections, sitesOf, stateLine, whereOf, whoOf } from './workModel';
 
 const enc = (o: unknown) => new TextEncoder().encode(JSON.stringify(o));
 
@@ -131,5 +132,13 @@ describe('the Work filters, kept for the session', () => {
     expect(loadFilters(s, 'org1')).toEqual(NO_FILTERS);
     s.setItem('fathom.work.filters.org1', JSON.stringify({ kind: 'nonsense', mine: 'yes', design: 4 }));
     expect(loadFilters(s, 'org1')).toEqual(NO_FILTERS);
+  });
+});
+
+describe('Work with nothing in it', () => {
+  it('says what gathers here and how to start, in the words the Doing menu uses', () => {
+    expect(WORK_EMPTY).toContain(DEVICE_WORDS.planChange.replace('…', ''));
+    expect(WORK_EMPTY).toContain(DEVICE_WORDS.itsDown);
+    expect(WORK_EMPTY).toMatch(/^[A-Z].*\.$/);
   });
 });

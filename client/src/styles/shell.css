@@ -376,8 +376,8 @@ button.shell-search {
   border: var(--rule-hair) solid var(--control-line);
   border-radius: var(--radius-pop);
   background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
   -webkit-backdrop-filter: var(--pop-blur);
+  backdrop-filter: var(--pop-blur);
   box-shadow: var(--shadow-pop);
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
   /* Over the canvas's floating cards (Checks, Plans, trace: --z-modal + 1 to + 3), under toasts. */
@@ -734,8 +734,8 @@ button.shell-admin-pill {
   margin-top: 4px;
   border: var(--rule-hair) solid var(--control-line);
   background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
   -webkit-backdrop-filter: var(--pop-blur);
+  backdrop-filter: var(--pop-blur);
   border-radius: var(--radius-pop);
   box-shadow: var(--shadow-pop);
   padding: 4px;
@@ -762,7 +762,7 @@ button.shell-admin-pill {
   max-height: calc(100dvh - 120px);
 }
 /* Look's widest row is the cable colour pair; it scrolls down, never sideways. */
-.shell-show[aria-label='Look of the drawing'] {
+.shell-show.shell-show--look {
   width: 344px;
 }
 .shell-canvas-bar .shell-popover {
@@ -788,7 +788,7 @@ button.shell-admin-pill {
   cursor: pointer;
 }
 
-.shell-popover__row:hover:not(:disabled) {
+.shell-popover__row:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--control-on);
   box-shadow: none;
 }
@@ -801,9 +801,21 @@ button.shell-admin-pill {
   color: var(--muted);
 }
 
-.shell-popover__row:disabled {
+/* A greyed row. It is marked `aria-disabled` so that it still takes the keyboard (`Popover.tsx`), and is drawn
+   as a disabled button is (`base.css`). */
+.shell-popover__row:disabled,
+.shell-popover__row[aria-disabled='true'] {
   color: var(--muted);
   cursor: default;
+}
+
+.shell-popover__row[aria-disabled='true'] {
+  opacity: 0.45;
+}
+
+/* With the keyboard on it the row is drawn whole, so that its focus ring is whole. It stays the muted colour. */
+.shell-popover__row[aria-disabled='true']:focus-visible {
+  opacity: 1;
 }
 
 /* ---- under the bar ----------------------------------------------------- */
@@ -1049,19 +1061,19 @@ button.shell-admin-pill {
   height: var(--control-h-sm);
 }
 /* Four cable styles do not fit the menu's width in one row: two by two, inside the menu. */
-.shell-show__style[aria-label='Cable style'] .btn-group {
+.shell-show__style.shell-show__style--cables .btn-group {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   flex-basis: 100%;
   height: auto;
 }
-.shell-show__style[aria-label='Cable style'] .btn-group > button {
+.shell-show__style.shell-show__style--cables .btn-group > button {
   min-height: var(--control-h-sm);
 }
-.shell-show__style[aria-label='Cable style'] .btn-group > :nth-child(2n + 1) {
+.shell-show__style.shell-show__style--cables .btn-group > :nth-child(2n + 1) {
   border-left: 0;
 }
-.shell-show__style[aria-label='Cable style'] .btn-group > :nth-child(n + 3) {
+.shell-show__style.shell-show__style--cables .btn-group > :nth-child(n + 3) {
   border-top: var(--rule-hair) solid var(--control-line);
 }
 .shell-show__style .shell-show__hint {
@@ -1142,14 +1154,24 @@ button.shell-admin-pill {
   font-size: var(--t-small);
 }
 
-/* A menu that opens upward (the zoom pill's stops). */
+/* A menu that opens upward (the zoom pill's stops). Centred with `translate`, which leaves `transform` to the
+   arriving animation: centred with `transform`, the menu arrived half its width to one side and then jumped. */
 .shell-popover.shell-popover--above {
   top: auto;
   bottom: 100%;
   left: 50%;
   margin-top: 0;
   margin-bottom: 6px;
-  transform: translateX(-50%);
+  translate: -50% 0;
+  animation-name: fathom-pop-up;
+}
+.shell-popover.shell-popover--above[data-ghost] {
+  animation-name: fathom-pop-out-down !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-popover.shell-popover--above {
+    animation-name: none;
+  }
 }
 
 /* r31-bar A: the drawing's tools, top left on the drawing. Select and Pan (drawn by the canvas) and the Back trail are
@@ -1162,10 +1184,25 @@ button.shell-admin-pill {
   /* Over an opened device (--z-modal + 1): the tool row, with its Back, stays where it is inside one (r116). */
   z-index: calc(var(--z-modal) + 2);
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--s2);
   pointer-events: none;
-  transition: opacity var(--m-layout, 260ms) var(--m-ease, ease);
+}
+/* What the drawing shows when that is not the design as it is now. At the right of the tools' line where the two
+   fit side by side, and on a line of its own under them where they do not: the tools never lie over it. */
+.shell-canvas-bar__note {
+  margin-left: auto;
+  align-self: center;
+  max-width: 100%;
+}
+.shell-canvas-bar__note:empty {
+  display: none;
+}
+/* A sample's card holds the left of the line under the tools (`trace.css`: "Try a question", the practice note). The
+   note keeps to the rest of that line, over two lines of its own where the drawing is narrow. */
+.shell__drawing:has(.trace-questions) .shell-canvas-bar__note {
+  max-width: calc(100% - min(280px, 60%) - var(--s2));
 }
 .shell-canvas-bar__group {
   display: flex;
@@ -1177,6 +1214,7 @@ button.shell-admin-pill {
   border-radius: var(--radius-pop);
   box-shadow: var(--shadow-pop);
   pointer-events: auto;
+  transition: opacity var(--m-layout, 260ms) var(--m-ease, ease);
 }
 .shell-canvas-bar__slot {
   display: contents;
@@ -1204,8 +1242,8 @@ button.shell-admin-pill {
   border-radius: 0;
   background: none;
   box-shadow: none;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   animation: none;
 }
 .shell-canvas-bar .jump-tree {
@@ -1216,6 +1254,50 @@ button.shell-admin-pill {
 }
 .shell-canvas-bar .jump-trail:empty {
   display: none;
+}
+/* Sign-off r147: Back makes room for itself. The row opens for it and closes up behind it, so the tools beside it
+   slide along instead of jumping. One column that grows from nothing to Back's own width; the gap the row keeps
+   after it grows with it. Its still copy (`shell/ghost.ts`) is what the row closes up behind. */
+.shell-canvas-bar .jump-trail {
+  display: grid;
+  grid-template-columns: 1fr;
+  animation: jump-trail-in var(--m-layout) var(--m-ease) backwards;
+}
+.shell-canvas-bar .jump-trail .jump-trail__bar {
+  animation: jump-trail-clip var(--m-layout);
+}
+.shell-canvas-bar .jump-trail[data-ghost] {
+  animation: jump-trail-out var(--m-pop) var(--m-ease) both !important;
+}
+.shell-canvas-bar .jump-trail[data-ghost] .jump-trail__bar {
+  overflow: hidden;
+}
+@keyframes jump-trail-in {
+  from {
+    grid-template-columns: 0fr;
+    margin-right: calc(-1 * var(--s2));
+    opacity: 0;
+  }
+}
+@keyframes jump-trail-out {
+  to {
+    grid-template-columns: 0fr;
+    margin-right: calc(-1 * var(--s2));
+    opacity: 0;
+  }
+}
+/* Only while the column grows are the buttons cut at its edge; after that their focus rings are whole again. */
+@keyframes jump-trail-clip {
+  from,
+  to {
+    overflow: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-canvas-bar .jump-trail,
+  .shell-canvas-bar .jump-trail .jump-trail__bar {
+    animation: none;
+  }
 }
 .shell-canvas-bar__group:has(> .shell-canvas-bar__slot[data-slot='canvas-tools']:empty) {
   padding-left: var(--s2);
@@ -1317,15 +1399,16 @@ button.shell-admin-pill {
   background: var(--ink);
 }
 
-/* r31-motion: the tools step back while something is dragged on the drawing. */
-.shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-canvas-bar,
+/* r31-motion: the tools step back while something is dragged on the drawing. The note of what is on show is not a
+   tool, and stays as it is. */
+.shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-canvas-bar__group,
 .shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-pill {
   opacity: 0.25;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .shell-bar__tabs-mark,
-  .shell-canvas-bar,
+  .shell-canvas-bar__group,
   .shell-pill {
     transition: none;
   }

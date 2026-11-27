@@ -26,8 +26,8 @@
   padding: 0 var(--s2) 0 var(--s4);
   border: var(--rule-hair) solid var(--hairline);
   background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
-  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
   -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
   border-radius: var(--radius-pop, 0);
   box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
   color: var(--ink);

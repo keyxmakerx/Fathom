@@ -4,6 +4,17 @@
   right: var(--s4);
   transform: none;
   width: min(26rem, calc(100% - 2 * var(--s4)));
+  /* Hung from the right with no shift to keep, so it arrives by the shared drop. */
+  animation-name: fathom-pop-in;
+}
+@media (prefers-reduced-motion: reduce) {
+  .paste-card.suggest-card {
+    animation: none;
+  }
+}
+/* With no shift to keep, its copy leaves by the shared motion too. */
+.paste-card.suggest-card[data-ghost] {
+  animation-name: fathom-pop-out !important;
 }
 .suggest-card__line {
   margin: 0 0 var(--s2);

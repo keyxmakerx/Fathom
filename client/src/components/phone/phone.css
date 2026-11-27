@@ -136,6 +136,18 @@
   background: var(--page);
   color: var(--ink);
   overflow-y: auto;
+  /* A whole page laid over the one behind: it fades in, and that one has not moved. */
+  animation: fathom-fade-in var(--m-pop) var(--m-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .phone-scan {
+    animation: none;
+  }
+}
+/* Closed, its still copy fades as it came (`shell/ghost.ts`). With the camera showing it leaves none: a copy of a
+   camera picture is empty. */
+.phone-scan[data-ghost] {
+  animation: fathom-fade-out var(--m-hover) var(--m-ease) both !important;
 }
 .phone-scan__head {
   display: flex;

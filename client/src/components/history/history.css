@@ -103,19 +103,31 @@
   margin: 0 0 var(--s2);
 }
 
-/* Over the canvas while a past save is shown. */
+/* Over the canvas while a past save is shown. The canvas bar places it (`.shell-canvas-bar__note`). */
 .history-banner {
-  position: absolute;
-  top: var(--s3);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s3);
   background: var(--page);
   border: var(--rule-hair) solid var(--hairline);
-  padding: var(--s1) var(--s3);
+  padding: var(--s1) var(--s1) var(--s1) var(--s3);
   font-size: var(--t-small);
   color: var(--ink);
+  /* The words let a press through to the drawing under them. Only the button takes one. */
   pointer-events: none;
+}
+.history-banner__words {
+  /* The words give way before the button does, and go over two lines with no last word left alone. */
+  flex: 1 1 0;
+  min-width: min(100%, 16em);
+  text-wrap: pretty;
+}
+/* The way back to the design as it is now, where the banner says a save is on show. */
+.history-banner__back {
+  flex: none;
+  pointer-events: auto;
+  white-space: nowrap;
 }
 /* What the picked save changed: dashed ink, never a colour. */
 .history-changed {

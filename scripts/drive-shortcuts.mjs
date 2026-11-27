@@ -66,6 +66,26 @@ try {
     await page.waitForSelector('.react-flow__pane', { timeout: 15_000 });
     await page.waitForTimeout(800);
 
+    // What the sheet says of Space: held, a drag on empty canvas moves the view with the select tool on, where a
+    // drag alone draws a box to select with and leaves the view where it is.
+    const camera = () => page.evaluate(() => document.querySelector('.react-flow__viewport')?.style.transform ?? '');
+    const pane = await page.locator('.react-flow__pane').boundingBox();
+    const drag = async () => {
+      await page.mouse.move(pane.x + 40, pane.y + pane.height - 40);
+      await page.mouse.down();
+      await page.mouse.move(pane.x + 140, pane.y + pane.height - 110, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+    };
+    await page.keyboard.press('v');
+    const atStart = await camera();
+    await drag();
+    const afterDrag = await camera();
+    await page.keyboard.down('Space');
+    await drag();
+    await page.keyboard.up('Space');
+    check(`[${scheme}] with the select tool on a drag leaves the view, and a drag with Space held moves it`, afterDrag === atStart && (await camera()) !== atStart, `${atStart} | ${afterDrag} | ${await camera()}`);
+
     const button = page.getByTestId('shell-shortcuts');
     check(`[${scheme}] the "?" button is in the bar`, (await button.count()) === 1);
     check(`[${scheme}] it sits just before the account square`, await page.evaluate(() => {
@@ -82,6 +102,7 @@ try {
     await sheet.waitFor({ timeout: 5_000 });
     const text = await sheet.innerText();
     for (const g of ['Canvas', 'Selection', 'Editing', 'Find', 'Lists and panels']) check(`[${scheme}] the sheet shows ${g}`, text.toLowerCase().includes(g.toLowerCase()), text);
+    check(`[${scheme}] the sheet lists holding Space to drag the view`, /hold space and drag to move the view/i.test(text));
     await page.screenshot({ path: SHOTS + `shortcuts-sheet-${scheme}.png` });
     await page.evaluate(() => { const b = document.querySelector('.shortcuts-sheet__body'); const s = document.querySelector('.shortcuts-sheet'); for (const el of [b, s]) if (el) el.scrollTop = el.scrollHeight; });
     await page.waitForTimeout(200);

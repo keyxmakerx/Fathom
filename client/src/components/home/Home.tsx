@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 import { signOut } from '../../api/auth';
 import {
@@ -22,7 +22,8 @@ import { About } from '../about/About';
 import { ACCOUNT_PLANE, getSessionOn } from '../../state/sessionState';
 import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
 import { AwaitingSteward } from './AwaitingSteward';
-import { PracticeWelcome, type OwnNetworkOffer, type PracticeOffer } from './PracticeWelcome';
+import { OwnNetworkCard, PracticeWelcome, type OwnNetworkOffer, type PracticeOffer } from './PracticeWelcome';
+import { ownNetworkLater } from './ownNetwork';
 import { PlaceFields, type Loadable } from '../organisation/FoldersPanel';
 import { kindForLevel } from '../organisation/place';
 import { fetchAi } from '../../api/ai';
@@ -41,7 +42,7 @@ import { TeamsPage } from '../teams/TeamsPage';
 import { newDesignTarget } from './newDesign';
 import { RecentRow } from './RecentRow';
 import { whenLabel } from '../history/HistoryPanel';
-import { loadFirstSteps, rememberSample, setFirstStepsHidden, type FirstStepsState } from './firstSteps';
+import { freshSteps, homeStartsWith, loadFirstSteps, markStepsSeen, rememberSample, setFirstStepsHidden, type FirstStepsState } from './firstSteps';
 import { GettingStarted, SampleCard } from './GettingStarted';
 import { HOME_SAMPLE, modelsFor } from './sampleModels';
 import { buildSample, sample, sampleModels, type SamplePaste, type SampleSpec } from './sampleNetwork';
@@ -296,6 +297,16 @@ export function Home({
   useEffect(() => {
     if (organisationCount !== null && organisationCount > 0) clearJoinedFromInvitation(address);
   }, [organisationCount, address]);
+  // Sign-off r147: "Start your own network" stays on offer after the practice space is made, as a quiet button in
+  // the rail; pressed, its card opens at the top of the Designs tab, where the welcome had it.
+  const ownLater = ownNetworkLater(own !== undefined, waitingInvitee, realOrganisations.length, practiceOrganisations.length);
+  const [ownOpen, setOwnOpen] = useState(false);
+  // A first step ticked since Home last drew the list ticks itself here, once: the next visit finds it seen.
+  const stepsJustTicked = useMemo(() => freshSteps(firstSteps), [firstSteps]);
+  const stepsShown = !firstSteps.hidden && !waitingInvitee;
+  useEffect(() => {
+    if (stepsShown && stepsJustTicked.length > 0) markStepsSeen(accountId);
+  }, [stepsShown, stepsJustTicked, accountId]);
   useEffect(() => {
     onWaitingInviteeChange?.(waitingInvitee);
   }, [waitingInvitee, onWaitingInviteeChange]);
@@ -332,6 +343,12 @@ export function Home({
     (scopes.status === 'ready' && scopes.value.some((scope) => canDrawFor(scope.capability))) ||
     (organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && (org.role === 'admin' || org.practice)));
   const inOrganisation = organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId);
+  // The first step names the button that is really here: the welcome's Start drawing, Home's New design, or neither.
+  const startsWith = homeStartsWith(
+    organisationCount === 0 && practice !== undefined && !waitingInvitee,
+    canMakeDesigns,
+    organisations.status !== 'loading' && (selectedOrgId === null || scopes.status !== 'loading'),
+  );
   // ADR-0081: Teams is for someone in, leading or supervising a team here.
   const [inTeam, setInTeam] = useState(false);
   useEffect(() => {
@@ -607,6 +624,21 @@ export function Home({
                 Claim an organisation
               </button>
             )}
+            {ownLater && (
+              <button
+                type="button"
+                className="home__btn btn-small home__own-ask"
+                aria-expanded={ownOpen && shownTab === 'designs'}
+                data-testid="own-network-ask"
+                onClick={() => {
+                  const showing = ownOpen && shownTab === 'designs';
+                  setOwnOpen(!showing);
+                  if (!showing && shownTab !== 'designs') selectTab('designs');
+                }}
+              >
+                Start your own network
+              </button>
+            )}
           </>
         )}
         {organisations.status === 'ready' && realOrganisations.length > 0 && (
@@ -661,11 +693,20 @@ export function Home({
           </p>
         )}
         <div className="home__title">{selectedOrganisation?.displayName ?? 'Home'}</div>
+        {organisations.status === 'ready' && organisations.value.length === 0 && waitingInvitee && <AwaitingSteward address={address} />}
+        <HomeTabs tabs={tabs} current={shownTab} onSelect={selectTab} testIds={{ designs: 'home-designs', admin: 'console-entry' }} />
+        {/* Sign-off r147: the welcome is what the Designs tab holds on first Home, so it sits under the tabs. */}
         {shownTab === 'designs' && organisations.status === 'ready' && organisations.value.length === 0 && practice && !waitingInvitee && (
           <PracticeWelcome address={address} offer={practice} onOpen={() => void practice.onMake()} own={own} />
         )}
-        {organisations.status === 'ready' && organisations.value.length === 0 && waitingInvitee && <AwaitingSteward address={address} />}
-        <HomeTabs tabs={tabs} current={shownTab} onSelect={selectTab} testIds={{ designs: 'home-designs', admin: 'console-entry' }} />
+        {shownTab === 'designs' && ownLater && ownOpen && own && (
+          <section className="home__section home-own" data-testid="home-own">
+            <OwnNetworkCard offer={own} />
+            <button type="button" className="about-link" onClick={() => setOwnOpen(false)}>
+              Not now
+            </button>
+          </section>
+        )}
 
         {(shownTab === 'organisation' || shownTab === 'ai') && selectedOrganisation && (
           <OrganisationTab
@@ -822,7 +863,7 @@ export function Home({
 
       <aside className="home__panel">
         {!firstSteps.hidden && !waitingInvitee && (
-          <GettingStarted done={firstSteps.done} onHide={() => hideFirstSteps(true)} />
+          <GettingStarted done={firstSteps.done} fresh={stepsJustTicked} startsWith={startsWith} onHide={() => hideFirstSteps(true)} />
         )}
         <div className="home__label">You</div>
         <div className="home__you-address m">{address}</div>

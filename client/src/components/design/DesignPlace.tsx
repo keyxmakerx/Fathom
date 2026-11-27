@@ -7,8 +7,10 @@ import { useFieldDefinitions } from './useFieldDefinitions';
 import { asString, fieldValue, findNode, isNodeOfKind, type Document } from '../../document/model';
 import { WorkPlaceContext, type WorkPlace } from '../work/WorkFields';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
-import { skippedSentence } from '../../document/liveDoc';
-import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
+import { pressAgainSentence, skippedSentence } from '../../document/liveDoc';
+import { whoWord } from '../collab/changesSince';
+import { notOffered, refusedSentence } from './undoWords';
+import { UndoConflictError, redo as redoBatch, redoSkipping, stepsWithout, undo as undoBatch, undoSkipping, undoSteps } from '../../document/undo';
 import { describeRestore, outlineSelectors } from '../../document/historyDiff';
 import { restoreTo } from '../../document/restore';
 import { viewOf } from '../../document/view';
@@ -52,10 +54,11 @@ import { PasteGateBoundary } from '../paste/PasteGateBoundary';
 import { RacksPlace } from '../racks/RacksPlace';
 import { useDesignEngine } from './useDesignEngine';
 import { Trail } from '../racks/Trail';
-import { redoable } from '../racks/trail';
+import { useGhostRef } from '../shell/ghost';
 import type { PaletteAction } from '../shell/palette';
 import { PaletteRegistryContext, createPaletteRegistry } from '../shell/paletteRegistry';
 import { ShortcutsSheet } from '../shell/ShortcutsSheet';
+import { EDITS_OFF } from '../shell/hintWords';
 import { isTypingTarget, matches, shortcutText } from '../shell/shortcuts';
 import { createThingsFinder } from '../shell/thingsSearch';
 import { applyTheme, getStoredTheme } from '../../theme';
@@ -146,6 +149,16 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
  * local edit inside that window simply restarts the wait for its own,
  * later snapshot — never marks the earlier one sealed early. */
 const SEAL_SETTLE_MS = 1_500;
+/** Before a design is open, or with nobody signed in: nothing to undo or redo. */
+const NO_STEPS: ReturnType<typeof undoSteps> = { undo: [], redo: [] };
+const NONE_SET_ASIDE: ReadonlySet<string> = new Set();
+
+/** What a failed undo or redo says in the trail. A refusal says who and what stood in the way, then what pressing
+ * again does when a step stands behind the refused one. Any other failure says itself. */
+function failureSaid(doc: Document, error: unknown, press: 'undo' | 'redo', more: boolean, nameOf: (account: string) => string): string {
+  if (error instanceof UndoConflictError) return [refusedSentence(doc, error.conflict, press, nameOf), pressAgainSentence(press, more)].filter(Boolean).join(' ');
+  return error instanceof Error ? error.message : `That ${press} did not complete.`;
+}
 
 export function DesignPlace(props: DesignPlaceProps) {
   const { organisationId, organisationName = '', designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, scanRequest, onOpenScan, ...shellProps } = props;
@@ -204,6 +217,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const history = useHistory(organisationId, designId, historyOpen, session.doc?.batches.length ?? 0);
   const aiIdeas = useAiIdeas(organisationId, designId);
   const [aiIdeasOpen, setAiIdeasOpen] = useState(false);
+  const ideasSheetRef = useGhostRef<HTMLDivElement>();
   // An AI idea's proposed change shown on the canvas before anyone accepts it.
   const aiPreview = useMemo(createAiPreviewStore, []);
   const aiPreviewDoc = useSyncExternalStore(aiPreview.subscribe, () => aiPreview.get().doc, () => aiPreview.get().doc);
@@ -373,59 +387,86 @@ export function DesignPlace(props: DesignPlaceProps) {
   }, [session.doc, session.saveRefusal]);
 
   // ------------------------------------------------------------------
-  // ADR-0053 §1/§3 — undo/redo, live off `undoable`/`trail.ts`'s own
-  // `redoable`, computed here (above where Racks and Inventory are chosen
-  // between) so the bar's Undo/Redo chips work the same in either place —
-  // ADR-0046 §2's "one editor" extended to one undo.
+  // ADR-0053 §1/§3 — undo/redo, live off `undoSteps`, computed here (above
+  // where Racks and Inventory are chosen between) so the bar's Undo/Redo
+  // chips work the same in either place — ADR-0046 §2's "one editor"
+  // extended to one undo. Undo takes the first of its steps and Redo the
+  // first of its own, so each press goes one change further. A step a press could take nothing of back is set
+  // aside (`stepsWithout`): someone else has changed all of it since, or it was refused. The press says why, and
+  // the next one goes on to the step behind it instead of trying the same one for ever.
   const doc = session.doc;
-  const undoCandidates = doc != null && accountId != null ? undoable(doc, accountId) : [];
-  const redoCandidate = doc != null && accountId != null ? redoable(doc, accountId) : undefined;
+  const [setAside, setSetAside] = useState<ReadonlySet<string>>(NONE_SET_ASIDE);
+  const putAside = useCallback((batchId: string) => setSetAside((was) => new Set(was).add(batchId)), []);
+  const steps = useMemo(() => (doc != null && accountId != null ? stepsWithout(undoSteps(doc, accountId), setAside) : NO_STEPS), [doc, accountId, setAside]);
+  const undoCandidates = steps.undo;
+  const redoCandidate = steps.redo[0];
   const [undoRefusal, setUndoRefusal] = useState<string | null>(null);
   // The trail starts folded; a refused undo or redo opens it so the refusal is seen.
   const [trailOpen, setTrailOpen] = useState(() => loadResume(accountId, designId).tab === 'trail');
+  // What the last press of Undo or Redo said in the live note. A press with nothing to say puts that note away
+  // if it is still showing: it spoke of the press before, and of what this one has now done.
+  const pressSaidRef = useRef<string | null>(null);
+  // Whoever changed it since, as every history writes them: a name, or "a colleague".
+  const personName = useCallback((account: string) => whoWord(account, accountId, designId), [accountId, designId]);
+  const sayOfPress = useCallback(
+    (sentence: string | null) => {
+      if (sentence != null) session.tell(sentence);
+      else if (pressSaidRef.current != null && session.live.note === pressSaidRef.current) session.dismissNote();
+      pressSaidRef.current = sentence;
+    },
+    [session],
+  );
 
   const handleUndo = useCallback(() => {
     if (!session.canDraw) return; // ADR-0052 §5: a reader undoes nothing, even via a stray Ctrl+Z
     if (doc == null || accountId == null) return;
     const target = undoCandidates[0];
     if (target == null) return;
+    const more = undoCandidates.length > 1;
     try {
       if (session.live.mode !== 'legacy') {
         // Live: a field another person has changed since is left alone, and said so.
         const r = undoSkipping(doc, target.id, { actor: accountId, now: Date.now() });
         if (r.doc !== doc) session.applyDocChange(r.doc);
-        if (r.skipped.length > 0) session.tell(skippedSentence(r.skipped, r.doc === doc));
+        else putAside(target.id);
+        sayOfPress(r.skipped.length > 0 ? skippedSentence(r.skipped, r.doc === doc, 'undo', more, personName) : null);
       } else {
         session.applyDocChange(undoBatch(doc, target.id, { actor: accountId, now: Date.now() }));
       }
       setUndoRefusal(null);
     } catch (error) {
-      setUndoRefusal(error instanceof Error ? error.message : 'That undo did not complete.');
+      // A refused step is set aside, so the next press goes on. Any other failure may pass, and the step stays.
+      setUndoRefusal(failureSaid(doc, error, 'undo', more, personName));
       setTrailOpen(true);
+      sayOfPress(null);
+      if (error instanceof UndoConflictError) putAside(target.id);
     }
-    // `undoCandidates` is recomputed fresh every render from `doc`/`accountId`, both already
-    // listed.
+    // `undoCandidates` is read off `steps`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, accountId, session]);
+  }, [doc, accountId, session, steps, putAside, sayOfPress, personName]);
 
   const handleRedo = useCallback(() => {
     if (!session.canDraw) return; // ADR-0052 §5: a reader redoes nothing, even via a stray Ctrl+Shift+Z
     if (doc == null || accountId == null || redoCandidate == null) return;
+    const more = steps.redo.length > 1;
     try {
       if (session.live.mode !== 'legacy') {
         const r = redoSkipping(doc, redoCandidate.id, { actor: accountId, now: Date.now() });
         if (r.doc !== doc) session.applyDocChange(r.doc);
-        if (r.skipped.length > 0) session.tell(skippedSentence(r.skipped, r.doc === doc));
+        else putAside(redoCandidate.id);
+        sayOfPress(r.skipped.length > 0 ? skippedSentence(r.skipped, r.doc === doc, 'redo', more, personName) : null);
       } else {
         session.applyDocChange(redoBatch(doc, redoCandidate.id, { actor: accountId, now: Date.now() }));
       }
       setUndoRefusal(null);
     } catch (error) {
-      setUndoRefusal(error instanceof Error ? error.message : 'That redo did not complete.');
+      setUndoRefusal(failureSaid(doc, error, 'redo', more, personName));
       setTrailOpen(true);
+      sayOfPress(null);
+      if (error instanceof UndoConflictError) putAside(redoCandidate.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, accountId, session]);
+  }, [doc, accountId, session, steps, putAside, sayOfPress, personName]);
 
   // ------------------------------------------------------------------
   // ADR-0053 §4 — "a comment on a pending change is a batch field." Held
@@ -687,6 +728,12 @@ export function DesignPlace(props: DesignPlaceProps) {
   // ADR-0075: the field view. A scanned label opens its item's ordinary Inventory page, the way
   // openFirmwareModel lands on a model; anything that is not a label is looked up in Find.
   const phone = usePhone();
+  // Undo and Redo are greyed for one of a few reasons, and say which (`notOffered`). The list of saves open with
+  // none chosen is not one of them: the drawing is the design as it is and can be changed, so a change can be
+  // taken back, as Ctrl+Z on the drawing always could.
+  const editsNow = { canDraw: session.canDraw, phoneCanvas: phone && props.place === 'racks', lookingBack: pickedSave != null };
+  const undoOff = notOffered('undo', { ...editsNow, any: undoCandidates.length > 0 });
+  const redoOff = notOffered('redo', { ...editsNow, any: redoCandidate != null });
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const goToInventory = useCallback(
@@ -836,27 +883,26 @@ export function DesignPlace(props: DesignPlaceProps) {
               label: 'Undo',
               hint: shortcutText('undo'),
               keywords: ['back', 'revert'],
-              disabled: undoCandidates.length === 0 || historyOpen ? 'Nothing to undo' : undefined,
+              disabled: undoOff != null ? EDITS_OFF[undoOff].short : undefined,
               run: handleUndo,
             },
             {
               id: 'redo',
               label: 'Redo',
               hint: shortcutText('redo'),
-              disabled: redoCandidate == null || historyOpen ? 'Nothing to redo' : undefined,
+              disabled: redoOff != null ? EDITS_OFF[redoOff].short : undefined,
               run: handleRedo,
             },
           ]
         : []),
       ...(doc != null ? [{ id: 'print', label: 'Print', hint: shortcutText('print'), keywords: ['export', 'pdf', 'cut sheet'], run: openPrintPanel }] : []),
-      ...(doc != null ? [{ id: 'history', label: historyOpen ? 'Close History' : 'Open History', keywords: ['saves', 'restore', 'past'], run: () => toggleHistory() }] : []),
+      // Not in the field view: it draws no side panels, so there would be nothing to open.
+      ...(doc != null && !phone ? [{ id: 'history', label: historyOpen ? 'Close History' : 'Open History', keywords: ['saves', 'restore', 'past'], run: () => toggleHistory() }] : []),
       { id: 'learn', label: 'Open Learn', keywords: ['explainers', 'teach', 'lesson', 'help'], run: () => learn.setView({ kind: 'library' }) },
       ...(doc != null && session.canDraw && !isLessonCopy && pickedSave == null
         ? [{ id: 'build-lesson', label: builderOpen ? 'Close the lesson builder' : 'Build a lesson', keywords: ['lesson', 'teach', 'course', 'quiz'], run: () => setBuilderOpen(!builderOpen) }]
         : []),
       ...(doc != null && pickedSave == null ? [{ id: 'docs', label: 'Open Docs', keywords: ['documentation', 'notes'], run: () => docs.setView({ kind: 'list' }) }] : []),
-      { id: 'racks', label: 'Show Racks', keywords: ['canvas', 'drawing'], disabled: props.place === 'racks' ? 'Already showing' : undefined, run: () => onPlaceChange('racks') },
-      { id: 'inventory', label: 'Show Inventory', keywords: ['list', 'table'], disabled: props.place === 'inventory' ? 'Already showing' : undefined, run: () => onPlaceChange('inventory') },
       { id: 'shortcuts', label: 'Show keyboard shortcuts', hint: shortcutText('shortcuts'), keywords: ['keys', 'help'], run: () => setShortcutsOpen(true) },
       {
         id: 'theme',
@@ -878,6 +924,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         doc={doc}
         accountId={accountId}
         accountAddress={accountAddress}
+        designId={designId}
         sealedBatchIds={sealedBatchIds}
         undoRefusal={undoRefusal}
         pendingComment={pendingComment}
@@ -973,8 +1020,12 @@ export function DesignPlace(props: DesignPlaceProps) {
     resume: { accountId, designId },
     trailOpen,
     onTrailOpenChange: setTrailOpen,
-    canUndo: session.canDraw && !(phone && props.place === 'racks') && undoCandidates.length > 0 && !historyOpen,
-    canRedo: session.canDraw && !(phone && props.place === 'racks') && redoCandidate != null && !historyOpen,
+    canUndo: undoOff == null,
+    canRedo: redoOff == null,
+    undoOff,
+    redoOff,
+    // The chip beside them says the same reason, where it would say this person may only look.
+    viewOnlyWhy: undoOff === 'save' || undoOff === 'phoneCanvas' ? undoOff : null,
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,
@@ -998,14 +1049,31 @@ export function DesignPlace(props: DesignPlaceProps) {
   // either is actually open, never on every render of the place itself.
   const printView = printMode !== 'closed' && session.doc != null ? viewOf(session.doc, session.catalogue) : null;
 
-  const toggleHistory = () => {
-    if (historyOpen) {
-      setHistoryOpen(false);
-      return;
-    }
-    if (props.place !== 'racks') onPlaceChange('racks');
-    setHistoryOpen(true);
-  };
+  // History opens beside whatever is on screen: the list of saves reads the same everywhere.
+  const toggleHistory = () => setHistoryOpen(!historyOpen);
+  // A past save is drawn on the canvas and nowhere else, so looking at one from another view goes there.
+  const historyHere: typeof history =
+    props.place === 'racks'
+      ? history
+      : {
+          ...history,
+          pickVersion: (version) => {
+            onPlaceChange('racks');
+            return history.pickVersion(version);
+          },
+        };
+  // Away from the canvas no save is being looked at: the other views show the design as it is, and a save still
+  // marked as picked beside them would say otherwise. Leaving the canvas goes back to now.
+  const backToNow = history.back;
+  const lookingBack = history.picked != null;
+  useEffect(() => {
+    if (props.place !== 'racks' && lookingBack) backToNow();
+  }, [props.place, lookingBack, backToNow]);
+  // The field view draws no side panels (phone.css). History left open there would grey Undo with nothing on screen
+  // to say why, so a window narrowed to it closes History.
+  useEffect(() => {
+    if (phone && historyOpen) setHistoryOpen(false);
+  }, [phone, historyOpen]);
   // The sample as it was made: its first save (r30-small's Reset sample).
   const loadFirstSave = async () => {
     const saves = await fetchHistory(organisationId, designId);
@@ -1038,7 +1106,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     ? {
         panel: (
           <HistoryPanel
-            history={history}
+            history={historyHere}
             nameOf={historyNameOf}
             designId={designId}
             accountId={accountId}
@@ -1050,7 +1118,10 @@ export function DesignPlace(props: DesignPlaceProps) {
         ),
         banner:
           pickedSave != null
-            ? `Showing the design just after ${whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0)} · what changed is outlined`
+            ? {
+                words: `Showing the design just after ${whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0)} · what changed is outlined`,
+                onBack: history.back,
+              }
             : null,
       }
     : undefined;
@@ -1168,6 +1239,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : (
       <InventoryPlace
         {...sharedShellProps}
+        history={historyView?.panel}
         engine={designEngine}
         sideTabs={designSideTabs.length > 0 ? designSideTabs : undefined}
         aiTargets={aiIdeas.targets}
@@ -1287,7 +1359,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         />
       )}
       {phone && aiIdeasOpen && (
-        <div className="phone-scan" role="dialog" aria-modal="true" aria-label="AI ideas">
+        <div className="phone-scan" role="dialog" aria-modal="true" aria-label="AI ideas" ref={ideasSheetRef}>
           <div className="phone-scan__head">
             <span className="phone-scan__title">AI ideas</span>
             <button type="button" className="phone-scan__close" onClick={() => setAiIdeasOpen(false)}>
@@ -1314,7 +1386,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         redoBatchId={redoCandidate?.id ?? null}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        suppressed={historyOpen || !session.canDraw}
+        suppressed={pickedSave != null || !session.canDraw}
       />
       {sharing && (
         <SharePanel organisationId={organisationId} scopeId={scopeId} title={designLabel} onClose={() => setSharing(false)} />

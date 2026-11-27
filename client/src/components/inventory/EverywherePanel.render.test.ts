@@ -38,5 +38,6 @@ describe('Inventory › Every site', () => {
 
   it('says how many designs it looked in and how many are catching up', () => {
     expect(coverageSentence(answer)).toBe('Looked in 14 designs you can open. 2 of them are still being brought up to date, so a recent change may not show yet.');
+    expect(coverageSentence({ designs: 3, behind: 1 })).toBe('Looked in 3 designs you can open. 1 of them is still being brought up to date, so a recent change may not show yet.');
   });
 });

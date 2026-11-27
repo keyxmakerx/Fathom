@@ -21,6 +21,7 @@ import { vlanLabel, type PrefixRow, type VlanKindRow } from '../../document/ipam
 import type { CableEnd, ClosetView, Selection } from '../drawing/contract';
 import { ABSENT, UNNAMED_HOSTNAME } from '../drawing/contract';
 import type { Lens } from '../shell/lens';
+import { headRoom } from './headRoom';
 import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './rows';
 import type { Place, PlaceIndex } from './placeIndex';
 import type { FacetSpec } from './rowQuery';
@@ -178,10 +179,11 @@ export function placeFacets(places: readonly Place[]): Record<string, string[]> 
 // ---------------------------------------------------------------------------
 // Columns
 
+/** `width` is the least the column takes; it grows to whatever its head needs to show in full. */
 const core = (key: string, label: string, width: number, extra: Partial<Column> = {}): Column => ({
   key,
   label,
-  width,
+  width: Math.max(width, headRoom(label)),
   editable: false,
   type: 'text',
   ...extra,
@@ -310,7 +312,7 @@ export function allColumns(kind: Kind, defs: readonly FieldDefView[]): Column[] 
       cols.push({
         key: `field:${def.id}`,
         label: def.name,
-        width: def.type === 'text' ? 140 : 100,
+        width: Math.max(def.type === 'text' ? 140 : 100, headRoom(def.name)),
         editable: true,
         type: def.type === 'choice' ? 'select' : def.type,
         options: def.type === 'choice' ? def.choices : undefined,

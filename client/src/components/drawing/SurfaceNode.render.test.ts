@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { FixtureView, SurfaceView } from '../../document/view';
 import type { InletView, PortView } from './contract';
-import { LiveStoreProvider, createLiveStore } from './liveStore';
+import { LiveStoreProvider, createLiveStore, type LiveState } from './liveStore';
 import type { SurfacePlacement } from './rows';
 import { mmToPx } from './rows';
 import { SurfaceNode, type SurfaceNodeData, type SurfaceNodeType } from './SurfaceNode';
@@ -75,8 +75,10 @@ function placement(s: SurfaceView, overrides: Partial<SurfacePlacement> = {}): S
 
 // `liveDrag`/`litCableId` live in `liveStore.ts`, not on `data` — a fresh,
 // empty store gives every test below `liveDrag: null`, `litCableId: null`.
-function renderSurface(data: SurfaceNodeData): string {
+// `live` sets what a test needs of it, such as the camera being close enough for ports to be drawn.
+function renderSurface(data: SurfaceNodeData, live: Partial<LiveState> = {}): string {
   const store = createLiveStore();
+  store.setState(live);
   return renderToStaticMarkup(
     createElement(
       ReactFlowProvider,
@@ -145,6 +147,17 @@ describe('SurfaceNode (render-to-string)', () => {
     expect(markup).not.toContain('drawing-surface__fixture-anchor');
   });
 
+  it('a selected fixture is marked, whether the selection names it a fixture or a chassis, and no other is', () => {
+    const cam = fixture({ id: 'cam-1', label: 'camera-1', kind: 'chassis', xMm: 0, yMm: 0 });
+    const other = fixture({ id: 'cam-2', label: 'camera-2', kind: 'chassis', xMm: 600, yMm: 0 });
+    const s = surface({ id: 'wall-out', label: 'Outside wall', form: 'wall', fixtures: [cam, other] });
+    const marked = (markup: string) => [...markup.matchAll(/data-device-chassis="([^"]+)" class="([^"]*)"/g)].filter((m) => m[2]!.includes('drawing-surface__fixture--selected')).map((m) => m[1]);
+    expect(marked(renderSurface(baseData({ placement: placement(s) })))).toEqual([]);
+    expect(marked(renderSurface(baseData({ placement: placement(s) }), { selected: { kind: 'fixture', id: 'cam-1' } }))).toEqual(['cam-1']);
+    expect(marked(renderSurface(baseData({ placement: placement(s) }), { selected: { kind: 'chassis', id: 'cam-2' } }))).toEqual(['cam-2']);
+    expect(marked(renderSurface(baseData({ placement: placement(s) }), { selected: { kind: 'rack', id: 'cam-1' } }))).toEqual([]);
+  });
+
   it('a fixture with no catalogue entry (model: null) is marked typed, not blank', () => {
     const f = fixture({ id: 'nuc-01', label: 'nuc-01', xMm: 0, yMm: 0, model: null });
     const s = surface({ id: 'wall-west', label: 'west wall', form: 'wall', fixtures: [f] });
@@ -172,6 +185,71 @@ describe('SurfaceNode (render-to-string)', () => {
     const s = surface({ id: 'wall-west', label: 'west wall', form: 'wall', fixtures: [f] });
     const markup = renderSurface(baseData({ placement: placement(s) }));
     expect(markup).toContain('data-port-id="outlet-port-1"');
+  });
+
+  it("a fixture's port says what it is, as the button's tip and as its name: a rack port's words", () => {
+    const cable = { cableId: 'c1', farPortId: 'far', farChassisId: 'sw-01', outsideCloset: false };
+    const f = fixture({
+      id: 'switch-2',
+      label: 'switch-2',
+      xMm: 0,
+      yMm: 0,
+      ports: [port({ id: 'sw2-1', label: '1', cable }), port({ id: 'sw2-4', label: '4' })],
+    });
+    const s = surface({ id: 'wall-office', label: 'Office', form: 'wall', fixtures: [f] });
+    const markup = renderSurface(baseData({ placement: placement(s) }), { showPortGlyphs: true });
+    // The tip is on the button; the name comes from the picture inside it, in the same words.
+    expect(markup).toMatch(/<button type="button" data-port-id="sw2-1" title="Port 1 · RJ45 · cabled"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 1 · RJ45 · cabled"/);
+    expect(markup).toMatch(/<button type="button" data-port-id="sw2-4" title="Port 4 · RJ45 · free"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 4 · RJ45 · free"/);
+    // Not the bare label alone, which said "1".
+    expect(markup).not.toContain('aria-label="1"');
+    expect(markup).not.toContain('aria-label="4"');
+  });
+
+  it("a fixture's port has no tip while the camera is too far out for it to be drawn, and keeps its name", () => {
+    const f = fixture({ id: 'switch-2', label: 'switch-2', xMm: 0, yMm: 0, ports: [port({ id: 'sw2-4', label: '4' })] });
+    const s = surface({ id: 'wall-office', label: 'Office', form: 'wall', fixtures: [f] });
+    const markup = renderSurface(baseData({ placement: placement(s) }));
+    expect(markup).toMatch(/<button type="button" data-port-id="sw2-4" class="[^"]*"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 4 · RJ45 · free"/);
+    expect(markup).not.toContain('title="Port 4');
+  });
+
+  // The style sheet hides a row marked so (`visibility: hidden`): its buttons take no Tab stop and no press, and
+  // nothing in it is read out. A wall port that was not drawn once took both, and a press there jumped the zoom.
+  it("a fixture's ports and inlets are marked out of reach until the camera is close enough to draw them", () => {
+    const f = fixture({ id: 'ups-1', label: 'ups-1', xMm: 0, yMm: 0, ports: [port({ id: 'ups-eth', label: 'eth0' })], psuInlets: [inlet({ id: 'ups-in', label: 'inlet', slot: 'PSU1' })] });
+    const s = surface({ id: 'wall-office', label: 'Office', form: 'wall', fixtures: [f] });
+    const rows = (markup: string) => [...markup.matchAll(/class="(drawing-surface__port-row[^"]*)"/g)].map((m) => m[1]);
+    expect(rows(renderSurface(baseData({ placement: placement(s) })))).toEqual(['drawing-surface__port-row drawing-surface__port-row--undrawn', 'drawing-surface__port-row drawing-surface__port-row--undrawn']);
+    expect(rows(renderSurface(baseData({ placement: placement(s) }), { showPortGlyphs: true }))).toEqual(['drawing-surface__port-row', 'drawing-surface__port-row']);
+  });
+
+  // A double-click opens a device (`doubleClick.ts`). Without `nopan` the canvas took the double-click as its own
+  // and doubled the zoom. A passive thing has nothing to open, and the canvas keeps a double-click on it.
+  it('a device on a wall keeps a double-click from the canvas, and a passive thing does not', () => {
+    const device = fixture({ id: 'camera-1', label: 'camera-1', kind: 'chassis', xMm: 0, yMm: 0 });
+    const passive = fixture({ id: 'outlet-1', label: 'outlet-1', xMm: 400, yMm: 0 });
+    const s = surface({ id: 'wall-out', label: 'Outside wall', form: 'wall', fixtures: [device, passive] });
+    const markup = renderSurface(baseData({ placement: placement(s) }));
+    const boxes = [...markup.matchAll(/<div (?:data-device-chassis="([^"]*)" )?class="(drawing-surface__fixture(?: [^"]*)?)"/g)].map((m) => [m[1] ?? null, m[2]!.split(' ').includes('nopan')]);
+    expect(boxes).toEqual([
+      ['camera-1', true],
+      [null, false],
+    ]);
+  });
+
+  it("a fixture's inlet has its tip on the button too, in the words its picture has", () => {
+    const f = fixture({
+      id: 'ont-01',
+      label: 'ont-01',
+      xMm: 0,
+      yMm: 0,
+      psuInlets: [inlet({ id: 'ont-inlet-1', label: 'inlet', slot: 'PSU1' }), inlet({ id: 'ont-inlet-2', label: 'inlet', slot: 'PSU2', fitted: false })],
+    });
+    const s = surface({ id: 'wall-west', label: 'west wall', form: 'wall', fixtures: [f] });
+    const markup = renderSurface(baseData({ placement: placement(s) }));
+    expect(markup).toMatch(/<button type="button" data-port-id="ont-inlet-1" title="PSU1 — fitted, no lead"[^>]*>\s*<svg[^>]*aria-label="PSU1 — fitted, no lead"/);
+    expect(markup).toMatch(/<button type="button" data-port-id="ont-inlet-2" title="PSU2 — not fitted"[^>]*>\s*<svg[^>]*aria-label="PSU2 — not fitted"/);
   });
 
   it("a fixture's own PSU inlets always draw, regardless of portOpacity", () => {

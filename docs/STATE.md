@@ -350,7 +350,37 @@ breadcrumb does one thing. The open design's name ends in an ellipsis past 32 ch
 tooltip), and someone who may draw renames it in place: a pencil on hover, a double-click, or Rename… at
 the top of its menu (Enter or leaving the field saves, Esc cancels). The bar shows five people, then one
 **+N** that lists the rest; each name selects what that person has selected. Fathom's button, field and
-focus styles stay inside the app, so a password manager's own controls keep their look.
+focus styles stay inside the app, so a password manager's own controls keep their look. A rule that frosts
+writes `-webkit-backdrop-filter` first and `backdrop-filter` second: written the other way round, the build's
+minifier dropped the second line and the built app drew no blur in Chromium, while `npm run dev` drew it
+(`styles/frost.test.ts` reads every stylesheet; `drive-fresh-install.mjs` reads the blur off the built app).
+The wash behind Search and the shortcuts sheet comes in by its colour: while it faded as a whole and held the
+end of that fade, the sheet inside blurred the wash alone and the drawing showed sharp through it, though the
+blur was computed. So the drive also looks: it lays fine stripes over the drawing and takes two pictures of
+the menu or sheet, the stripes moved between them (`seenThrough`, `scripts/drive-lib/kit.mjs`).
+
+**Hints and leaving** (sign-off r147). A control in the bar, the tool row, the zoom pill or the dock shows a
+card on hover or keyboard focus: its name, one plain sentence, its key (`shell/hints.ts`, `Hints.tsx`; the
+words in `hintWords.ts`). After a press, a key or the wheel no card shows until the pointer has travelled,
+so a tool that slides under a pointer at rest stays quiet. A closed menu, right-click menu or quick card leaves a still copy that fades out
+the way it came (`shell/ghost.ts`): the real thing is gone at once, and the copy has no words, names, roles
+or test ids in the page. Search, the shortcuts sheet, Share and the faceplate templates list leave the same
+way (r149). Back opens the tool row for itself instead of pushing the tools along, the zoom
+menu rises from its button, and Home's tabs have one line that slides between them.
+
+**Dialogs arriving and leaving** (r149, r151). A dialog that once cut in arrives as a menu does, in `--m-pop`: the sheet, card or
+panel fades and drops 4px (`fathom-pop-in`), and the wash behind it, or a whole page laid over the design,
+fades in (`fathom-fade-in`, `styles/base.css`). That is the vault's sheets, Inventory's Paste rows and Import
+file, the paste card and the suggestion cards over the canvas, Learn, the Print panel and its preview, the
+labels preview and the phone's scan sheet. Each is still under reduced motion and keeps nothing of the
+motion once it is in (`shell/arrive.test.ts`). Docs is a tab of the right-hand panel and slides in with it.
+Closed, the importer, Learn, the paste card and the cards that take its box, the Print panel and the phone's
+sheets leave a still copy that goes back the way it came in `--m-hover` (`shell/ghost.ts`,
+`shell/leave.test.ts`). A thing closes at once and leaves no copy if it holds a box that gates its own paste
+(Paste rows, whose box holds the paste unread until Apply), a password field or a camera picture, or if it has
+more than 800 parts. A vault sheet never asks for a copy, since one would carry what was typed into its
+fields, and the print and labels previews do not either: they are whole documents. The Print panel's copy
+leaves out the hidden pass that counts its pages. A copy is never printed.
 
 **Sign-in and the console**
 - **Enrolment and sign-in, both planes.** A token's prefix names its door (`op_` operator, `inv_`
@@ -368,12 +398,14 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   verbs (no assertion by the enrolled key yet), the site trail, an account list. ADR-0068's Admin rework
   (Health first, a left-hand section list, Engines) is decided, not built.
 - **First Home for the person who set the server up** (ADR-0069; sign-off r123): with no organisation yet, two
-  cards side by side. Open practice lab makes the practice space and opens the home lab. **Start your own
+  cards side by side, under Home's tabs. **Open sample** makes the practice space and opens the sample home lab
+  (r147: the card says what it opens; "practice lab" names only the sample with mistakes). **Start your own
   network** takes a name (filled in as Home network), shows the new organisation's recovery key once in the
   card, and on Start drawing makes the organisation by Admin's own two acts (shell, then claim from the
   account), a site of the same name and an empty design, and opens it. A failure part way keeps what was made
-  and the next press carries on. No server change; `components/home/ownNetwork.ts`,
-  `scripts/drive-own-network.mjs`.
+  and the next press carries on. Once the practice space exists the welcome is gone, so the rail keeps
+  Start your own network on offer until the account has an organisation of its own (r147). No server change;
+  `components/home/ownNetwork.ts`, `scripts/drive-own-network.mjs`.
 - **Home** has tabs (ADR-0060 decision 7): Designs, Passwords, Steward (called Organisation until
   2026-10-27; admins and folder stewards; a rail of People, Waiting for you (N), Folders, Passwords, AI
   and AI rules), AI (someone named to connect AI apps who stewards nothing: the AI page alone), and
@@ -439,13 +471,21 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   route beats a static one of the same length; a static next hop leaves by the longest connected prefix on
   an interface that is up; an address two devices hold is refused as a start or end; two paths through a
   switch in one VLAN say "more than one path" instead of "none"; and VLANs are followed eight switches
-  deep. Round 1 (r96): an SVI or irb is a gateway that leaves through its device's ports in its VLAN, and a LAG's links to one device are one way (to two devices, as in MLAG, still "more than one path"). Downstream through a splitter, the branch whose device holds the next hop is followed (a PON splitter lights every branch; the ONT it is for takes it). Round 2 (r96), VRFs: a flow uses the table of the unit it arrived on, sees only that table's connected and static routes, and a next hop resolves only in it, so two VRFs may hold the same network. A static route whose next hop is another table (Junos `next-table`) hands the flow across and the hop says so; a table not in the design, or more than three hand-offs, ends in "could not establish". A start with no interface on a device with VRFs asks for one. Route-based IPsec (r96 round 2): a route out of a tunnel interface (st0) crosses, as a `tunnel` hop, to the far end of the IPsec VPN bound to it, found from a Tunnel drawn in the design or from the two IKE gateways (this one's peer address is held by the far device, whose gateway names an address held here, or takes a dynamic peer). The hop says whether the tunnel is up is not read; the path between the gateways is a trace of its own. A peer nobody holds (NAT in front), an ExternalPeer, a dynamic peer seen from the hub, two candidates, or a policy-based far end end in "could not establish". An unnumbered st0 is not read (`corpus/dict/junos-srx/README-routing.md` §5). VPNs entered by hand (r96 round 2): on a device that is a member of an `OverlayNetwork` (Tailscale, WireGuard and the rest, Inventory › VPNs), another member's VPN address, or a subnet a member offers, is reached through the VPN as a `tunnel` hop, longest offer first, when the device's own table holds nothing more specific than a default route; when it does, the trace says which one is used is not in the design. A Tailscale subnet hop quotes Tailscale's own rule that Linux needs `--accept-routes` (tailscale.com/kb/1019, read 2026-11-02). An address in a VPN's range that no member holds, or two members offering one subnet, ends in "could not establish"; a trace may start from a VPN address. Not read: exit nodes (the design does not say a member uses one). NAT (r104, schema 0.39): the SRX reader binds `security nat source`, `destination` and `static` rule sets, rules and pools (`corpus/dict/junos-srx/security-nat.yaml`, Juniper's own examples, read 2026-11-02), and a firewall hop applies them in Juniper's order: static, then destination NAT before the route lookup (so the route and the policies see the translated address), reverse static and source NAT after the policies, each a line on the hop naming the rule; the end hop says "holds X (sent to Y)". An interface-scoped rule set outranks a zone-scoped one; two equal rules that translate differently, a rule whose match the design cannot settle, or a destination pool of several addresses end in "could not establish". NAT on traffic the start device sends itself is not read. Not built: learned routes, port right-click, the
-  Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
+  deep. Round 1 (r96): an SVI or irb is a gateway that leaves through its device's ports in its VLAN, and a LAG's links to one device are one way (to two devices, as in MLAG, still "more than one path"). Downstream through a splitter, the branch whose device holds the next hop is followed (a PON splitter lights every branch; the ONT it is for takes it). Round 2 (r96), VRFs: a flow uses the table of the unit it arrived on, sees only that table's connected and static routes, and a next hop resolves only in it, so two VRFs may hold the same network. A static route whose next hop is another table (Junos `next-table`) hands the flow across and the hop says so; a table not in the design, or more than three hand-offs, ends in "could not establish". A start with no interface on a device with VRFs asks for one. Route-based IPsec (r96 round 2): a route out of a tunnel interface (st0) crosses, as a `tunnel` hop, to the far end of the IPsec VPN bound to it, found from a Tunnel drawn in the design or from the two IKE gateways (this one's peer address is held by the far device, whose gateway names an address held here, or takes a dynamic peer). The hop says whether the tunnel is up is not read; the path between the gateways is a trace of its own. A peer nobody holds (NAT in front), an ExternalPeer, a dynamic peer seen from the hub, two candidates, or a policy-based far end end in "could not establish". An unnumbered st0 is not read (`corpus/dict/junos-srx/README-routing.md` §5). VPNs entered by hand (r96 round 2): on a device that is a member of an `OverlayNetwork` (Tailscale, WireGuard and the rest, Inventory › VPNs), another member's VPN address, or a subnet a member offers, is reached through the VPN as a `tunnel` hop, longest offer first, when the device's own table holds nothing more specific than a default route; when it does, the trace says which one is used is not in the design. A Tailscale subnet hop quotes Tailscale's own rule that Linux needs `--accept-routes` (tailscale.com/kb/1019, read 2026-11-02). An address in a VPN's range that no member holds, or two members offering one subnet, ends in "could not establish"; a trace may start from a VPN address. Not read: exit nodes (the design does not say a member uses one). NAT (r104, schema 0.39): the SRX reader binds `security nat source`, `destination` and `static` rule sets, rules and pools (`corpus/dict/junos-srx/security-nat.yaml`, Juniper's own examples, read 2026-11-02), and a firewall hop applies them in Juniper's order: static, then destination NAT before the route lookup (so the route and the policies see the translated address), reverse static and source NAT after the policies, each a line on the hop naming the rule; the end hop says "holds X (sent to Y)". An interface-scoped rule set outranks a zone-scoped one; two equal rules that translate differently, a rule whose match the design cannot settle, or a destination pool of several addresses end in "could not establish". NAT on traffic the start device sends itself is not read. On the rack canvas each hop has a numbered mark that keeps its size on the screen when the drawing is zoomed out: a rack row's stands at the row's left end, a cable's on the middle of its line, hops on one thing share a mark, and all are placed at once so none moves as the hops light (`trace/marks.ts`, read off the page by `trace/pathBoxes.ts`). A lit cable draws itself once (`drawing/restyledNodes.ts`), and a cable off the path is faded above the devices too (r149). Not built: learned routes, port right-click, the
+  "Trace from here" offer from "It's down" (the Diagram look draws a trace since r101, below). `scripts/drive-trace.mjs` drives it.
 - **Sample home lab and the five first steps** (r15-start, round 10). Home's "Open the sample home lab" builds
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves
   it as the person's own design. A model the catalogue lacks is drawn as a sketch with the same port labels.
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
-  cables do not count. Hidden, it lives under Help. Not built: tracing from a device on
+  cables do not count. A step not yet done says how when pressed, and the next one says it unasked; the first
+  names the button that Home has (New design, or Start drawing on first Home); a step
+  done since the last visit ticks itself on Home, once (r147). Hidden, it lives under Help. On the canvas the
+  sample's "Try a question" card folds on a click on the drawing and has a Hide, and both last the visit:
+  the card stays as it was left when a device or a trace is opened and closed (r147), and is not drawn over
+  the site or building page above the closet (r149). A pressed question moves the camera to its path, marks
+  included and clear of the trace's panel, the tool row and the small map, before the first hop lights; Esc
+  puts the camera back unless it was moved meanwhile (`trace/pathFrame.ts`, `TraceCanvasBridge` in
+  `trace/fade.tsx`; r149). Not built: tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
 - **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
   `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
@@ -507,17 +547,39 @@ focus styles stay inside the app, so a password manager's own controls keep thei
 
 **The canvas** (one canvas, detail by degrees; ADR-0060)
 - **Racks and devices.** Opening a design reads the plain face (ADR-0049) and draws racks with rails,
-  U numbers, hatched free runs, device boxes and ports that fade in toward the faceplate. Four camera
-  stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. Ctrl+wheel or pinch zooms (max 400%), the
-  wheel pans. Placing snaps to a unit and refuses an overlap with a shake. Every change saves: one in
+  U numbers, hatched free runs, device boxes and ports that fade in toward the faceplate. Under 77.5%, where a
+  number kept at 9px on the screen is taller than its row, only the even units are numbered (r149). Four camera
+  stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. A stop picked from the zoom menu lands on what
+  is selected, or on the nearest thing when the middle of the view is empty (`racks/zoomAim.ts`; r147), and
+  the menu closes. Going in from the Closet stop with nothing selected, the Rack stop lands on the rack
+  nearest the middle of the view: in the middle of the width, and of the room between the tool row and the zoom
+  buttons, or with its top at the top of that room when it is taller (`cameraOntoRack`; r149).
+  Ctrl+wheel or pinch zooms (max 400%), the
+  wheel pans. They go out to 77.5%, or as far out as the camera has been on this visit, so a pinch from a
+  fitted view starts where the drawing is (`geometry.ts` `wheelFloor`; r149). The opening fit and Fit to view
+  keep what they frame, trays included, clear of the tool row, the zoom buttons and a sample's question card
+  (`paddingClearOf`; r149). A design reopens where its camera was left (`design/resume.ts`), exactly, however far out, as
+  long as that view still shows something drawn: a rack, a wall, a desk, a ceiling or a box on the open canvas
+  (a rack only, before r149). From
+  there the pill's + and − move the drawing (before r147 they changed the number only, for the whole visit;
+  `drive-sample.mjs` checks it). Placing snaps to a unit and refuses an overlap with a shake. Every change saves: one in
   flight, the latest queued, a refusal shown and never rolled back. A rack's height is 42U, 24U, 12U or
   typed, refused below what is mounted.
 - **Rear elevation** (ADR-0050): every rack has front and rear; supplies are parts in slots with their own
   serials; *single-fed* and *one fitted* are derived. Racks have a row and bay. A rack dragged by hand keeps its
   place (its `LayoutPin`, saved as seen from the front, mirrored when the row shows the rear; undo returns it
   to its bay slot; ADR-0074 decision 5, `scripts/drive-rack-place.mjs`). A read-only viewer's drag lasts the session.
+  A dragged rack carries its devices, shelves and cables at every frame, at the pane's edge too, where the
+  view pans by itself: nothing else slides to its place while anything is dragged (`data-node-drag`,
+  `drawing.css`), a node that has only moved keeps the size React Flow measured, so its cables are not taken
+  off the page while it is measured again (`drawing/movedNodes.ts`; a dragged device's too), and the drag
+  tells the settled view where the camera is, so the rack's own cables are not cut to stubs
+  (`drive-sample.mjs` checks all three; before r149 the devices trailed the rack by up to 50px, and its
+  cables blinked while it moved and were gone at the edge).
 - **Shelves, surfaces, sketches** (ADR-0051): shelves take units and slots; devices fix to a wall, floor,
-  desk, ceiling or board. A device with no model carries ports typed by hand and says so. Outlet boxes and
+  desk, ceiling or board. A closet's walls, desks and ceilings stand in columns beside its racks, tallest
+  first, each at least as tall as the tallest rack there, or 42U with no rack (`drawing/rows.ts`
+  `panelColumns`; r149). A device with no model carries ports typed by hand and says so. Outlet boxes and
   panels get pass-through pairs and a lit path.
 - **Cables.** Bundles fan open on hover; a hovered or selected cable lights its whole path; a cable leaving
   the closet ends in a dashed portal tray. PSU inlets on the rail. Ports sit at catalogue row and column;
@@ -530,7 +592,7 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   whose model is in the catalogue but whose rack or unit is missing, taken or too small keeps the model
   and its ports ("No rack spot"); every device an import or Inventory adds without a place is pinned on
   the canvas right of the racks (`racks/canvasSpots.ts`), so none is drawn nowhere; a racked device's
-  menu has "Take it out, spot not known"; and a free box's menu offers swap model, firmware, cards and
+  menu has "Take it out, place it later"; and a free box's menu offers swap model, firmware, cards and
   ports like a racked one. Not built: "in this rack, spot unknown" (`MountedIn.position_u` is required).
 - **Look switch** (ADR-0061): Rack (faceplates, dressed cables) or Diagram (plain labelled boxes, square
   lines in sheath colour, view-and-select). Kept per browser, account and design (`drawing/look.ts`). A
@@ -567,6 +629,118 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   always list Remove, greyed with what is still on them until they are empty (one undo step); Delete and
   Ctrl K's Delete do the same on a selected one. A wall clicked on its face opens a small panel (name,
   what is on it, cable runs). Empty canvas offers a 42U, 24U or 12U rack, or a wall. A reader gets Details.
+- **Whose the arrow keys are** (`shell/keyOwner.ts`). The drawing listens on the whole page, so a thing picked
+  with the pointer is nudged or removed with no press on the drawing first. An arrow key, Delete or Backspace is
+  not the selection's when it is pressed on a button or a list outside the drawing that used the key itself (the
+  Back list moves its own line) or that the keyboard reached with Tab, or while a menu or a dialog is open from
+  one. A press with the pointer, or a thing picked in Search, gives those keys back to the selection, and so does
+  closing the menu. Under a dialog that covers the page they are nobody's. The card beside a selected thing is
+  the selection's own and does not count (`data-selection-card`). An opened device keeps its Delete the same
+  way. With the focus on the drawing, or on nothing, the keys are as they were (`drive-undo-notes.mjs`,
+  `drive-back-tree.mjs`, `drive-open-device.mjs`).
+- **A pick is answered once** (`racks/focusRequest.ts`). A thing picked in Search, or shown with Show on rack,
+  is selected and brought to the faceplate stop, and a device is opened. That answer is given once for each pick:
+  a later change to the design, an Undo included, selects nothing and opens nothing again. Before, every change
+  after a pick took the selection back to the picked thing and opened its drawer (`drive-undo-notes.mjs`).
+- **Enter selects what the keyboard is on** (`drawing/nodeKey.ts`). React Flow puts every device, rack, shelf, wall
+  and cable in the Tab order, and its own Enter marks a thing selected in its store only. Enter on one now makes
+  the selection a press does and opens Details on it, as a pick in Search does; Shift and Enter adds a racked
+  device to what is picked. Space is left alone: on the drawing it is held to pan. A band of several cables and a
+  tray select nothing. Escape clears the selection and, for someone going through the page with Tab, leaves the
+  ring on the thing, where React Flow took the keyboard off it. In the Diagram look Enter selects a box's device
+  and a line's cable. The words read out after a thing's name say the key and nothing else (`KEYS_SAID`), in
+  place of React Flow's, which offered Space, moving and deleting. A row, a band of several cables and the cables
+  that leave the room, which Enter does not select, are read without them. The key is a row of the shortcuts
+  table (`select-focused`). `drive-undo-notes.mjs` and `drive-sample.mjs` drive it.
+- **Things on the drawing say their names** (`drawing/thingSays.ts`). Everything on the drawing that takes the
+  keyboard has a name for a screen reader, handed to React Flow as `ariaLabel`. A device says its name, what it is
+  and where it is ("router-1, router, Rack 1 U10"); a rack its height and the units in use; a shelf and a wall
+  what they hold; a cable its own label and its two ends by device and port ("Office run, switch-1 port 7 to
+  switch-2 port 1"), with an end outside the room or not connected said as that; a band of several cables how
+  many it stands for; a box, a label, a note, an area and a line on the open canvas their own words. The kind of
+  thing is read in place of "node" and "edge" (`SAID_AS`). Before, React Flow's own words were no name at all for
+  a device, a rack, a shelf or a wall, and "Edge from" and two ids for a cable. The Diagram look's boxes and lines
+  have the same names. A device on a wall and a thing on a shelf take no Tab stop of their own, so they are named
+  only by the wall or shelf that holds them. A cable's two ends, a band's two devices and the things on a wall are
+  read in name order, a number in a name by its value ("switch-2" before "switch-10"), an end outside the room
+  last: the design keeps no order of its own for them, and read as it holds them, two things made in the same
+  millisecond came out either way round, so a design and its copy named the same cable differently. A shelf's
+  things are read in the order they sit. The names were read back from Chromium's accessibility tree, not
+  listened to with a screen reader; an area and a line on the open canvas were not read back. `thingSays.test.ts`
+  holds the words; `drive-sample.mjs` reads them in both looks.
+- **A port says what it is, wherever it is drawn** (`drawing/faceplate.ts` `portSays`). A port's button has one
+  set of words as its tip and as its name for a screen reader: the port, its connector, where it sits on the
+  plate, an optic or an empty cage, and cabled or free. On a wall and on a shelf a port is drawn in a plain row,
+  so where it sits is left out. Before, such a button had its label alone as a name ("1") and no tip. A wall
+  port's tip follows its picture: the row is not drawn until the camera is past the Rack stop, and until then the
+  port has no tip and is out of reach (the next entry), as a rack port is until its glyph is drawn. An inlet on a
+  wall has its tip on the button too: its slot, and fed, fitted with no lead, or not fitted (`drive-sample.mjs`
+  reads the wall's; the sample's shelf draws no ports, so the shelf's are held by `ShelfPlate.render.test.ts`).
+- **A device on a wall answers as one in a rack does** (`drawing/SurfaceNode.tsx`, `drawing/ownPress.ts`). A wall,
+  a desk and a ceiling keep a press on one of their things to themselves, and the quick card, which listens on
+  the document, never heard it. Such a press is now sent on to the card by name (`ownPress`). The card says what
+  a rack device's says: its kind, its name, the management address to copy, the model, where it is and how many
+  of its ports are cabled (`quickCard.ts` reads the device's record wherever it sits, and the peek has the same
+  rows). A double-click opens it, as it opens one in a rack, and the card says so. It once doubled the zoom: the
+  device's box is now marked `nopan`, which keeps the canvas from taking the double-click as its own. A drag that
+  starts on a device on a wall no longer moves the view for the same reason; one that starts on the wall itself
+  still does. Selected, a thing on a wall has the four corner ticks; it had no mark. A device on a wall or a shelf that is picked in Search is brought into view
+  at the faceplate stop (`Drawing.tsx` `showRequest`): the camera once went to that stop about the middle of the
+  view and left the device off the screen. Until a wall thing's ports are drawn they are out of reach
+  (`.drawing-surface__port-row--undrawn`): no Tab stop, no press, nothing read out, and a press there is a press
+  on the thing. Each once took a Tab stop, and a press where one was selected the port and took the camera to
+  the faceplate stop. The inlets of a thing on a wall are marked the same way, by the style sheet's rule; no
+  design to hand has one, so that is not seen in a browser. `drive-sample.mjs` drives the card, the mark, Search
+  and the ports.
+- **A port answers when it is drawn, and only then** (`drawing/ChassisNode.tsx`; `drawing.css`
+  `.drawing-chassis__ports--undrawn`). Below the 125% band a rack device's ports are not drawn, and they are now
+  out of reach as well: a press, a pointer at rest, a right-click, a double-click or a drag where one lies is the
+  device's. Each once took the pointer unseen: a press there got a port's card, a double-click the port's panel
+  and the faceplate stop, and a drag from a free one drew a cable out of it. They keep their place, so every cable
+  ends where it did (the cables' ends were read before and after and are the same). Drawn, a pressed port sends
+  its press on to the quick card (`ownPress`), in a rack, on a wall and on a thing opened beside its shelf; it
+  once kept the press. Far out, pointing at a cable's coloured end on a plate shows the device's peek and no
+  longer the port's, as on a wall; pointing at the cable itself still shows the cable's, and in the Faded style
+  its whole run.
+- **A shelf and the things on it answer like a device in a rack** (`drawing/ShelfPlate.tsx`; `Drawing.tsx`
+  `onSelectOccupant`). A press on a shelf gets the shelf's card: where it is and what is on it. A press on a
+  device on it gets the device's. Such a press selects and leaves the camera where it is. It once glided to the
+  faceplate stop: far out the thing left the pointer, the second press of a double-click missed it, and nothing
+  opened. A double-click now opens the device, on a shelf and on a wall (`doubleClick.ts` `holderDoubleClick`);
+  anywhere else on a shelf's tray it steps into the shelf as before. At the faceplate stop the selected thing
+  still opens beside its shelf. A passive thing on a shelf (a splitter, an outlet) has no card of its own.
+  `keepInView.ts`, which panned to show the opened box after the glide, went with the glide.
+- **Where the quick card hangs** (`drawing/quickCardPlace.ts`, pure; `QuickCard.tsx` reads the boxes). Right of
+  the thing on a dotted line, or left of it when the canvas has no room on the right. A thing on a shelf hangs it
+  off the end of the shelf. A port hangs it off the end of its device, with the line running back to the port, so
+  the ports beside the one pressed stay in reach; where the device is wider than the canvas the card stays beside
+  the port. The card is hidden only while the end its line starts from is out of view. A thing whose right end
+  lay past the edge of the canvas once had its card placed on its left and then hidden. `drive-sample.mjs` drives
+  the ports far out and close in, the shelf, both double-clicks and where the card hangs.
+- **The arrow keys go through an open menu's rows** (`shell/menuKeys.ts`, wired in `shell/Popover.tsx`, so in every
+  menu the bar opens: the design's, Sample, Doing, the account's, the lens's, Layers, Look, Views and the zoom
+  stops; and in the ⋯ of the It's down panel, the one panel head that has rows). Down and Right step on, Up and
+  Left step back, and both go round at the ends; Home and End go to the first row and the last. From the button
+  that opened the menu Down goes in at the top and Up at the bottom, and no other key goes in. A field keeps its
+  arrows. The right-click menu had Up and Down already (`drawing/ContextMenu.tsx`).
+- **A menu, finished for the keyboard** (`shell/Popover.tsx`, `shell/menuKeys.ts`). Opened from the keyboard, a
+  menu starts with the keyboard on its first row (`pressedByKey`: a click with no click count); opened with a
+  press, the keyboard stays on its button. It closes when the keyboard leaves it and its button (`focusLeft`),
+  where it once stayed open over the page; going nowhere, as on a press on the menu's bare edge, is not leaving.
+  A greyed row is marked `aria-disabled` and not `disabled`: Tab and the arrows reach it, so the reason written
+  in it is read, and a press or Enter on it does nothing and leaves the menu open (`pressRow`). It is drawn as
+  before, faded to 45%; with the keyboard on it, it is drawn whole in the muted colour, so that its focus ring
+  is whole (`shell.css`). Its words and its reason are read apart ("It's down, select a device first": `rowSaid`, the row's
+  `aria-label`); read from the row itself they ran together. The ⋯ of a device in Details is a list of its own
+  (`drawing/Editor.tsx` `DeviceMore`) and has the same three: first row from the keyboard, the arrows through
+  its rows, shut when Tab leaves it. `drive-sample.mjs` drives Layers, Doing, Look, Views and the ⋯ list.
+- **The shortcuts sheet and the keys agree** (`shell/shortcuts.ts`; `drawing/nodeKey.ts` `escapeClears`). The
+  sheet says Esc clears the selection. In the Diagram look it did nothing; it now clears the selection there as
+  it does on the Canvas. One Esc still puts away one thing: a menu or a dialog over the page, a hover card and
+  the card beside the selection each go first, and a field keeps the key. The keyboard stays on the box it was
+  on. Holding Space and dragging moves the view whichever tool is on. That is React Flow's own and worked
+  already; it is now a row of the sheet (`pan-hold`, with no key spec, as the double-click to rename has none).
+  `drive-sample.mjs` drives the Escape; `drive-shortcuts.mjs` drives the drag with Space held and reads the row.
 - **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
   Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
   pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right
@@ -583,8 +757,12 @@ focus styles stay inside the app, so a password manager's own controls keep thei
 - **Quick card and peek** (sign-off r59, r66; `drawing/quickCard.ts`, `scripts/drive-quick-card.mjs`). A
   click on a device (or one of its ports), rack, shelf, cable or free box also puts a small card beside
   it on a dotted line: what it is, its name, the management address with Copy, model, place and ports,
-  and Details, which shows the panel even when it was folded. It follows the camera and goes on Esc, a
-  click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card.
+  and Details, which shows the panel even when it was folded. A racked device, a rack, a shelf, a device on a
+  shelf or a wall, and a port once it is drawn get the card. A cable gets none, since its line keeps its press
+  to itself and the card never hears it; nor does a passive thing on a shelf or a wall. It follows the camera and goes on Esc, a
+  click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card. The pause has to
+  be the person's: after a press, a key or the wheel nothing shows until the pointer has moved, so what a
+  gliding camera brings under a resting pointer puts up no card (r149).
 - **Shelves** (r56, `scripts/drive-shelf-room.mjs`). A shelf draws as a tray: hairline sides, an ink lip
   the things stand on 2px clear of, its name as a caption, names whole, what does not fit folded into one
   "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens the shelf drawn twice,
@@ -608,7 +786,10 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   it says **Back** instead of Open inside. It ends with **Also in**: the plans that touch the device, its
   open checks and AI ideas about it. Details' sections after Device and Location can be hidden and
   reordered (kept in this browser; Management cannot be hidden). Connections lists six and Show all. A
-  design reopens on the place and panel tab it was left on; Esc closes only the top thing. Names of
+  design reopens on the place and panel tab it was left on; Esc closes only the top thing (with Search, a
+  sheet, a dialog or a menu from the bar over the page the Esc is that thing's, and a device's card behind
+  it stays; r149. Before the menu was counted, Esc put away the card behind an open menu and left the menu
+  open; `shell/clickAnswer.ts` `openAbove`, `drive-sample.mjs`). Names of
   devices, ports, racks and cables in Plans, Checks, History, It's down and Trace select the thing.
 - **Model suggestion** (`document/guessModel.ts`, `scripts/drive-model-guess.mjs`). A box typed by hand
   is offered one catalogue model when its platform, notes, port names or cable labels name it, or a
@@ -628,7 +809,8 @@ focus styles stay inside the app, so a password manager's own controls keep thei
 
 **Inventory, notes, undo** (ADR-0053, 0058, 0059)
 - Two places over one document: Canvas and Inventory. Inventory has a rail of kinds, a device grid
-  grouped per rack, the Gaps section, one page as the editor, and Show on rack. Networks kind: VLANs,
+  grouped per rack, the Gaps section, one page as the editor, and Show on rack. A column is at least as wide
+  as its head needs, sort mark included, so no head is cut (`inventory/headRoom.ts`; r149). Networks kind: VLANs,
   subnets, Docker networks with containers and published ports.
 - **Coming back finds it as left** (owner, 2026-11-02). Leaving Inventory or the Sheet for the canvas and
   returning keeps the list, filter, sort, Where, scroll, the open page and its tab, and Parts' On hand. Only
@@ -638,9 +820,39 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   cell; double-click, Enter, F2 or typing edits any editable cell, the name too. A row's page opens only from
   the small ↗ in its first cell or Ctrl Enter. Inventory keeps its list, where a click on the name opens the
   page. After an edit closes, the keys go back to the grid. `scripts/drive-keep-place.mjs` step 5 drives it.
+- **One edit of a cell is one change, and Esc writes nothing** (r151). Enter and Esc hand the keys back to the
+  grid, which blurs the editor before the table has drawn again. That blur once committed a second time: on a live
+  design an edit finished with Enter was written twice, so the first Undo after it took back nothing anyone could
+  see, and Esc wrote what was typed (`inventory/DataTable.tsx` `closedRef`). `drive-inventory.mjs` drives Esc;
+  `drive-first-design.mjs` drives one edit, one Undo, with a server behind it.
 - **Notes** are nodes on a device, port or rack: pasted through the gate or stored as typed, and saying so.
 - **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
-  refuses by name. The trail shows sealed and pending, with a comment on the next change.
+  refuses by name. The trail shows sealed and pending, with a comment on the next change. Each Undo goes one
+  change further back and each Redo one forward; a new change leaves nothing to redo (`document/undo.ts`
+  `undoSteps` reads both lists off the batches in order; `drive-sample.mjs` drags a rack to three places and
+  undoes all three). Before r149 an undo was itself the next thing Undo took, so a design went back and forth
+  between its last two states, and Redo could reach behind newer changes for an older undo. On a live design a
+  field someone else has written since is left as it is and the press says so. That holds for a field the undo
+  would write back, not for a thing it would remove: taking back an add once removed the thing with a colleague's
+  later name or move on it and said only "Undone: device added", and is now refused by name (`conflict`,
+  `removedByReversing`; `drive-first-design.mjs` drives it with two people). A step of which nothing could be
+  taken back, or that was refused, is set aside while the design stays open (`stepsWithout`; r151): the press
+  says why and that the next one goes a change further back, and the next press puts that sentence away. Before
+  r151 the same step was tried at every press and nothing made before it could be reached. Both sentences name
+  the person as every history does (`whoWord`) and the thing by its own name, never an id: a refusal reads
+  "Nothing was undone: R1 was changed by Bob Roe since (added EX4300-48P to R1)" (`design/undoWords.ts`). A
+  field left alone is called what its panel calls it, "the mgmt address" and "the name" (`panelLabel`).
+  `drive-first-design.mjs` drives a skipped field and a refused step with two people on one design. The trail
+  reads the same way: its Who column names people as `whoWord` does ("you", the name heard, "a colleague"), and
+  What changed says the change and what it was made to, "Address changed · switch-2", "Cable connected · core-01
+  and acc-01", "Undone: added sw-01" (`design/changeToast.ts` `historyPartsOf`). The whole account id and the
+  label as recorded ("undo of set Device.management_address") show on hover, and a comment sits under its
+  change. A press on a row opens the record behind it, for a keyboard and a touch screen: the whole moment with
+  how far the clock is from UTC, the name or the reader's own address, the account id and the label as recorded
+  (`racks/trail.ts` `recordLines`). The rows are one stop for Tab; the arrow keys, Home and End move between them
+  and do not reach the drawing, which would move a selected device. A drag over a row still selects its words
+  (`drive-undo-notes.mjs`). A save that drew nothing different is listed in those words, and one that edited one
+  thing names it.
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
   Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.
@@ -852,7 +1064,9 @@ several asks which. A pasted route is listed as "from a paste" and is not remove
 **Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
 encrypts and streams them to other browsers. Different fields merge; on the same field the later one
-wins, and the overwritten person can **Put mine back**. Others show as initials dots in the bar.
+wins, and the overwritten person can **Put mine back**. That notice goes once the field is written again, by
+them or anyone, since it would offer a value older than what is there (`liveDoc.ts` `overwriteStands`). Others
+show as initials dots in the bar.
 Since 2026-10-27 the dots and pointers cross server processes through `NOTIFY` on `fathom_presence`,
 as changes already did, so several servers behind one load balancer need no sticky sessions
 (`docs/RUNNING-IT.md`, "Running more than one server"). The audit feed is sent by whichever server
@@ -861,7 +1075,24 @@ address and the proxy's (`access_log.rs`). How big a design goes, measured: `doc
 
 **History panel** (#124, #128). The bar's **History** leads with the chain check in words ("Checked:
 every save is intact", "Broken at save N"), lists saves newest first, shows any save read-only with its
-changes outlined, and **Restore this version** (Draw) makes a new save.
+changes outlined, and **Restore this version** (Draw) makes a new save. It opens beside whichever view is on
+screen, Inventory included. A past save is drawn on the canvas only: choosing one from another view goes there,
+and leaving the canvas with one showing goes back to now. The banner that names the save sits in the canvas bar
+(`shell/CanvasBar.tsx`, the `canvas-note` slot): beside the tools where both fit on one line and under them where
+they do not, so the tools never lie over it, and it stays solid while the tools fade in a drag (`drive-history.mjs`
+checks it clear of the tools at two widths). The banner has its own **Back to now** beside its words
+(`history/SaveBanner.tsx`), as the list of saves has: only the words are the status that is read out, a press on
+the words still reaches the drawing, and the button stays whole where the words go over two lines. The field view
+has no History (`DesignPlace.tsx`).
+Undo and Redo follow the key: they are greyed while a save is on show, and not while the list of saves is open
+with none chosen. Greyed, each says why, as its tip in the bar and beside its name in the folded More menu and in
+Search: view only, the phone's Canvas, a save on show, or nothing to undo (`design/undoWords.ts` `notOffered`,
+`shell/hintWords.ts` `EDITS_OFF`). The View only chip says the same while a save is on show. The note that
+follows a change of your own shows with the list open as with it closed, and goes when a save comes on show: its
+Undo or Redo would act on the design as it is now, behind the save (`design/ChangeToast.tsx`). For an undo or a
+redo the note says the change behind it, as History does, and does not read its own label, which is cut at sixty
+bytes and loses its end after a few rounds (`design/changeToast.ts` `reversalWords`; `drive-first-design.mjs`
+drives both).
 
 **Round 15 quality of life** (r15-qol; schema 0.21, field key 462). A sketch port's name field takes a
 pattern (`ge-0/0/{0-23}` is 24 ports, `document/portPattern.ts`). A port has a MAC (`PhysicalPort.mac`),

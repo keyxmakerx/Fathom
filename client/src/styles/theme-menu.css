@@ -1,8 +1,8 @@
 /* The account menu is frosted glass, and its Theme list is a titled group of three checkable rows. */
 .shell-popover--frosted {
   background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
-  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
   -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
   box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
   border-radius: var(--radius-pop, 0);
   animation: theme-menu-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both;

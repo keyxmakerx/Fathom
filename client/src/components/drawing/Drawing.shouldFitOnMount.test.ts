@@ -24,8 +24,16 @@ describe('shouldFitOnMount', () => {
     expect(shouldFitOnMount(true, { kind: 'port', id: 'physical-port:x' })).toBe(true);
   });
 
+  it('skips the fit on the very first run when a device on a shelf or a wall is waiting to be shown', () => {
+    expect(shouldFitOnMount(true, { kind: 'fixture', id: 'chassis:x' }, true)).toBe(false);
+    expect(shouldFitOnMount(true, { kind: 'occupant', id: 'chassis:x' }, true)).toBe(false);
+    // Selected alone is not a request: a design reopened with one selected still fits.
+    expect(shouldFitOnMount(true, { kind: 'fixture', id: 'chassis:x' })).toBe(true);
+  });
+
   it('always fits on every later run, regardless of what is selected — only the first run ever defers', () => {
     expect(shouldFitOnMount(false, { kind: 'chassis', id: 'chassis:x' })).toBe(true);
     expect(shouldFitOnMount(false, null)).toBe(true);
+    expect(shouldFitOnMount(false, { kind: 'fixture', id: 'chassis:x' }, true)).toBe(true);
   });
 });

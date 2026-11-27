@@ -431,6 +431,11 @@ export function edgesIn(doc: Document, to: string, kind: EdgeKind): GraphEdge[] 
   return (edgeIndex(doc.edges).into.get(to) ?? NO_EDGES).filter((e) => e.absentSince === undefined && hasKindPrefix(e.id, kind));
 }
 
+/** Every edge into `to` of any kind, those marked absent included, in document order. */
+export function everyEdgeIn(doc: Document, to: string): readonly GraphEdge[] {
+  return edgeIndex(doc.edges).into.get(to) ?? NO_EDGES;
+}
+
 // ---------------------------------------------------------------------------
 // Provenance: every assertion this module writes is `Origin::Hand`,
 // `Confidence::Asserted` (ADR-0036: "Nothing parses a rack" — every fact this

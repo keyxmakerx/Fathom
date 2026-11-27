@@ -7,6 +7,7 @@ import { useContext, useEffect, useId, useMemo, useRef, useState, type JSX } fro
 import { asString, fieldValue, parseNodeId, type Document } from '../../document/model';
 import { acceptHosts, readAddresses, readMacTable, suggestHosts, type ArpRow, type HostSuggestion, type MacTable } from '../../document/hosts';
 import { deviceOf } from '../../document/portTies';
+import { useGhostRef } from '../shell/ghost';
 import { Reasons } from './Reasons';
 import { SuggestContext } from './suggestStore';
 import '../paste/paste.css';
@@ -46,6 +47,7 @@ export function HostsCard({ doc, deviceId, text, actor, spot, onApply, onClose }
   const [unticked, setUnticked] = useState<ReadonlySet<string>>(new Set());
   const [refusal, setRefusal] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const cardRef = useGhostRef(ref);
   const headId = useId();
   const store = useContext(SuggestContext);
 
@@ -107,7 +109,7 @@ export function HostsCard({ doc, deviceId, text, actor, spot, onApply, onClose }
   const addWord = fresh > 0 ? `Add ${plural(fresh, 'device', 'devices')} and ${plural(cables, 'cable', 'cables')}` : cables > 0 ? `Add ${plural(cables, 'cable', 'cables')}` : 'Add';
 
   return (
-    <div className="paste-card suggest-card" role="dialog" aria-labelledby={headId} data-testid="hosts-card" ref={ref}>
+    <div className="paste-card suggest-card" role="dialog" aria-labelledby={headId} data-testid="hosts-card" ref={cardRef}>
       <div className="paste-card__head" id={headId}>
         {`Who is plugged in · ${shown.length}`}
       </div>

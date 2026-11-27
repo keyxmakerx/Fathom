@@ -189,10 +189,10 @@ try {
     check(`[${w}x${h}] ... and still no verdict word`, !VERDICT.test(stop));
     await shot(page, `${tag}-06-stop`);
 
-    // Close clears the canvas.
-    await page.locator('[data-testid=trace-panel]').getByRole('button', { name: 'Close the trace' }).click();
-    await page.waitForTimeout(400);
-    check(`[${w}x${h}] Close removes the panel, the circles and the fade`, (await page.locator('[data-testid=trace-panel]').count()) === 0 && (await page.locator('.trace-faded').count()) === 0 && (await page.locator('[data-testid=trace-dot]').count()) === 0);
+    // Esc clears the canvas (the panel has no Close of its own since it moved into the side dock).
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(600);
+    check(`[${w}x${h}] Esc removes the panel, the circles and the fade`, (await page.locator('[data-testid=trace-panel]').count()) === 0 && (await page.locator('.trace-faded').count()) === 0 && (await page.locator('[data-testid=trace-dot]').count()) === 0);
     check(`[${w}x${h}] no uncaught page errors`, pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }

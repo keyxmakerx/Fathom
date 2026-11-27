@@ -266,6 +266,16 @@ export function portWhere(layout: FaceplateLayout, portId: string): string | nul
   return place === '' ? nth : `${place}, ${nth}`;
 }
 
+/** What a port says of itself, as its name for a screen reader and as its tip: "Port 7 · RJ45 · top row, 4th from
+ * left · cabled". `where` is null for a port drawn in a plain row, on a wall or a shelf, which has no place on a
+ * plate. An inlet goes by its slot, and says when no supply is fitted. */
+export function portSays(port: PortView, where: string | null, inlet: InletView | null): string {
+  const state = port.cable != null ? 'cabled' : 'free';
+  const label = inlet != null ? inlet.slot || inlet.label : port.label ? `Port ${port.label}` : 'Port';
+  const optic = port.optic ? `optic ${port.optic.type ?? port.optic.part ?? 'fitted'}` : port.optic === null ? 'empty cage' : '';
+  return [label, connectorName(port.connector), where, optic, inlet != null && !inlet.fitted ? 'not fitted' : state].filter(Boolean).join(' · ');
+}
+
 /** The unit's ports in words, one line per group: "24 × RJ45, ports 1–24, two rows". */
 export function describePorts(ports: readonly PortView[], layout: FaceplateLayout): string[] {
   const groups = new Map<string, PortView[]>();

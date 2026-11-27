@@ -1,0 +1,63 @@
+// The keyboard in an open menu: which row the arrow keys go to next, where it starts, and when it has left.
+
+type Key = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>;
+
+/** The row a key goes to, by its place among `count` rows, or null when the key is not one that moves. `at` is the
+ * row the keyboard is on, or -1 when it is on the button that opened the menu: from there Down goes to the first
+ * row and Up to the last, and no other key moves. In the rows, Down and Right step on, Up and Left step back, and
+ * both go round at the ends; Home and End go to the first row and the last. A key held with Ctrl, Cmd, Alt or
+ * Shift is not the menu's. */
+export function rowAfter(event: Key, at: number, count: number): number | null {
+  if (count <= 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null;
+  if (at < 0) return event.key === 'ArrowDown' ? 0 : event.key === 'ArrowUp' ? count - 1 : null;
+  switch (event.key) {
+    case 'ArrowDown':
+    case 'ArrowRight':
+      return (at + 1) % count;
+    case 'ArrowUp':
+    case 'ArrowLeft':
+      return (at - 1 + count) % count;
+    case 'Home':
+      return 0;
+    case 'End':
+      return count - 1;
+    default:
+      return null;
+  }
+}
+
+type Field = { tagName?: string; type?: string; isContentEditable?: boolean };
+
+/** Inputs the arrow keys do nothing in: the menu may take the key there. */
+const PLAIN_INPUTS = ['checkbox', 'button', 'submit', 'reset', 'image'];
+
+/** Whether the thing the keyboard is on uses the arrow keys itself: a field to type in, a list to choose from, a
+ * slider, a set of radio buttons. The menu leaves the key to it. A tick box does not use them. */
+export function usesArrows(el: Field | null): boolean {
+  if (el == null) return false;
+  const tag = (el.tagName ?? '').toLowerCase();
+  if (tag === 'textarea' || tag === 'select' || el.isContentEditable === true) return true;
+  return tag === 'input' && !PLAIN_INPUTS.includes((el.type ?? 'text').toLowerCase());
+}
+
+/** What the arrow keys stop on in a menu: what Tab stops on there. A greyed row is one of them: it is marked
+ * `aria-disabled`, not `disabled`, so that the reason written in it is reached and read out. */
+export const MENU_ROWS = 'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)';
+
+/** The rows of a menu the keyboard can go to now, in the order they are drawn. */
+export function rowsIn(box: Pick<ParentNode, 'querySelectorAll'> | null): HTMLElement[] {
+  return box == null ? [] : Array.from(box.querySelectorAll<HTMLElement>(MENU_ROWS)).filter((row) => row.getClientRects().length > 0);
+}
+
+/** Whether a press came from the keyboard. A click made by Enter or Space on a button, or by a screen reader, has
+ * no click count; one made with a pointer has. A menu opened so starts with the keyboard on its first row. */
+export function pressedByKey(press: { detail: number }): boolean {
+  return press.detail === 0;
+}
+
+/** Whether the keyboard, on leaving something in `host` for `to`, has left the menu: `host` holds the menu and the
+ * button that opened it. Going nowhere is not leaving: a press on bare ground in the menu, a row that went away
+ * once it was picked, the window put behind another. */
+export function focusLeft(host: Pick<Node, 'contains'>, to: unknown): boolean {
+  return to != null && !host.contains(to as Node);
+}

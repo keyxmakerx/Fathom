@@ -12,6 +12,10 @@ export const KIND_FILTERS: ReadonlyArray<[KindFilter, string]> = [
   ['spare', 'Orders'],
 ];
 
+/** What Work says when no site has any work at all: what gathers here, and how the first piece starts. */
+export const WORK_EMPTY =
+  "Planned changes, things that are down and orders from every site gather here. To start one, open a design, select a device and choose Plan a change or It's down from Doing.";
+
 export const KIND_WORD: Record<WorkRowKind, string> = { plan: 'Maintenance', issue: 'Troubleshooting', spare: 'Order' };
 
 export interface Filters {

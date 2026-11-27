@@ -26,8 +26,8 @@
   flex-direction: column;
   border: var(--rule-hair) solid var(--hairline);
   background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
-  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
   -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
   border-radius: var(--radius-pop, 0);
   box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
   color: var(--ink);
@@ -297,12 +297,11 @@
   text-align: center;
 }
 
+/* The wash comes in by its colour. A fade of the whole wash stands between the sheet's frosted glass and the page:
+   the glass then blurs the wash alone, and the drawing shows sharp through the sheet. */
 @keyframes float-scrim-in {
   from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
+    background-color: transparent;
   }
 }
 
@@ -314,6 +313,29 @@
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* Closed, the sheet's still copy goes back the way it came while the wash behind it clears (`shell/ghost.ts`).
+   The wash clears by its colour, so the sheet inside fades once, on its own. */
+.float-scrim[data-ghost] {
+  animation: float-scrim-out var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both !important;
+}
+
+.float-scrim[data-ghost] > .float-sheet {
+  animation: float-sheet-out var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both !important;
+}
+
+@keyframes float-scrim-out {
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes float-sheet-out {
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
   }
 }
 

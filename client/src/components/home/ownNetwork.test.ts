@@ -44,6 +44,7 @@ import {
   describeOwnNetworkFailure,
   makeOwnNetwork,
   OwnNetworkFailure,
+  ownNetworkLater,
   ownNetworkName,
   prepareOwnNetwork,
   type OwnNetworkProgress,
@@ -105,5 +106,20 @@ describe('makeOwnNetwork (sign-off r123)', () => {
     let failure: unknown = null;
     await makeOwnNetwork('Lab', prepared, 'me@example.com', 'acct-1').catch((e: unknown) => (failure = e));
     expect(describeOwnNetworkFailure(failure, 'Refused.')).toBe('Your network could not be made. Nothing was changed on the server. Refused.');
+  });
+});
+
+describe('ownNetworkLater (sign-off r147)', () => {
+  it('keeps the offer once the practice space is made, until the person has an organisation of their own', () => {
+    // First Home: the welcome shows the card itself, so the rail does not repeat it.
+    expect(ownNetworkLater(true, false, 0, 0)).toBe(false);
+    // Back on Home after the sample: the welcome is gone and the rail offers it.
+    expect(ownNetworkLater(true, false, 0, 1)).toBe(true);
+    expect(ownNetworkLater(true, false, 1, 1)).toBe(false);
+  });
+
+  it('is never offered to someone who cannot make one, or who waits on an invitation', () => {
+    expect(ownNetworkLater(false, false, 0, 1)).toBe(false);
+    expect(ownNetworkLater(true, true, 0, 1)).toBe(false);
   });
 });

@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 import { signOut } from '../../api/auth';
 import { UNTITLED_DESIGN } from '../../api/designs';
 import { useWindowWidth } from './Dock';
+import { hint } from './hints';
+import { BAR_HINT, EDITS_OFF, VIEW_HINT, VIEW_LABEL, VIEWS, WORK_HINT } from './hintWords';
 import { nextFoldLevel } from './layout';
 import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
@@ -11,7 +13,7 @@ import type { PathItem, PathPart } from './path';
 import { SearchBox } from './SearchBox';
 import { shortcutText } from './shortcuts';
 import { ThemeMenu } from './ThemeMenu';
-import type { AccountInfo, MainView, Place, PresenceUser, ShellProps, ShellSearch } from './types';
+import type { AccountInfo, EditsOff, MainView, Place, PresenceUser, ShellProps, ShellSearch } from './types';
 import { VaultBadge, VaultMenuRows } from '../vault/VaultBadge';
 
 // The bar's own `gap` and side padding, counted when measuring its row.
@@ -29,6 +31,10 @@ export interface BarProps {
   presence: PresenceUser[];
   canUndo: boolean;
   canRedo: boolean;
+  /** Why Undo or Redo is greyed, when it is. Its hint says this where it would say what a press does, and the
+   * folded menu puts it beside the row. */
+  undoOff?: EditsOff | null;
+  redoOff?: EditsOff | null;
   onUndo: () => void;
   onRedo: () => void;
   /** Print, in the design name's menu; absent with no design open. */
@@ -43,6 +49,8 @@ export interface BarProps {
    * beside the undo/redo pair; absent everywhere there is nothing to be
    * read-only about (Home, or a writable design). */
   viewOnly?: boolean;
+  /** Why, when it is not that this person may only look: the chip's hint says this in place of that. */
+  viewOnlyWhy?: EditsOff | null;
   /** A chip before Undo (the Checks count). */
   barExtra?: ReactNode;
   /** Where the brand goes: Home. Omitted on Home itself. */
@@ -65,6 +73,13 @@ export interface BarProps {
   task?: ShellProps['task'];
 }
 
+/** Undo's or Redo's hint. One that can be pressed says what a press does and its keys, with the title it has
+ * always had. A greyed one says why, and no keys: they would do nothing either. */
+function editHint(name: 'Undo' | 'Redo', does: string, keys: string, why: EditsOff | null) {
+  if (why == null) return { ...hint(name, does, keys), title: `${name} (${keys})` };
+  return hint(name, EDITS_OFF[why].hint);
+}
+
 /** The bar — UI-SPEC "The bar" and r116: one row, 44px, a 3px ink rule beneath, and the same on Canvas, Diagram,
  * Inventory and Sheet. Where you are, and what is about the whole design or about you. How a view is looked at
  * (lens, Layers, Look, zoom) is on the view, not here. */
@@ -76,6 +91,8 @@ export function Bar({
   presence,
   canUndo,
   canRedo,
+  undoOff = null,
+  redoOff = null,
   onUndo,
   onRedo,
   onPrint,
@@ -83,6 +100,7 @@ export function Bar({
   onShortcuts,
   account,
   viewOnly,
+  viewOnlyWhy = null,
   barExtra,
   onHome,
   menu,
@@ -139,6 +157,10 @@ export function Bar({
   const viewsMenu = fold >= 5;
   const hasDoing = doing != null && doing.length > 0 && task == null;
   const hasEdits = place !== null;
+  // A greyed Undo or Redo says why. Only while it is greyed: a reason left over on a button that can be pressed
+  // would be the wrong thing to read.
+  const undoWhy = canUndo ? null : undoOff;
+  const redoWhy = canRedo ? null : redoOff;
 
   async function handleSignOut() {
     await signOut();
@@ -153,7 +175,7 @@ export function Bar({
     <div className={task != null ? 'shell-bar shell-bar--task' : 'shell-bar'} data-tone={task?.tone} ref={containerRef}>
       <div className="shell-bar__leading" ref={leadingRef}>
         {onHome ? (
-          <button type="button" className="shell-bar__brand" onClick={onHome}>
+          <button type="button" className="shell-bar__brand" onClick={onHome} {...hint('Home', BAR_HINT.home)}>
             Fathom
           </button>
         ) : (
@@ -260,7 +282,7 @@ export function Bar({
             open design. */}
         {viewOnly === true && (
           <>
-            <span className="shell-chip shell-bar__view-only" aria-label="view only">
+            <span className="shell-chip shell-bar__view-only" aria-label="view only" {...hint('View only', viewOnlyWhy != null ? EDITS_OFF[viewOnlyWhy].hint : BAR_HINT.viewOnly)}>
               View only
             </span>
             <Sep />
@@ -278,10 +300,10 @@ export function Bar({
         {hasEdits && !editsFolded && (
           <>
             <div className="shell-bar__undoredo">
-              <button type="button" className="shell-chip shell-chip--ink" title={`Undo (${shortcutText('undo')})`} disabled={!canUndo} onClick={onUndo} data-testid="bar-undo">
+              <button type="button" className="shell-chip shell-chip--ink" {...editHint('Undo', BAR_HINT.undo, shortcutText('undo'), undoWhy)} disabled={!canUndo} onClick={onUndo} data-testid="bar-undo">
                 Undo
               </button>
-              <button type="button" className="shell-chip shell-chip--ink" title={`Redo (${shortcutText('redo')})`} disabled={!canRedo} onClick={onRedo} data-testid="bar-redo">
+              <button type="button" className="shell-chip shell-chip--ink" {...editHint('Redo', BAR_HINT.redo, shortcutText('redo'), redoWhy)} disabled={!canRedo} onClick={onRedo} data-testid="bar-redo">
                 Redo
               </button>
             </div>
@@ -309,10 +331,10 @@ export function Bar({
           >
             {editsFolded && hasEdits && (
               <>
-                <PopoverRow onSelect={onUndo} disabled={!canUndo}>
+                <PopoverRow onSelect={onUndo} disabled={!canUndo} testId="more-undo" hint={undoWhy != null ? EDITS_OFF[undoWhy].short : undefined}>
                   Undo
                 </PopoverRow>
-                <PopoverRow onSelect={onRedo} disabled={!canRedo}>
+                <PopoverRow onSelect={onRedo} disabled={!canRedo} testId="more-redo" hint={redoWhy != null ? EDITS_OFF[redoWhy].short : undefined}>
                   Redo
                 </PopoverRow>
               </>
@@ -320,9 +342,8 @@ export function Bar({
             {actionsFolded &&
               hasDoing &&
               doing.map((item) => (
-                <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`}>
+                <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`} hint={item.hint}>
                   {item.label}
-                  {item.hint != null && <span className="shell-doing__hint">{item.hint}</span>}
                 </PopoverRow>
               ))}
             {actionsFolded && onShare && <PopoverRow onSelect={onShare} testId="shell-share">Share</PopoverRow>}
@@ -330,13 +351,13 @@ export function Bar({
         )}
         {!actionsFolded && hasDoing && <DoingMenu items={doing} />}
         {!actionsFolded && onShare && (
-          <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
+          <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share" {...hint('Share', BAR_HINT.share)}>
             Share
           </button>
         )}
         {adminPill && !actionsFolded &&
           (adminPill.onSelect && !adminPill.current ? (
-            <button type="button" className="shell-admin-pill" data-testid="shell-admin-pill" onClick={adminPill.onSelect}>
+            <button type="button" className="shell-admin-pill" data-testid="shell-admin-pill" onClick={adminPill.onSelect} {...hint('Admin', BAR_HINT.admin)}>
               Admin
             </button>
           ) : (
@@ -350,6 +371,7 @@ export function Bar({
             className="shell-shortcuts-btn"
             aria-label="Keyboard shortcuts"
             aria-keyshortcuts="Shift+?"
+            {...hint('Keyboard shortcuts', BAR_HINT.shortcuts, shortcutText('shortcuts'))}
             title={`Keyboard shortcuts (${shortcutText('shortcuts')})`}
             data-testid="shell-shortcuts"
             onClick={onShortcuts}
@@ -368,6 +390,7 @@ export function Bar({
                 triggerRef.current = node;
               }}
               aria-label="Account menu"
+              {...hint('Your account', BAR_HINT.account)}
               title="Account menu"
               aria-haspopup={triggerProps['aria-haspopup']}
               aria-expanded={triggerProps['aria-expanded']}
@@ -551,9 +574,6 @@ function Sep() {
   );
 }
 
-const VIEW_LABEL: Record<MainView, string> = { diagram: 'Diagram', canvas: 'Canvas', inventory: 'Inventory', sheet: 'Sheet' };
-const VIEWS: readonly MainView[] = ['diagram', 'canvas', 'inventory', 'sheet'];
-
 /** r31-bar A: the four views. The ink underline slides to the one you choose (r31-motion). */
 function ViewTabs({
   view,
@@ -652,7 +672,8 @@ function ViewTabs({
           aria-current={v === view ? 'page' : undefined}
           className={v === view ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
           data-testid={`view-${v}`}
-          title={backTo != null ? `Back to ${backTo}, ${VIEW_LABEL[v]}` : undefined}
+          {...hint(VIEW_LABEL[v], backTo != null ? `Opens ${backTo} again in this view.` : VIEW_HINT[v])}
+          title={backTo != null ? `Back to ${backTo}, ${VIEW_LABEL[v]}` : VIEW_HINT[v]}
           onClick={() => onChange(v)}
         >
           {VIEW_LABEL[v]}
@@ -667,7 +688,7 @@ function ViewTabs({
           aria-current={work.on ? 'page' : undefined}
           className={work.on ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
           data-testid="view-work"
-          title="Every site's work: plans, It's down and orders"
+          {...hint('Work', WORK_HINT)}
           onClick={work.onOpen}
         >
           Work
@@ -692,15 +713,15 @@ function DoingMenu({ items }: { items: NonNullable<ShellProps['doing']> }) {
             triggerRef.current = el;
           }}
           {...triggerProps}
+          {...hint('Doing', BAR_HINT.doing)}
         >
           Doing ▾
         </button>
       )}
     >
       {items.map((item) => (
-        <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`}>
+        <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`} hint={item.hint}>
           {item.label}
-          {item.hint != null && <span className="shell-doing__hint">{item.hint}</span>}
         </PopoverRow>
       ))}
     </Popover>

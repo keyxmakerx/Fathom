@@ -50,6 +50,12 @@
   font-size: max(8px, calc(9px / var(--zoom, 1)));
 }
 
+/* Under 77.5% a number kept at 9px on the screen is as tall as the row it numbers, and each ran into the next.
+   There only the even units are numbered, as a ruler thins its marks. One a drag would cover still shows. */
+.drawing[data-zoom-band='50'] .drawing-rack__u-number--odd:not(.drawing-rack__u-number--lit) {
+  visibility: hidden;
+}
+
 /* Ports fade in, a step per band, as they become big enough to hit: 0 at
    the rack stop (100%), fully opaque at the faceplate stop (200%). */
 .drawing-chassis__ports,
@@ -64,6 +70,12 @@
 }
 .drawing-chassis__ports > * {
   pointer-events: auto;
+}
+/* Too small to be drawn (opacity 0, above), a rack device's ports and cards are out of reach as well: a press, a
+   pointer, a right-click or a drag where one lies is the device's. They keep their place, so a cable still ends
+   where its port is. A wall thing's ports do the same (`.drawing-surface__port-row--undrawn`). */
+.drawing-chassis__ports--undrawn {
+  visibility: hidden;
 }
 
 /* A port glyph at about its true size: CSS `zoom` (not `transform`, which
@@ -92,6 +104,13 @@
    behind the pointer. */
 .drawing .react-flow__node:not(.dragging) {
   transition: transform var(--m-pane) var(--m-ease), opacity var(--m-pane) var(--m-ease);
+}
+
+/* While anything is dragged (`data-node-drag`, `Drawing.tsx`) nothing else slides either. A rack carries its
+   devices and shelves as nodes of their own, and each slide left them a step behind the rack: about 50px at the
+   pane's edge, where the view pans by itself, with their cables already where the rack was going. */
+.drawing[data-node-drag] .react-flow__node {
+  transition: opacity var(--m-pane) var(--m-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -366,8 +385,21 @@
   pointer-events: none;
 }
 
+/* A thing on a wall, selected: the same ticks, on the box that places it, so the thing's own box is not touched. */
+.drawing-surface__fixture-anchor:has(> .drawing-surface__fixture--selected)::after,
+.drawing-surface__floor-anchor:has(> .drawing-surface__fixture--selected)::after {
+  --tick-len: 8px;
+  content: '';
+  position: absolute;
+  inset: -5px;
+  z-index: 2;
+  pointer-events: none;
+}
+
 /* Selection is four corner ticks (UI-SPEC "Look", Blueprint). */
 .react-flow__node:has(.drawing-chassis--selected)::after,
+.drawing-surface__fixture-anchor:has(> .drawing-surface__fixture--selected)::after,
+.drawing-surface__floor-anchor:has(> .drawing-surface__fixture--selected)::after,
 .drawing-rack--selected .drawing-rack__frame::after,
 .drawing-diagram-box--selected::after {
   background:
@@ -1393,6 +1425,12 @@
 
 .drawing-surface__port-group--uplink {
   margin-left: auto;
+}
+
+/* Too small to be drawn (opacity 0, above), a wall thing's ports are out of reach as well: no Tab stop, no press,
+   nothing read out. They keep their place, so a cable still ends where its port is. */
+.drawing-surface__port-row--undrawn {
+  visibility: hidden;
 }
 
 /* In a narrow fixture box the two groups stack and each fills the width, so

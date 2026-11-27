@@ -5,16 +5,26 @@ import type { JSX } from "react";
 
 import type { ReadyQuestion } from "../home/sampleQuestions";
 
+/** The card on the page now ("Try a question" or the practice note), or null. Both sit over the top left of the
+ * drawing, so a fit of the drawing keeps clear of whichever is there. */
+export function sampleCard(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(".trace-questions");
+}
+
 /** The card sits over the top left of the drawing, so it folds to its title row once the person clicks on the
- * drawing (the card itself, and a Diagram look, start folded when `folded` says so). Show opens it again. */
+ * drawing (the card itself, and a Diagram look, start folded when `folded` says so). Show opens it again.
+ * `away` takes it off the page while something else has the canvas (an open device, a trace) without forgetting
+ * that it was folded or hidden: Hide lasts the visit. */
 export function ReadyQuestions({
   questions,
   onAsk,
   folded = false,
+  away = false,
 }: {
   questions: readonly ReadyQuestion[];
   onAsk: (q: ReadyQuestion) => void;
   folded?: boolean;
+  away?: boolean;
 }): JSX.Element | null {
   const [hidden, setHidden] = useState(false);
   const [open, setOpen] = useState(!folded);
@@ -33,7 +43,7 @@ export function ReadyQuestions({
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, [open]);
-  if (hidden || questions.length === 0) return null;
+  if (hidden || away || questions.length === 0) return null;
   return (
     <aside
       ref={card}
@@ -93,12 +103,14 @@ export function ReadyQuestions({
 export function PracticeNote({
   count,
   onOpenChecks,
+  away = false,
 }: {
   count: number;
   onOpenChecks: () => void;
+  away?: boolean;
 }): JSX.Element | null {
   const [hidden, setHidden] = useState(false);
-  if (hidden) return null;
+  if (hidden || away) return null;
   return (
     <aside
       className="trace-questions"
