@@ -102,7 +102,8 @@ try {
 
   await page.goto(`${BASE}/drive.html?scene=show`);
   await page.waitForSelector('.react-flow__node-chassis', { timeout: 15_000 }).catch((e) => { console.log('PAGEERR', pageErrors.join(' | ')); throw e; });
-  await page.getByLabel('Look').getByRole('button', { name: 'Diagram', exact: true }).click();
+  // The Diagram view is a tab in the bar now; Look is a menu of how the drawing looks.
+  await page.getByTestId('view-diagram').click();
   await page.waitForSelector('.drawing-diagram-box');
   await page.click('button[aria-label="Fit to view"]').then(() => page.waitForTimeout(700));
   const labels = () => page.locator('.drawing-layer-label').allInnerTexts();
