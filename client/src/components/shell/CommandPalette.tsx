@@ -107,7 +107,9 @@ export function PaletteSheet({ search, onClose, initialQuery = '', layer = false
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
-    return () => before?.focus?.();
+    // preventScroll: a thing on the drawing that had the focus may be far off by now (a pick moves the camera),
+    // and the browser would scroll the drawing's box to it, under the camera's move to the pick.
+    return () => before?.focus?.({ preventScroll: true });
   }, []);
 
   // A new set of rows starts on the first one that can be chosen.

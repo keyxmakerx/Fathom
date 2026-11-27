@@ -65,6 +65,9 @@ export function useToDrawingKey(root: RefObject<HTMLElement | null>, selected: P
 /** How long React Flow's own move to a focused node is given before the thing inside it is looked at. */
 const SETTLE_MS = 320;
 
+/** How soon after a press of Tab a focus counts as the step it made. */
+const TAB_MS = 250;
+
 type Box = { left: number; top: number; right: number; bottom: number };
 
 /** How far to move the drawing so `thing` shows inside `pane` with `margin` to spare, or null when it already
@@ -95,10 +98,16 @@ export function useKeepWalkInView(
   useEffect(() => {
     const el = root.current;
     if (el == null) return undefined;
+    // Only a step of Tab is a walk. Focus put back when a dialog closes is not, and must not pull the camera
+    // away from where a pick in Search just took it.
+    let tabbedAt = -Infinity;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Tab') tabbedAt = event.timeStamp;
+    }
     function onFocusIn(event: FocusEvent) {
       const on = event.target as HTMLElement | null;
       if (on == null || on.classList.contains('react-flow__node') || on.closest('.react-flow__node') == null) return;
-      if (!on.matches(':focus-visible')) return;
+      if (event.timeStamp - tabbedAt > TAB_MS || !on.matches(':focus-visible')) return;
       // After React Flow has moved to the node the thing is in, which it does on the same focus.
       window.setTimeout(() => {
         if (document.activeElement !== on || !on.isConnected) return;
@@ -112,7 +121,11 @@ export function useKeepWalkInView(
         void rf.setViewport({ x: v.x + shift.dx, y: v.y + shift.dy, zoom: v.zoom }, { duration: still ? 0 : 200 });
       }, SETTLE_MS);
     }
+    document.addEventListener('keydown', onKeyDown, true);
     el.addEventListener('focusin', onFocusIn);
-    return () => el.removeEventListener('focusin', onFocusIn);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      el.removeEventListener('focusin', onFocusIn);
+    };
   }, [root, rf]);
 }
