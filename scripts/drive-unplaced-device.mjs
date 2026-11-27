@@ -130,13 +130,13 @@ try {
   await page.locator('.shell-bar__tab', { hasText: 'Inventory' }).click();
   await page.waitForSelector('.inventory-place__kind', { timeout: 15_000 });
 
-  // Devices is the default kind — the seeded sketch device sits in its own
-  // "Unplaced" group row (`rows.ts`'s `unplacedDeviceRows`/`groupDeviceRows`).
-  await page.waitForSelector('.inventory-place__group-row', { timeout: 15_000 });
-  const groupLabels = await page.locator('.inventory-place__group-row').allInnerTexts();
-  check('the grid shows an "Unplaced" group', groupLabels.some((t) => /unplaced/i.test(t)), groupLabels.join(' | '));
+  // Devices is the default kind. The seeded sketch device is in no rack, and the rail's pinned "Not placed"
+  // view under Devices counts it (the old "Unplaced" group row went with the table of ADR-0062).
+  await page.waitForSelector('.inv-table__row', { timeout: 15_000 });
+  const notPlaced = (await page.getByText('Not placed', { exact: false }).first().locator('xpath=ancestor::*[self::button or self::a or self::li][1]').innerText()).replace(/\s+/g, ' ');
+  check('the rail has a "Not placed" view that counts the device', /Not placed.*\b1\b/i.test(notPlaced), notPlaced);
 
-  const row = page.locator('.inventory-place__row', { hasText: 'sketch-01' });
+  const row = page.locator('.inv-table__row', { hasText: 'sketch-01' });
   check('the unplaced device has its own row', (await row.count()) === 1);
   await row.click();
 
@@ -147,7 +147,9 @@ try {
   // Remove device sits in the panel's ⋯ menu.
   await panel.locator('[data-testid="device-more"] > summary').click();
   const panelText = await panel.innerText();
-  check('the panel opens for the unplaced device', panelText.includes('sketch-01'));
+  // A device is a page of Inventory now: its name is the page's title, and the panel below holds the fields.
+  const pageTitle = await page.locator('.inv-page, .inventory-place__page, main').first().innerText();
+  check('the panel opens for the unplaced device', panelText.includes('sketch-01') || pageTitle.includes('sketch-01'), pageTitle.slice(0, 120));
   check('the panel shows "Placed on", not silence', /placed on/i.test(panelText));
   check('the panel offers "Remove device", the same as a placed one', panelText.includes('Remove device'));
   // Placement-only fields (a rack's U-range) are left out for a device this
@@ -170,18 +172,24 @@ try {
 
   // Remove it — `document/commands.ts`'s `removeChassis`, the same
   // `EditorChange` a placed device's panel raises.
-  await panel.locator('button', { hasText: 'Remove device' }).click();
+  await panel.locator('[data-testid="device-more"] > summary').click();
+  await page.getByRole('menuitem', { name: /Remove device/ }).click();
   await page.waitForTimeout(400);
-  check('the row is gone after removal', (await page.locator('.inventory-place__row', { hasText: 'sketch-01' }).count()) === 0);
+  check('the row is gone after removal', (await page.locator('.inv-table__row', { hasText: 'sketch-01' }).count()) === 0);
   await page.screenshot({ path: SHOTS + 'UD-03-removed.png' });
   console.log('    wrote ' + SHOTS + 'UD-03-removed.png');
 
   // Undo — the bar's own chip (Inventory has no canvas to hold a Ctrl+Z
   // listener; `DesignPlace.tsx`'s own doc: "the bar's Undo/Redo, real
   // everywhere `DesignPlace` renders").
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByTestId('bar-undo').click();
   await page.waitForTimeout(400);
-  check('the row is back after undo', (await page.locator('.inventory-place__row', { hasText: 'sketch-01' }).count()) === 1);
+  // Undo puts the device back and its page with it; Back to the list, where the row is counted.
+  if ((await page.locator('.inv-table__row').count()) === 0 && (await page.locator('[data-testid=inv-back]').count()) > 0) {
+    await page.locator('[data-testid=inv-back]').click();
+    await page.waitForTimeout(300);
+  }
+  check('the row is back after undo', (await page.locator('.inv-table__row', { hasText: 'sketch-01' }).count()) === 1);
   await page.screenshot({ path: SHOTS + 'UD-04-undone.png' });
   console.log('    wrote ' + SHOTS + 'UD-04-undone.png');
 
