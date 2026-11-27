@@ -1048,7 +1048,9 @@ try {
 
   // Enter on what the keyboard is on selects it, as a press on it does, and Details shows it: a device, a cable, a
   // wall, a shelf and the rack. Space is left alone: on the drawing it is held to pan. A band of several cables
-  // selects nothing. What is read out for each says the key, in place of React Flow's own words.
+  // selects nothing. What is read out for each says the key, in place of React Flow's own words. Each says its own
+  // name first (`thingSays.ts`): React Flow gave a device, a rack, a shelf and a wall no name, called a cable "Edge
+  // from" and two ids, and called each a "node" or an "edge".
   {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
@@ -1059,6 +1061,34 @@ try {
     await page.getByRole('button', { name: 'Open sample' }).click();
     await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
     await page.waitForTimeout(2000);
+    // What each thing that takes the keyboard gives a screen reader: its name, its kind, and whether Enter is offered.
+    const stopsSay = (within) =>
+      page.evaluate(
+        (within) =>
+          [...document.querySelectorAll(`${within} .react-flow__node[tabindex="0"], ${within} .react-flow__edge[tabindex="0"]`)].map((el) => ({
+            name: el.getAttribute('aria-label') ?? '',
+            as: el.getAttribute('aria-roledescription') ?? '',
+            enter: el.getAttribute('aria-describedby') != null,
+          })),
+        within,
+      );
+    const unnamed = (stops) => stops.filter((s) => s.name.trim() === '' || /Edge from|[0-9A-HJKMNP-TV-Z]{26}/.test(s.name) || /^(node|edge)?$/.test(s.as));
+    const stops = await stopsSay('.shell__drawing');
+    const names = stops.map((s) => s.name);
+    check('everything on the drawing that takes the keyboard has a name and a kind of its own, and none is an id', stops.length > 0 && unnamed(stops).length === 0, `${stops.length} stops; wrong: ${JSON.stringify(unnamed(stops).slice(0, 2))}`);
+    for (const want of [
+      'router-1, router, Rack 1 U10',
+      'Rack 1, 12U, 3U used',
+      'Shelf, Rack 1 U6, holds nas-1, server-1 and pi-1',
+      'Outside wall, holds camera-1 and camera-2',
+      'Office run, switch-1 port 7 to switch-2 port 1',
+      'router-1 port 9 to ISP modem, outside this room',
+      '2 cables, router-1 to switch-1',
+    ])
+      check(`one says "${want}"`, names.includes(want), names.filter((n) => n.startsWith(want.slice(0, 5))).join(' | '));
+    check('and the browser gives the device that name', (await page.getByRole('group', { name: 'router-1, router, Rack 1 U10', exact: true }).count()) === 1);
+    const noEnter = stops.filter((s) => !s.enter).map((s) => s.as).sort();
+    check('Enter is offered on all but the row, the band of cables and the cables that leave the room', JSON.stringify(noEnter) === JSON.stringify(['cables', 'cables that leave this room', 'row']), JSON.stringify(noEnter));
     // What Details shows of the selection, its words run together; null with nothing selected.
     const details = () =>
       page.evaluate(() => {
@@ -1094,7 +1124,7 @@ try {
       );
     }
     const band = await enterOn('.react-flow__edge-bundle');
-    check('Enter on a band of several cables selects nothing', band.afterSpace == null && band.afterEnter == null, JSON.stringify(band));
+    check('Enter on a band of several cables selects nothing, and nothing read out says it would', band.afterSpace == null && band.afterEnter == null && band.said == null, JSON.stringify(band));
 
     // The Diagram look: a box is its device and a line its cable. Escape does not let go of a selection there, so
     // the box's device is still in Details when Space is pressed on the line.
@@ -1102,6 +1132,9 @@ try {
     await page.locator('.shell-bar').getByText('Diagram', { exact: true }).first().click();
     await page.waitForSelector('.drawing--diagram .react-flow__node', { timeout: 10_000 });
     await page.waitForTimeout(1200);
+    const inDiagram = await stopsSay('.drawing--diagram');
+    check('in the Diagram look every box and line has a name and a kind of its own', inDiagram.length > 0 && unnamed(inDiagram).length === 0, `${inDiagram.length} stops; wrong: ${JSON.stringify(unnamed(inDiagram).slice(0, 2))}`);
+    check('a box says its device and where it is, a line its two ends', inDiagram.some((s) => s.name === 'router-1, router, Rack 1' && s.as === 'device') && inDiagram.some((s) => s.name === 'Office run, switch-1 port 7 to switch-2 port 1' && s.as === 'cable'), inDiagram.slice(0, 3).map((s) => s.name).join(' | '));
     const boxSays = ((await page.locator('.drawing--diagram .react-flow__node').first().innerText()) ?? '').replace(/\s+/g, ' ').trim();
     const box = await enterOn('.drawing--diagram .react-flow__node');
     const boxName = (box.afterEnter ?? '').match(/[a-z]+-\d+/i)?.[0] ?? '';

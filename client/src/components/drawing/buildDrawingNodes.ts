@@ -26,6 +26,7 @@ import { RACK_NODE_WIDTH, rackNodeHeight, type RackNodeData } from './RackNode';
 import { ROW_LABEL_WIDTH, type RowLabelNodeData } from './RowLabelNode';
 import { type ShelfPlateNodeData } from './ShelfPlate';
 import { type SurfaceNodeData } from './SurfaceNode';
+import { SAID_AS, deviceSays, rackSays, rowSays, shelfSays, surfaceSays, wayOutSays } from './thingSays';
 import { RACK_GAP_PX, ROW_GAP_PX, rowBandY, rowKey, type RowLayout, type SurfacesLayout } from './rows';
 import type { RowView } from './contract';
 import type { ShelfView } from '../../document/view';
@@ -157,6 +158,8 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
           position: { x: -(ROW_LABEL_WIDTH + RACK_GAP_PX / 2), y },
           draggable: false,
           selectable: false,
+          ariaLabel: rowSays(layout.label, layout.elevation),
+          domAttributes: SAID_AS.row,
           width: ROW_LABEL_WIDTH,
           height: bandHeight,
           style: { width: ROW_LABEL_WIDTH, height: bandHeight },
@@ -187,6 +190,8 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
           position: pos,
           draggable: canDraw,
           selectable: true,
+          ariaLabel: rackSays(rack),
+          domAttributes: SAID_AS.rack,
           width: RACK_NODE_WIDTH,
           height: rackNodeHeight(rack),
           style: { width: RACK_NODE_WIDTH, height: rackNodeHeight(rack) },
@@ -221,6 +226,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
             RACK_INNER_PX,
             chassis.heightU * U_PX,
             caches.chassisNodeCaches,
+            deviceSays(chassis, rack.label),
           ),
         );
         if (chassis.id === selectedChassisId) {
@@ -240,13 +246,15 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
         nodes.push(
           caches.nodeCache.get(
             shelfNodeId(shelf.id),
-            [shelfSnapshot, elevation, portSheath, shelfPosition.x, shelfPosition.y, handleSelectPort, canDraw, onResizeShelf, onOpenShelf],
+            [shelfSnapshot, elevation, portSheath, shelfPosition.x, shelfPosition.y, handleSelectPort, canDraw, onResizeShelf, onOpenShelf, rack.label],
             () => ({
               id: shelfNodeId(shelf.id),
               type: 'shelf',
               position: shelfPosition,
               draggable: false,
               selectable: false,
+              ariaLabel: shelfSays(shelfSnapshot, rack.label),
+              domAttributes: SAID_AS.shelf,
               zIndex: 10,
               width: RACK_INNER_PX,
               height: shelf.heightU * U_PX,
@@ -285,6 +293,8 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
           position: { x: placementSnapshot.x, y: placementSnapshot.y },
           draggable: false,
           selectable: false,
+          ariaLabel: surfaceSays(placementSnapshot.surface),
+          domAttributes: SAID_AS[placementSnapshot.surface.form],
           // Behind the racks. A rack moved by hand can stand over a wall, a desk or a ceiling. On one level with
           // the rack's frame, the panel (made later) hid the frame and left the rack's devices in front of it.
           zIndex: SURFACE_Z,
@@ -337,6 +347,8 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
         position: { x: pos.x, y },
         draggable: false,
         selectable: false,
+        ariaLabel: wayOutSays(groupSnapshot.label, portalCountLabel(groupSnapshot)),
+        domAttributes: SAID_AS.wayOut,
         width: RACK_NODE_WIDTH,
         height: PORTAL_TRAY_HEIGHT,
         style: { width: RACK_NODE_WIDTH, height: PORTAL_TRAY_HEIGHT },

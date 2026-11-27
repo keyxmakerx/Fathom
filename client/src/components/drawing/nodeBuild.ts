@@ -9,6 +9,7 @@ import type { Facing } from './elevation';
 import { IdCache, StableRef } from './idCache';
 import { chassisEqual } from './nodeEquality';
 import { chassisNodeId } from './nodeId';
+import { SAID_AS } from './thingSays';
 
 export interface ChassisNodeCaches {
   // Shared with every other node kind `Drawing.tsx` draws, one `sweep()`.
@@ -34,12 +35,14 @@ export function buildChassisNode(
   widthPx: number,
   heightPx: number,
   caches: ChassisNodeCaches,
+  /** Its name for a screen reader (`thingSays.ts`), which names its rack too. */
+  said?: string,
 ): ChassisNodeType {
   const id = chassisNodeId(chassis.id);
   const stableChassis = caches.chassisRef.get(chassis.id, chassis, chassisEqual);
   return caches.nodeCache.get(
     id,
-    [stableChassis, elevation, portSheath, position.x, position.y, canDraw, onSelectPort],
+    [stableChassis, elevation, portSheath, position.x, position.y, canDraw, onSelectPort, said],
     () => ({
       id,
       type: 'chassis',
@@ -47,6 +50,7 @@ export function buildChassisNode(
       draggable: canDraw,
       selectable: true,
       zIndex: 10,
+      ...(said != null ? { ariaLabel: said, domAttributes: SAID_AS.device } : {}),
       // Sizes known up front, so React Flow never hides this node while it
       // waits to measure it, even when its reference changes.
       width: widthPx,

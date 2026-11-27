@@ -31,6 +31,7 @@ import { CanvasTools } from './CanvasTools';
 import { useWheelMode } from './canvasPrefs';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
+import { SAID_AS, cableSays, looseDeviceSays } from './thingSays';
 import { useCameraHub, type CameraHub } from './camera';
 import { CanvasMiniMap } from './CanvasMiniMap';
 import { useLearn } from '../learn/context';
@@ -286,6 +287,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         width: b.w,
         height: b.h,
         draggable: false,
+        // Its name for a screen reader (`thingSays.ts`): the device, what it is and the rack it is in.
+        ariaLabel: looseDeviceSays(b.hostname, b.role, b.rackLabel ?? ''),
+        domAttributes: SAID_AS.device,
         className: (trace != null && !trace.boxes.has(b.id)) || (table != null && !table.lit.chassis.has(b.id)) ? 'trace-faded' : undefined,
         data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(b.role) : null, lens: routing?.devices.get(b.id) ?? [], stopped: trace?.stop?.boxId === b.id } satisfies BoxData,
       })),
@@ -333,12 +337,14 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         type: 'diagramLine',
         source: line.a,
         target: line.b,
+        ariaLabel: cableSays(view, line.cable),
+        domAttributes: SAID_AS.cable,
         selectable: false,
         className: [line.cable.id === selectedCableId && 'drawing-diagram-line--selected', ((trace != null && !trace.cables.has(line.cable.id)) || (table != null && !table.lit.cables.has(line.cable.id))) && 'trace-faded'].filter(Boolean).join(' ') || undefined,
         data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, onPath: trace?.cables.has(line.cable.id) ?? false, dimmed: litId != null && !lit, links: links == null ? undefined : (links.cables.get(line.cable.id) ?? null), speeds: endSpeeds(line.cable, portSpeeds), speedSides: [sideAt(route.a), sideAt(route.b)], onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
       } satisfies Edge<LineData, 'diagramLine'>;
     });
-  }, [boxes, lines, routes, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace, table, links, portSpeeds]);
+  }, [view, boxes, lines, routes, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace, table, links, portSpeeds]);
 
   // The trace's numbers: on a box's top-left corner, or a line's middle; and the stop's caution box.
   const traceMarks = useMemo(() => {

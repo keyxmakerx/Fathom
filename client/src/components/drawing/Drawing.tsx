@@ -42,6 +42,7 @@ import { TroubleCanvasBridge, useTroubleFade } from './troubleFade';
 import type { PortTarget } from './plansMarks';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
+import { SAID_AS, cableSays, cablesSay } from './thingSays';
 import { viewShowsAny } from '../design/resume';
 import type { Bundle } from './bundles';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
@@ -1668,6 +1669,9 @@ function DrawingInner({
       sourceHandle: source.handleId,
       target: target.nodeId,
       targetHandle: target.handleId,
+      // Its name for a screen reader: its two ends, in place of React Flow's "Edge from <id> to <id>".
+      ariaLabel: cableSays(view, cable),
+      domAttributes: SAID_AS.cable,
       selectable: false, // selection is handled by CableEdge's own onClick, not React Flow's
       // Below a chassis's own `zIndex: 10`: names and ports draw above
       // cables, so pressing a port always starts a new cable.
@@ -1714,6 +1718,8 @@ function DrawingInner({
       sourceHandle: '__bundle__',
       target: chassisNodeId(bundle.chassisB),
       targetHandle: '__bundle__',
+      ariaLabel: cablesSay(view, bundle.members.length, bundle.chassisA, bundle.chassisB),
+      domAttributes: SAID_AS.cables,
       selectable: false,
       zIndex: 5,
       data: bundleData,
@@ -1782,6 +1788,8 @@ function DrawingInner({
       targetHandle: '__bundle__',
       selectable: false,
       focusable: false,
+      // A second picture of a cable that has its own name: nothing for a screen reader.
+      domAttributes: { 'aria-hidden': true },
       zIndex: 6,
       data: {},
     } satisfies CableOverlayEdgeType);

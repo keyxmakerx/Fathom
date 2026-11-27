@@ -648,9 +648,22 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   device to what is picked. Space is left alone: on the drawing it is held to pan. A band of several cables and a
   tray select nothing. Escape clears the selection and, for someone going through the page with Tab, leaves the
   ring on the thing, where React Flow took the keyboard off it. In the Diagram look Enter selects a box's device
-  and a line's cable. The words read out for a node or a cable say the key and nothing else (`KEYS_SAID`), in
-  place of React Flow's, which offered Space, moving and deleting. The key is a row of the shortcuts table
-  (`select-focused`). `drive-undo-notes.mjs` and `drive-sample.mjs` drive it.
+  and a line's cable. The words read out after a thing's name say the key and nothing else (`KEYS_SAID`), in
+  place of React Flow's, which offered Space, moving and deleting. A row, a band of several cables and the cables
+  that leave the room, which Enter does not select, are read without them. The key is a row of the shortcuts
+  table (`select-focused`). `drive-undo-notes.mjs` and `drive-sample.mjs` drive it.
+- **Things on the drawing say their names** (`drawing/thingSays.ts`). Everything on the drawing that takes the
+  keyboard has a name for a screen reader, handed to React Flow as `ariaLabel`. A device says its name, what it is
+  and where it is ("router-1, router, Rack 1 U10"); a rack its height and the units in use; a shelf and a wall
+  what they hold; a cable its own label and its two ends by device and port ("Office run, switch-1 port 7 to
+  switch-2 port 1"), with an end outside the room or not connected said as that; a band of several cables how
+  many it stands for; a box, a label, a note, an area and a line on the open canvas their own words. The kind of
+  thing is read in place of "node" and "edge" (`SAID_AS`). Before, React Flow's own words were no name at all for
+  a device, a rack, a shelf or a wall, and "Edge from" and two ids for a cable. The Diagram look's boxes and lines
+  have the same names. A device on a wall and a thing on a shelf take no Tab stop of their own, so they are named
+  only by the wall or shelf that holds them. The names were read back from Chromium's accessibility tree, not
+  listened to with a screen reader; an area and a line on the open canvas were not read back. `thingSays.test.ts`
+  holds the words; `drive-sample.mjs` reads them in both looks.
 - **A port says what it is, wherever it is drawn** (`drawing/faceplate.ts` `portSays`). A port's button has one
   set of words as its tip and as its name for a screen reader: the port, its connector, where it sits on the
   plate, an optic or an empty cage, and cabled or free. On a wall and on a shelf a port is drawn in a plain row,
