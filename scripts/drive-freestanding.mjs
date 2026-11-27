@@ -290,21 +290,17 @@ try {
   await occupant.waitFor({ timeout: 15_000 });
   await shelfPage.waitForTimeout(800);
   const zoomBeforeOpen = await zoomOf(shelfPage);
+  // Sign-off r157 (UI-SPEC "Motion" 10): a press on a box on a shelf selects it and shows its card, as on a device in a
+  // rack, and the camera stays; a double-click opens it.
   await occupant.click();
   await shelfPage.waitForTimeout(800);
-  const shelfNode = await paneFraction(shelfPage.locator('.react-flow__node-shelf'));
-  const shelfCovers = await coversCentre(shelfPage.locator('.react-flow__node-shelf'));
-  const zoomAfterOpen = await zoomOf(shelfPage);
-  check('opening a box on a shelf glides to the faceplate stop, the shelf at the pane centre', zoomBeforeOpen !== 2 && shelfCovers && zoomAfterOpen === 2, `from zoom ${zoomBeforeOpen}: box centre ${JSON.stringify(shelfNode)}, zoom ${zoomAfterOpen}`);
-  // The details panel slides open during that glide; the opened box's inset must not end up under it.
-  await shelfPage.waitForTimeout(400);
-  const insetBox = await shelfPage.locator('.drawing-shelf__inset').first().boundingBox();
-  const flowBox = await shelfPage.locator('.react-flow').first().boundingBox();
-  check(
-    'the opened box sits inside the canvas, not under the details panel',
-    insetBox != null && flowBox != null && insetBox.x >= flowBox.x && insetBox.x + insetBox.width <= flowBox.x + flowBox.width,
-    JSON.stringify({ insetBox, flowBox }),
-  );
+  const zoomAfterPress = await zoomOf(shelfPage);
+  const cardShown = (await shelfPage.locator('[data-testid=quick-card]').count()) === 1;
+  check('a press on a box on a shelf shows its card and leaves the camera where it was', cardShown && zoomAfterPress === zoomBeforeOpen, `card ${cardShown}; zoom ${zoomBeforeOpen} -> ${zoomAfterPress}`);
+  await occupant.dblclick();
+  await shelfPage.waitForSelector('[data-testid=jot]', { timeout: 10_000 }).catch(() => {});
+  const opened = (await shelfPage.locator('[data-testid=jot]').count()) === 1;
+  check('a double-click on it opens the box, named in the bar', opened && ((await shelfPage.locator('.shell-bar').innerText()).includes('box-01')));
   await shelfPage.screenshot({ path: SHOTS + 'F-04-shelf.png' });
   console.log('    wrote ' + SHOTS + 'F-04-shelf.png');
   await shelfPage.close();
