@@ -90,6 +90,14 @@ const STROKE_WIDTH_VAR = (kind: CableView['kind']) => scaled(BASE_WIDTH[kind]);
  * them out into individual `CableEdge`-shaped paths on hover, without
  * changing anything about how a single cable draws below.
  */
+/** A round hole, in the cable's own coordinates, where it meets a port: about a port's size at the zoom where a wall
+ * thing's ports are drawn. Subtracted from the cable's wide hit target by `clipRule="evenodd"`. */
+const END_HOLE_R = 10;
+function endHole(x: number, y: number): string {
+  const r = END_HOLE_R;
+  return `M${x - r} ${y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0Z`;
+}
+
 export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<CableEdgeType>) {
   // Read straight from `liveStore.ts`, so a hover never rebuilds every
   // cable's edge — ahead of the `!data` guard below so these hooks always run.
@@ -189,6 +197,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
     );
   }
 
+  const hitClipId = `cable-hit-${cable.id.replace(/[^A-Za-z0-9_-]/g, '_')}`;
   function handleClick(event: ReactMouseEvent) {
     event.stopPropagation();
     // Where cables cross, the click selects the one the pointer picked (nearest, or Tabbed to).
@@ -252,12 +261,18 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           cable's own thin line — the same reasoning UI-SPEC gives a port
           glyph ("ports fade in as they become big enough to hit"), applied
           to a line rather than a box. */}
+      {/* r160: the wider target stops short of the two ports the cable ends on, so a press on a wall or desk thing's
+          port is the port's (a wall is drawn under its cables; a rack's devices are above them already). */}
+      <clipPath id={hitClipId}>
+        <path clipRule="evenodd" d={`M-1e6 -1e6H1e6V1e6H-1e6Z${endHole(sourceX, sourceY)}${endHole(targetX, targetY)}`} />
+      </clipPath>
       <path
         d={d}
         fill="none"
         stroke="transparent"
         strokeWidth={12}
         pointerEvents="stroke"
+        clipPath={`url(#${hitClipId})`}
         onMouseEnter={handlePointer}
         onMouseMove={handlePointer}
         onMouseLeave={handlePointer}

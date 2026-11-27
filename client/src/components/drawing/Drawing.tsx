@@ -8,6 +8,7 @@ import {
   ReactFlowProvider,
   ViewportPortal,
   useReactFlow,
+  useUpdateNodeInternals,
   type ConnectionLineComponentProps,
   type Edge,
   type EdgeMouseHandler,
@@ -1322,6 +1323,16 @@ function DrawingInner({
     },
     caches.nodes,
   );
+  // A wall or shelf thing's port glyphs keep their size on screen (`.drawing-port-glyph--budgeted`), so each zoom
+  // band moves its ports inside its box without changing the box's size. React Flow measures handles only when a
+  // node's size changes, so the cables kept ending where the ports were at the band the node was first measured
+  // in: on the sample's desk switch, above its ports (sign-off r160). Measure them again at each band.
+  const updateNodeInternals = useUpdateNodeInternals();
+  const remeasureKey = nodes.flatMap((n) => (n.type === 'surface' || n.type === 'shelf' ? [n.id] : [])).join('|');
+  useEffect(() => {
+    if (remeasureKey === '') return;
+    updateNodeInternals(remeasureKey.split('|'));
+  }, [zoomBand, remeasureKey, updateNodeInternals]);
 
   // Centres the selected chassis in the strip above the drawer at the faceplate
   // stop, once when the drawer opens or the chassis changes.
