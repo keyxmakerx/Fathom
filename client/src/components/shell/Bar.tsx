@@ -331,22 +331,19 @@ export function Bar({
           >
             {editsFolded && hasEdits && (
               <>
-                <PopoverRow onSelect={onUndo} disabled={!canUndo} testId="more-undo">
+                <PopoverRow onSelect={onUndo} disabled={!canUndo} testId="more-undo" hint={undoWhy != null ? EDITS_OFF[undoWhy].short : undefined}>
                   Undo
-                  {undoWhy != null && <span className="shell-doing__hint">{EDITS_OFF[undoWhy].short}</span>}
                 </PopoverRow>
-                <PopoverRow onSelect={onRedo} disabled={!canRedo} testId="more-redo">
+                <PopoverRow onSelect={onRedo} disabled={!canRedo} testId="more-redo" hint={redoWhy != null ? EDITS_OFF[redoWhy].short : undefined}>
                   Redo
-                  {redoWhy != null && <span className="shell-doing__hint">{EDITS_OFF[redoWhy].short}</span>}
                 </PopoverRow>
               </>
             )}
             {actionsFolded &&
               hasDoing &&
               doing.map((item) => (
-                <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`}>
+                <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`} hint={item.hint}>
                   {item.label}
-                  {item.hint != null && <span className="shell-doing__hint">{item.hint}</span>}
                 </PopoverRow>
               ))}
             {actionsFolded && onShare && <PopoverRow onSelect={onShare} testId="shell-share">Share</PopoverRow>}
@@ -723,9 +720,8 @@ function DoingMenu({ items }: { items: NonNullable<ShellProps['doing']> }) {
       )}
     >
       {items.map((item) => (
-        <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`}>
+        <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`} hint={item.hint}>
           {item.label}
-          {item.hint != null && <span className="shell-doing__hint">{item.hint}</span>}
         </PopoverRow>
       ))}
     </Popover>

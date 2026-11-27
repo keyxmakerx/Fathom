@@ -690,11 +690,18 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   menu the bar opens: the design's, Sample, Doing, the account's, the lens's, Layers, Look, Views and the zoom
   stops; and in the ⋯ of the It's down panel, the one panel head that has rows). Down and Right step on, Up and
   Left step back, and both go round at the ends; Home and End go to the first row and the last. From the button
-  that opened the menu Down goes in at the top and Up at the bottom, and no other key goes in. A greyed row is
-  skipped, as Tab skips it, and a field keeps its arrows. Tab goes through the rows as before, and still leaves
-  the menu open behind it. The right-click menu had Up and Down already (`drawing/ContextMenu.tsx`). The ⋯ of a
-  device in Details is a list of its own (`drawing/Editor.tsx`) and still moves by Tab only. `drive-sample.mjs`
-  drives Layers, Look and Views.
+  that opened the menu Down goes in at the top and Up at the bottom, and no other key goes in. A field keeps its
+  arrows. The right-click menu had Up and Down already (`drawing/ContextMenu.tsx`).
+- **A menu, finished for the keyboard** (`shell/Popover.tsx`, `shell/menuKeys.ts`). Opened from the keyboard, a
+  menu starts with the keyboard on its first row (`pressedByKey`: a click with no click count); opened with a
+  press, the keyboard stays on its button. It closes when the keyboard leaves it and its button (`focusLeft`),
+  where it once stayed open over the page; going nowhere, as on a press on the menu's bare edge, is not leaving.
+  A greyed row is marked `aria-disabled` and not `disabled`: Tab and the arrows reach it, so the reason written
+  in it is read, and a press or Enter on it does nothing and leaves the menu open (`pressRow`). It is drawn as
+  before. Its words and its reason are read apart ("It's down, select a device first": `rowSaid`, the row's
+  `aria-label`); read from the row itself they ran together. The ⋯ of a device in Details is a list of its own
+  (`drawing/Editor.tsx` `DeviceMore`) and has the same three: first row from the keyboard, the arrows through
+  its rows, shut when Tab leaves it. `drive-sample.mjs` drives Layers, Doing, Look, Views and the ⋯ list.
 - **One home for every control** (ADR-0091, sign-off r116, 2026-11-12). The bar is the same on Canvas,
   Diagram, Inventory and Sheet and holds Undo and Redo; the lens is in each view's tool row; the bottom
   pill is zoom only. One Back, first in the tool row, only when there is somewhere to go. Every right

@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useId, useRef, useState } from 'r
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react';
 
 import { useGhostRef } from './ghost';
-import { MENU_ROWS, rowAfter, usesArrows } from './menuKeys';
+import { focusLeft, pressedByKey, rowAfter, rowsIn, usesArrows } from './menuKeys';
 
 export interface PopoverTriggerArgs {
   open: boolean;
@@ -39,9 +39,10 @@ export interface PopoverProps {
  * picker, the colour picker, the release picker, right-click menus) share
  * this component rather than reimplementing the behaviour.
  *
- * It traps nothing: Tab moves through the page as normal. Escape closes it
- * and returns focus to whichever element opened it. The arrow keys go
- * through its rows (`menuKeys.ts`).
+ * It traps nothing: Tab moves through the page as normal, and the menu
+ * closes when the keyboard leaves it. Escape closes it and returns focus to
+ * whichever element opened it. Opened from the keyboard it starts on its
+ * first row, and the arrow keys go through its rows (`menuKeys.ts`).
  */
 /** Lets a row close the pop-over it sits in once it has acted. */
 const CloseContext = createContext<() => void>(() => {});
@@ -60,6 +61,14 @@ export function Popover({ renderTrigger, children, align = 'left', className }: 
   // Closed, the box leaves a still copy that fades out (`ghost.ts`).
   const boxRef = useGhostRef(popoverRef);
   const id = useId();
+  // The last press in here came from the keyboard (`pressedByKey`).
+  const byKey = useRef(false);
+
+  // Opened from the keyboard, the menu starts with the keyboard on its first row. Opened with a pointer, the
+  // keyboard stays on the button, where Down goes in.
+  useEffect(() => {
+    if (open && byKey.current) rowsIn(popoverRef.current)[0]?.focus();
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -108,7 +117,7 @@ export function Popover({ renderTrigger, children, align = 'left', className }: 
     if (!open || box == null || !(on instanceof HTMLElement) || event.defaultPrevented) return;
     const onTrigger = on.closest('[aria-controls]')?.getAttribute('aria-controls') === id;
     if (!onTrigger && (!box.contains(on) || usesArrows(on))) return;
-    const rows = Array.from(box.querySelectorAll<HTMLElement>(MENU_ROWS)).filter((row) => row.getClientRects().length > 0);
+    const rows = rowsIn(box);
     const next = rowAfter(event, onTrigger ? -1 : rows.indexOf(on), rows.length);
     if (next == null) return;
     event.preventDefault();
@@ -120,7 +129,18 @@ export function Popover({ renderTrigger, children, align = 'left', className }: 
     .join(' ');
 
   return (
-    <div className="shell-popover-host" onKeyDown={onKeys}>
+    <div
+      className="shell-popover-host"
+      onKeyDown={onKeys}
+      onClickCapture={(event) => {
+        byKey.current = pressedByKey(event);
+      }}
+      // Tab, or anything else that takes the keyboard out of the menu and its button, closes it: an open menu
+      // is not left behind over the page.
+      onBlur={(event) => {
+        if (open && focusLeft(event.currentTarget, event.relatedTarget)) setOpen(false);
+      }}
+    >
       {renderTrigger({
         open,
         toggle,
@@ -148,13 +168,31 @@ export interface PopoverRowProps {
   disabled?: boolean;
   muted?: boolean;
   onSelect?: () => void;
+  /** What the row needs first, or why it is greyed: drawn in grey after its words. */
+  hint?: string | undefined;
   /** `data-testid`, for the browser drives. */
   testId?: string;
 }
 
+/** What is read for a row that has a hint: its words, a comma, the hint. Read from the row itself the two run
+ * together ("It's downselect a device first"). Undefined, the row is read from its own words. */
+export function rowSaid(words: unknown, hint: string | undefined): string | undefined {
+  return typeof words === 'string' && hint != null && hint.trim() !== '' ? `${words.trim()}, ${hint.trim()}` : undefined;
+}
+
+/** What a press on a row does. A row that acts closes its pop-over first: the screen beneath may be a new one,
+ * and a menu left open over it swallows the next click. A greyed row, and one with nothing to do, does nothing
+ * and leaves the menu open, its reason showing. */
+export function pressRow(row: { disabled: boolean; onSelect?: (() => void) | undefined }, close: () => void): void {
+  if (row.onSelect == null || row.disabled) return;
+  close();
+  row.onSelect();
+}
+
 /** One row inside a `Popover` — the shell brief "rows of 12px text with 5px 12px
- * padding, the current row 700". A real `<button>`, since every row acts. */
-export function PopoverRow({ children, current = false, disabled = false, muted = false, onSelect, testId }: PopoverRowProps) {
+ * padding, the current row 700". A real `<button>`, since every row acts. A greyed row is marked `aria-disabled`
+ * and not `disabled`: it still takes the keyboard, so the reason written in it is read out. */
+export function PopoverRow({ children, current = false, disabled = false, muted = false, onSelect, hint, testId }: PopoverRowProps) {
   const close = useContext(CloseContext);
   const classes = [
     'shell-popover__row',
@@ -169,17 +207,13 @@ export function PopoverRow({ children, current = false, disabled = false, muted 
       type="button"
       role="menuitem"
       className={classes}
-      disabled={disabled}
+      aria-disabled={disabled ? true : undefined}
+      aria-label={rowSaid(children, hint)}
       data-testid={testId}
-      onClick={() => {
-        // A row that acts closes its pop-over: the screen beneath may be a
-        // new one, and a menu left open over it swallows the next click.
-        if (!onSelect) return;
-        close();
-        onSelect();
-      }}
+      onClick={() => pressRow({ disabled, onSelect }, close)}
     >
       {children}
+      {hint != null && <span className="shell-doing__hint">{hint}</span>}
     </button>
   );
 }

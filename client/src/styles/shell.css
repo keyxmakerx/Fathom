@@ -788,7 +788,7 @@ button.shell-admin-pill {
   cursor: pointer;
 }
 
-.shell-popover__row:hover:not(:disabled) {
+.shell-popover__row:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--control-on);
   box-shadow: none;
 }
@@ -801,9 +801,16 @@ button.shell-admin-pill {
   color: var(--muted);
 }
 
-.shell-popover__row:disabled {
+/* A greyed row. It is marked `aria-disabled` so that it still takes the keyboard (`Popover.tsx`), and is drawn
+   as a disabled button is (`base.css`). */
+.shell-popover__row:disabled,
+.shell-popover__row[aria-disabled='true'] {
   color: var(--muted);
   cursor: default;
+}
+
+.shell-popover__row[aria-disabled='true'] {
+  opacity: 0.45;
 }
 
 /* ---- under the bar ----------------------------------------------------- */

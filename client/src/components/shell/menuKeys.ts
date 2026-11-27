@@ -1,4 +1,4 @@
-// The arrow keys in an open menu: which row the keyboard goes to next.
+// The keyboard in an open menu: which row the arrow keys go to next, where it starts, and when it has left.
 
 type Key = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>;
 
@@ -40,5 +40,24 @@ export function usesArrows(el: Field | null): boolean {
   return tag === 'input' && !PLAIN_INPUTS.includes((el.type ?? 'text').toLowerCase());
 }
 
-/** What the arrow keys stop on in a menu: what Tab stops on there. */
+/** What the arrow keys stop on in a menu: what Tab stops on there. A greyed row is one of them: it is marked
+ * `aria-disabled`, not `disabled`, so that the reason written in it is reached and read out. */
 export const MENU_ROWS = 'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)';
+
+/** The rows of a menu the keyboard can go to now, in the order they are drawn. */
+export function rowsIn(box: Pick<ParentNode, 'querySelectorAll'> | null): HTMLElement[] {
+  return box == null ? [] : Array.from(box.querySelectorAll<HTMLElement>(MENU_ROWS)).filter((row) => row.getClientRects().length > 0);
+}
+
+/** Whether a press came from the keyboard. A click made by Enter or Space on a button, or by a screen reader, has
+ * no click count; one made with a pointer has. A menu opened so starts with the keyboard on its first row. */
+export function pressedByKey(press: { detail: number }): boolean {
+  return press.detail === 0;
+}
+
+/** Whether the keyboard, on leaving something in `host` for `to`, has left the menu: `host` holds the menu and the
+ * button that opened it. Going nowhere is not leaving: a press on bare ground in the menu, a row that went away
+ * once it was picked, the window put behind another. */
+export function focusLeft(host: Pick<Node, 'contains'>, to: unknown): boolean {
+  return to != null && !host.contains(to as Node);
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MENU_ROWS, rowAfter, usesArrows } from './menuKeys';
+import { MENU_ROWS, focusLeft, pressedByKey, rowAfter, rowsIn, usesArrows } from './menuKeys';
 
 const key = (name: string, held: Partial<Record<'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey', boolean>> = {}) => ({
   key: name,
@@ -88,5 +88,50 @@ describe('what uses the arrow keys itself', () => {
     expect(MENU_ROWS).toContain('button:not(:disabled)');
     expect(MENU_ROWS).toContain('a[href]');
     expect(MENU_ROWS).toContain('input:not(:disabled)');
+  });
+
+  it('a greyed row is one of them: nothing in the rows leaves out a row marked aria-disabled', () => {
+    expect(MENU_ROWS).not.toContain('aria-disabled');
+  });
+});
+
+describe('the rows the keyboard can go to', () => {
+  const row = (shown: boolean) => ({ getClientRects: () => ({ length: shown ? 1 : 0 }) });
+
+  it('are the ones that are drawn, in the order the menu holds them', () => {
+    const rows = [row(true), row(false), row(true)];
+    const box = { querySelectorAll: (selector: string) => (selector === MENU_ROWS ? rows : []) };
+    expect(rowsIn(box as never)).toEqual([rows[0], rows[2]]);
+  });
+
+  it('are none when there is no menu', () => {
+    expect(rowsIn(null)).toEqual([]);
+  });
+});
+
+describe('where the keyboard starts in a menu', () => {
+  it('a press from the keyboard has no click count; one with a pointer has', () => {
+    expect(pressedByKey({ detail: 0 })).toBe(true);
+    expect(pressedByKey({ detail: 1 })).toBe(false);
+    expect(pressedByKey({ detail: 2 })).toBe(false);
+  });
+});
+
+describe('the keyboard leaving a menu', () => {
+  const inside = {};
+  const outside = {};
+  const host = { contains: (node: unknown) => node === inside };
+
+  it('has left when it goes to something outside the menu and its button', () => {
+    expect(focusLeft(host, outside)).toBe(true);
+  });
+
+  it('has not left when it goes to another row, or to the button', () => {
+    expect(focusLeft(host, inside)).toBe(false);
+  });
+
+  it('has not left when it goes nowhere: a press on bare ground in the menu, a row that went away', () => {
+    expect(focusLeft(host, null)).toBe(false);
+    expect(focusLeft(host, undefined)).toBe(false);
   });
 });

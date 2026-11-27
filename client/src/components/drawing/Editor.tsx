@@ -62,6 +62,7 @@ import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurf
 import { loadJsonPref, saveJsonPref } from '../../prefs';
 import { InHeadMenu } from '../shell/PanelHead';
 import { openAboveMenu } from '../shell/clickAnswer';
+import { focusLeft, pressedByKey, rowAfter, rowsIn, usesArrows } from '../shell/menuKeys';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
@@ -2064,10 +2065,14 @@ function elementsOf(selection: Selection, view: ClosetView): string {
  * The ⋯ list in a device panel's head. It is a menu like any other (shell brief, "Under the bar": closed by a press
  * elsewhere or by Esc). It once was neither: Esc folded the panel around it, and a press elsewhere left it open,
  * over the next device picked. Open, it is the top thing in the panel: Esc shuts it and nothing behind it, and
- * the focus goes back to its button.
+ * the focus goes back to its button. For the keyboard it is a menu as the bar's are (`shell/Popover.tsx`): opened
+ * from the keyboard it starts on its first row, the arrow keys go through its rows, and it shuts when the
+ * keyboard leaves it.
  */
 function DeviceMore({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDetailsElement>(null);
+  // The last press in here came from the keyboard (`pressedByKey`).
+  const byKey = useRef(false);
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       const el = ref.current;
@@ -2089,7 +2094,32 @@ function DeviceMore({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <details className="dev-more" data-testid="device-more" ref={ref}>
+    <details
+      className="dev-more"
+      data-testid="device-more"
+      ref={ref}
+      onClickCapture={(event) => {
+        byKey.current = pressedByKey(event);
+      }}
+      onToggle={(event) => {
+        if (event.currentTarget.open && byKey.current) rowsIn(event.currentTarget)[0]?.focus();
+      }}
+      onKeyDown={(event) => {
+        const el = event.currentTarget;
+        const on = document.activeElement;
+        if (!el.open || event.defaultPrevented || !(on instanceof HTMLElement) || !el.contains(on)) return;
+        const onButton = on.tagName === 'SUMMARY';
+        if (!onButton && usesArrows(on)) return;
+        const rows = rowsIn(el);
+        const next = rowAfter(event, onButton ? -1 : rows.indexOf(on), rows.length);
+        if (next == null) return;
+        event.preventDefault();
+        rows[next]?.focus();
+      }}
+      onBlur={(event) => {
+        if (event.currentTarget.open && focusLeft(event.currentTarget, event.relatedTarget)) event.currentTarget.open = false;
+      }}
+    >
       {children}
     </details>
   );

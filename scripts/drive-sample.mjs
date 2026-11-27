@@ -807,6 +807,27 @@ try {
       await page.waitForTimeout(400);
       check('with the More list open, one Esc shuts the list', wasOpen === true && (await more()) === false, `${wasOpen} then ${await more()}`);
       check('and leaves Details open on the switch, the focus back on the ⋯', (await named()) === 'switch-1' && (await page.evaluate(() => document.activeElement?.classList.contains('dev-more__button') ?? false)), String(await named()));
+      // For the keyboard the More list is a menu as the bar's are. Opened from the keyboard it starts on its first
+      // row, the arrow keys go through its rows, and it shuts when Tab leaves it. It once did none of the three.
+      const moreRows = await page.evaluate(() => [...document.querySelectorAll('details.dev-more [role="menu"] button')].map((b) => (b.getAttribute('aria-label') ?? b.textContent ?? '').trim()));
+      const onRow = () =>
+        page.evaluate(() => {
+          const a = document.activeElement;
+          return a != null && a.tagName === 'BUTTON' && a.closest('details.dev-more') != null ? (a.getAttribute('aria-label') ?? a.textContent ?? '').trim() : null;
+        });
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(400);
+      check('opened from the keyboard, the More list starts on its first row', (await more()) === true && moreRows.length > 2 && (await onRow()) === moreRows[0], `on ${await onRow()}; ${moreRows.length} rows`);
+      const stepped = [];
+      for (const key of ['ArrowDown', 'ArrowUp', 'ArrowUp', 'Home']) {
+        await page.keyboard.press(key);
+        stepped.push(await onRow());
+      }
+      check('Down and Up step through its rows and go round at the ends, and Home goes to the first', JSON.stringify(stepped) === JSON.stringify([moreRows[1], moreRows[0], moreRows[moreRows.length - 1], moreRows[0]]), stepped.join(', '));
+      await page.keyboard.press('End');
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(400);
+      check('Tab past its last row leaves the list and shuts it, and Details stays on the switch', (await more()) === false && (await onRow()) == null && (await named()) === 'switch-1', `open ${await more()}; on ${await onRow()}; ${await named()}`);
       await openMore();
       await page.mouse.click(on.x, on.y);
       await page.waitForTimeout(700);
@@ -1316,6 +1337,8 @@ try {
   // The arrow keys go through the rows of an open menu, as Tab does. From the button that opened it Down goes in at
   // the top and Up at the bottom; in the rows they step and go round, and Home and End go to the ends. A row's own
   // key still works, a field keeps its arrows, and Escape closes the menu with the keyboard back on its button.
+  // A menu opened from the keyboard starts on its first row, and one opened with a press leaves the keyboard on
+  // its button. Tab out of a menu closes it. A greyed row is reached, so the reason written in it is read.
   {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
@@ -1351,12 +1374,13 @@ try {
     const layers = await openFromKeys('shell-show');
     const last = layers.length - 1;
     const opened = await on();
-    const went = await pressAll(['ArrowDown', 'ArrowDown', 'ArrowUp', 'ArrowUp', 'ArrowDown', 'End', 'Home']);
-    const wanted = [layers[0], layers[1], layers[0], layers[last], layers[0], layers[last], layers[0]];
+    check('a menu opened from the keyboard starts with the keyboard on its first row', layers.length > 2 && opened === layers[0], `on ${opened}; ${layers.length} rows`);
+    const went = await pressAll(['ArrowDown', 'ArrowUp', 'ArrowUp', 'ArrowDown', 'End', 'Home']);
+    const wanted = [layers[1], layers[0], layers[last], layers[0], layers[last], layers[0]];
     check(
       'in the open Layers menu Down and Up step through the rows and go round at the ends, and End and Home go to the last and the first',
-      layers.length > 2 && opened === 'shell-show' && JSON.stringify(went) === JSON.stringify(wanted),
-      `opened with the keyboard on ${opened}; ${layers.length} rows; went ${went.join(', ')}`,
+      JSON.stringify(went) === JSON.stringify(wanted),
+      `went ${went.join(', ')}`,
     );
     const ticked = () => page.evaluate(() => document.activeElement?.getAttribute('aria-checked') ?? null);
     const tickBefore = await ticked();
@@ -1371,9 +1395,39 @@ try {
     await page.waitForTimeout(300);
     check('Escape closes the menu and puts the keyboard back on its button', fromLast === layers[last] && (await menu.count()) === 0 && (await on()) === 'shell-show', `${fromLast}; menus ${await menu.count()}; on ${await on()}`);
 
+    // Tab out of an open menu closes it: it once stayed open over the page. Back to the button is not out.
+    await openFromKeys('shell-show');
+    await page.keyboard.press('Shift+Tab');
+    await page.waitForTimeout(300);
+    check('Shift and Tab from the first row goes back to the button, and the menu stays open', (await on()) === 'shell-show' && (await menu.count()) === 1, `on ${await on()}; menus ${await menu.count()}`);
+    await page.keyboard.press('ArrowUp');
+    const atLast = await on();
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(400);
+    const leftFor = await on();
+    check('Tab past the last row leaves the menu and closes it', atLast === layers[last] && leftFor !== 'shell-show' && !layers.includes(leftFor) && (await menu.count()) === 0, `from ${atLast} to ${leftFor}; menus ${await menu.count()}`);
+
+    // A greyed row takes the keyboard, so its reason is read; Enter on it does nothing and the menu stays.
+    const doing = await openFromKeys('shell-doing');
+    const greyed = await menu.evaluate((m) => [...m.querySelectorAll('[aria-disabled="true"]')].map((b) => b.getAttribute('data-testid')));
+    const through = await pressAll(doing.map(() => 'ArrowDown'));
+    check('the arrow keys reach a greyed row', greyed.length > 0 && greyed.every((row) => through.includes(row)), `greyed: ${greyed.join(', ')}; went ${through.join(', ')}`);
+    if (greyed.length > 0) await page.getByTestId(greyed[0]).focus();
+    const greyName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(400);
+    check('Enter on it does nothing: the menu stays open with the keyboard on the row', (await menu.count()) === 1 && (await on()) === greyed[0], `menus ${await menu.count()}; on ${await on()}`);
+    check('the browser gives it as a menu item that is off, named by its words and its reason apart', /\S, \S/.test(greyName) && (await page.getByRole('menuitem', { name: greyName, exact: true, disabled: true }).count()) === 1, greyName);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+
     // Look sets some of its choices side by side: Right and Left step as Down and Up do. On the button that opened
-    // the menu they are not the menu's, nor are Home and End: only Down and Up go in.
-    const look = await openFromKeys('shell-look');
+    // the menu they are not the menu's, nor are Home and End: only Down and Up go in. Opened with a press, the
+    // menu leaves the keyboard on its button.
+    await page.getByTestId('shell-look').click();
+    await menu.waitFor({ timeout: 5_000 });
+    const look = await menu.evaluate((m) => [...m.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled)')].map((b) => b.getAttribute('data-testid') ?? (b.textContent ?? '').trim().slice(0, 24)));
+    check('a menu opened with a press leaves the keyboard on its button', (await on()) === 'shell-look', await on());
     const stayed = await pressAll(['ArrowRight', 'ArrowLeft', 'Home', 'End']);
     const sideways = await pressAll(['ArrowUp', 'ArrowDown', 'ArrowRight', 'ArrowRight', 'ArrowLeft']);
     check(
@@ -1384,9 +1438,9 @@ try {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
 
-    // A field in a menu keeps its arrow keys: Down from the button goes into it, and there they move in the words.
+    // A field in a menu keeps its arrow keys. With nothing saved the Views menu's first row is its field, so the
+    // menu opens in it, and there the arrows move in the words.
     await openFromKeys('shell-views');
-    await page.keyboard.press('ArrowDown');
     const inField = await page.evaluate(() => document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'text');
     await page.keyboard.type('ab');
     await page.keyboard.press('ArrowLeft');
@@ -1394,7 +1448,7 @@ try {
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('ArrowUp');
     const typed = await page.evaluate(() => (document.activeElement instanceof HTMLInputElement ? document.activeElement.value : null));
-    check('a field in a menu keeps its arrow keys: Down from the button goes into it, and there Left moves in the words', inField && typed === 'acb', `in the field: ${inField}; typed: ${typed}`);
+    check('a field in a menu keeps its arrow keys: the menu opens in it, and there Left moves in the words', inField && typed === 'acb', `in the field: ${inField}; typed: ${typed}`);
     for (let i = 0; i < 3; i += 1) await page.keyboard.press('Backspace');
     await page.keyboard.press('Escape');
 
