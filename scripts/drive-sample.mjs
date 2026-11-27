@@ -147,6 +147,7 @@ try {
     check('the cables draw once as the sample opens, never going and coming back', drawn.length > 0 && drawn.every((n, i) => i === 0 || n >= drawn[i - 1]), counts.join(' -> '));
     // r160: a cable to a wall or desk thing ends on its port at every zoom. Its ports keep their size on screen, so
     // each zoom band moves them inside their box, and the cables kept ending where they were when first measured.
+    // It meets the middle of the port's top or bottom edge, as a rack port's cable does, not its right side.
     const zoomIn = page.getByRole('button', { name: /zoom in/i }).first();
     for (let i = 0; i < 3; i++) { await zoomIn.click(); await page.waitForTimeout(400); }
     await page.waitForTimeout(400);
@@ -161,12 +162,13 @@ try {
       const out = [];
       for (const b of document.querySelectorAll('.react-flow__node-surface .drawing-surface__port--cabled')) {
         const r = b.getBoundingClientRect();
-        const hit = ends.some((e) => e.x >= r.left - 2 && e.x <= r.right + 2 && e.y >= r.top - 2 && e.y <= r.bottom + 2);
+        const mid = r.left + r.width / 2;
+        const hit = ends.some((e) => Math.abs(e.x - mid) <= 3 && (Math.abs(e.y - r.top) <= 2 || Math.abs(e.y - r.bottom) <= 2));
         if (!hit) out.push(b.closest('[class*=fixture]')?.textContent?.slice(0, 20) ?? b.getAttribute('data-port-id'));
       }
       return { checked: document.querySelectorAll('.react-flow__node-surface .drawing-surface__port--cabled').length, out };
     });
-    check('zoomed in, every cable to a wall or desk thing ends on its port', missed.checked >= 5 && missed.out.length === 0, `${missed.checked} ports, missed: ${missed.out.join(' | ')}`);
+    check('zoomed in, every cable to a wall or desk thing ends on the middle of its port\'s edge', missed.checked >= 5 && missed.out.length === 0, `${missed.checked} ports, missed: ${missed.out.join(' | ')}`);
     const zoomOut = page.getByRole('button', { name: /zoom out/i }).first();
     for (let i = 0; i < 3; i++) { await zoomOut.click(); await page.waitForTimeout(400); }
     await page.waitForTimeout(400);

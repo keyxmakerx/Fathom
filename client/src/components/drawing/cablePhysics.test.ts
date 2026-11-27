@@ -56,11 +56,22 @@ describe('a cable hangs like rope', () => {
     expect(hangCable(input).d).toBe(hangCable(input).d);
   });
 
-  it('leaves a port along its plug before it hangs', () => {
-    const up = hangCable({ a: { x: 0, y: 100, dir: -1 }, b: { x: 600, y: 100 } }).points;
-    expect(up[1]!.y).toBeLessThan(100);
-    const down = hangCable({ a: { x: 0, y: 100, dir: 1 }, b: { x: 600, y: 100 } }).points;
-    expect(down[1]!.y).toBeGreaterThan(100);
+  it('leaves a port along its plug when the cable goes that way', () => {
+    const down = hangCable({ a: { x: 0, y: 0, dir: 1 }, b: { x: 60, y: 300 } }).points;
+    expect(down[1]!.y).toBeGreaterThan(0);
+    expect(down[1]!.x).toBeCloseTo(0, 0);
+  });
+
+  // Sign-off r160 (27 November 2026): "weird topsy turvy wiggles ... when i said physics based i meant more gravity."
+  it('drops straight from a port whose cable falls away from it, with no hook up and back', () => {
+    const { points } = hangCable({ a: { x: 0, y: 100, dir: -1 }, b: { x: 600, y: 100 } });
+    expect(Math.min(...points.map((p) => p.y))).toBeGreaterThanOrEqual(100);
+  });
+
+  it('never jogs out and back when a cable heads off sideways', () => {
+    const { points } = hangCable({ a: { x: 0, y: 100, dir: 1 }, b: { x: 600, y: 100 } });
+    // x only ever grows along the cable: no S-bend at the port.
+    for (let i = 1; i < points.length; i++) expect(points[i]!.x).toBeGreaterThanOrEqual(points[i - 1]!.x - 0.01);
   });
 
   it('rests on what is under it instead of passing through', () => {
