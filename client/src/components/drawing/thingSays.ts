@@ -68,6 +68,12 @@ export function looseDeviceSays(name: string, role: string | null | undefined, w
   return joined([name.trim() || UNNAMED_HOSTNAME, roleSaid(role), where.trim()]);
 }
 
+/** A thing fixed to a wall, a desk or a ceiling: "switch-2, switch", "outlet-1, outlet". Where it hangs is said by
+ * its wall, which the keyboard has just left (r159). */
+export function fixtureSays(fixture: { label: string; form: string | null; chassis?: { role?: string | null } | undefined }): string {
+  return joined([fixture.label.trim() || UNNAMED_HOSTNAME, roleSaid(fixture.chassis?.role ?? fixture.form)]);
+}
+
 /** "Rack 1, 12U, 3U used". */
 export function rackSays(rack: { label: string; heightU: number; chassis: readonly { heightU: number }[]; shelves?: readonly { heightU: number }[] | undefined }): string {
   const used = rack.chassis.reduce((n, c) => n + c.heightU, 0) + (rack.shelves ?? []).reduce((n, s) => n + s.heightU, 0);

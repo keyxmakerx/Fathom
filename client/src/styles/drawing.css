@@ -1449,6 +1449,13 @@
   --budget-cap: 1;
 }
 
+/* r159: a thing on a wall takes a Tab stop (`ownStop.ts`), and shows the keyboard's ring as a device in a rack does. */
+.drawing-surface__fixture:focus-visible,
+.drawing-surface__board-header:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: var(--focus-offset-outset, 1px);
+}
+
 .drawing-surface__port {
   position: relative;
   appearance: none;
@@ -1577,6 +1584,27 @@
 .drawing-port--ringed {
   outline: var(--rule-hair) solid var(--ink);
   outline-offset: 2px;
+}
+
+/* r159: a pressed port stands on a square of ink, as a selected thing on a
+   shelf is drawn in ink (`shelf.css`), with a hairline of the page's colour
+   round it so it stays apart from the sockets beside it (`PortPick.tsx`).
+   Ports sit almost touching, so a ring or corner ticks round one fell on its
+   neighbours and could not be read; a plain 2px ring would also read as the
+   keyboard's own. Ink, never a risk colour, and no motion. The port is lifted
+   into a layer of its own so the square goes behind its socket, not over it. */
+:is(.drawing-chassis__port, .drawing-surface__port, .drawing-shelf__port):has(> .drawing-port-pick) {
+  isolation: isolate;
+  z-index: 3;
+}
+
+.drawing-port-pick {
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--ink);
+  box-shadow: 0 0 0 var(--rule-hair) var(--page);
 }
 
 /* UI-SPEC "Motion" #2 — "Wrong drop: target

@@ -19,6 +19,7 @@ import { portKindFor } from './portGlyph';
 import { portSays } from './faceplate';
 import { isLoosePort, portHandleFlags } from './missingLinks';
 import { ownPress } from './ownPress';
+import { PortPick } from './PortPick';
 import { SHEATH_VAR } from './sheath';
 import { ShelfGrips, type ResizeShelf } from './ShelfGrips';
 
@@ -173,6 +174,7 @@ function GlyphRow({ ports, glyphClassName, showLabels, onSelectPort, liveDrag, p
               {...portHandleFlags(cabled, isLoosePort(port))}
               className="drawing-shelf__port-handle"
             />
+            <PortPick portId={port.id} />
           </button>
         );
       })}

@@ -43,6 +43,7 @@ import { OverlayCard, OverlayLayer } from './OverlayLayer';
 import type { RoutingMarks, RoutingWord } from './routingLens';
 import { speedText, speedWidth, TRUNK_MIN_W, type LinksLine, type LinksMarks } from './linksLens';
 import { enterOn, escapeClears, KEYS_SAID } from './nodeKey';
+import { useToDrawingKey } from './toDrawing';
 import { openAbove } from '../shell/clickAnswer';
 import { isTypingTarget } from '../shell/shortcuts';
 
@@ -244,6 +245,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   const dashedCableIds = useMemo(() => (routing == null ? dashedIn : new Set([...(dashedIn ?? []), ...routing.switched])), [routing, dashedIn]);
   const settled = useSettledView();
   const stubbedRef = useRef(new Set<string>());
+  // r159: G takes the keyboard to the drawing, as on the Canvas.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useToDrawingKey(rootRef, selected);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [band, setBand] = useState(() => zoomBandAt(Math.max(zoom, 1)));
 
@@ -470,6 +474,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
 
   return (
     <div
+      ref={rootRef}
       className="drawing drawing--diagram"
       data-look="diagram"
       data-style={style}
