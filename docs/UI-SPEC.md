@@ -356,8 +356,8 @@ decision:* the colour picker on release defaults to the last colour used.
 All four are schema additions and do not exist until the schema says so.
 - **Undo never erases.** The trail is append-only and sealed, so an undo is a new change reversing the
   previous one, and both are recorded (*cabled at 14:02, uncabled at 14:03*). You undo your own
-  changes, never a colleague's; a colleague's change in between makes your undo a visible conflict,
-  never a silent overwrite. Who wins is parked with live editing.
+  changes, never a colleague's; your undo is refused, by name, only when it would take a colleague's
+  work with it or write over it (ADR-0053 §3), never a silent overwrite. Who wins is parked with live editing.
 - **A comment on any change,** written by the person, sealed into the same entry. Optional; who and when
   are always there.
 - **A maintenance record:** what was planned, its window, the devices, the changes it covered, and an

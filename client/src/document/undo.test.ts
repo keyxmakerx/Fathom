@@ -427,6 +427,82 @@ describe('undo in a live design — a thing someone else has changed is not remo
   });
 });
 
+describe('undo — ADR-0053 §3, the narrower rule: only what would take a colleague\'s work with it', () => {
+  function placedAt(u: number): { doc: Document; rackId: string; placeId: string; chassisId: string; deviceId: string; portId: string } {
+    const { doc, rackId } = docWithRack(ACTOR_A, NOW);
+    const withDevice = placeChassis(doc, rackId, MODEL_1U, u, 'front', { actor: ACTOR_A, now: NOW + 1 });
+    const chassisId = edgesIn(withDevice, rackId, 'MountedIn')[0].from;
+    return {
+      doc: withDevice,
+      rackId,
+      placeId: withDevice.batches.at(-1)!.id,
+      chassisId,
+      deviceId: edgesIn(withDevice, chassisId, 'HasChassis')[0].from,
+      portId: edgesOut(withDevice, chassisId, 'HasPort')[0].to,
+    };
+  }
+
+  it('lets you take back your device when a colleague placed another in other units of the same rack', () => {
+    const { doc, rackId, placeId, chassisId } = placedAt(1);
+    const theirs = placeChassis(doc, rackId, MODEL_1U, 20, 'front', { actor: ACTOR_B, now: NOW + 2 });
+    expect(conflict(theirs, placeId, ACTOR_A)).toBeUndefined();
+    const undone = undo(theirs, placeId, { actor: ACTOR_A, now: NOW + 3 });
+    expect(findNode(undone, chassisId)!.absentSince).toBeDefined();
+    // Theirs stays.
+    expect(edgesIn(undone, rackId, 'MountedIn').filter((e) => e.absentSince === undefined)).toHaveLength(1);
+  });
+
+  it('lets you take a removal back when a colleague placed another device elsewhere in that rack', () => {
+    const { doc, rackId, chassisId } = placedAt(1);
+    const removed = removeChassis(doc, chassisId, { actor: ACTOR_A, now: NOW + 2 });
+    const removeId = removed.batches.at(-1)!.id;
+    const theirs = placeChassis(removed, rackId, MODEL_1U, 20, 'front', { actor: ACTOR_B, now: NOW + 3 });
+    expect(conflict(theirs, removeId, ACTOR_A)).toBeUndefined();
+    expect(findNode(undo(theirs, removeId, { actor: ACTOR_A, now: NOW + 4 }), chassisId)!.absentSince).toBeUndefined();
+  });
+
+  it('lets you put your own field back when a colleague wrote a note on that device', () => {
+    const { doc, deviceId } = placedAt(1);
+    const mine = setDeviceField(doc, deviceId, 'management_address', '10.0.0.2', { actor: ACTOR_A, now: NOW + 2 });
+    const mineId = mine.batches.at(-1)!.id;
+    const theirs = addNote(mine, deviceId, { text: 'uplink', how: 'typed', actor: ACTOR_B, now: NOW + 3 });
+    expect(conflict(theirs, mineId, ACTOR_A)).toBeUndefined();
+  });
+
+  it('lets you take a cable off when a colleague wrote a note on one of its ports', () => {
+    const { doc, portId } = placedAt(1);
+    const cabled = connectToOutside(doc, portId, { label: 'to ISP' }, { actor: ACTOR_A, now: NOW + 2 });
+    const cableId = cabled.batches.at(-1)!.id;
+    const theirs = addNote(cabled, portId, { text: 'uplink, do not unplug', how: 'typed', actor: ACTOR_B, now: NOW + 3 });
+    expect(conflict(theirs, cableId, ACTOR_A)).toBeUndefined();
+  });
+
+  it('still refuses when a colleague has written a note on the device you would remove', () => {
+    const { doc, placeId, deviceId } = placedAt(1);
+    const theirs = addNote(doc, deviceId, { text: 'mine now', how: 'typed', actor: ACTOR_B, now: NOW + 2 });
+    expect(conflict(theirs, placeId, ACTOR_A)).toMatchObject({ kind: 'later-change', actor: ACTOR_B });
+  });
+
+  it('still refuses when a colleague has cabled to a port on the device you would remove', () => {
+    const { doc, placeId, portId } = placedAt(1);
+    const theirs = connectToOutside(doc, portId, { label: 'to ISP' }, { actor: ACTOR_B, now: NOW + 2 });
+    expect(conflict(theirs, placeId, ACTOR_A)).toMatchObject({ kind: 'later-change', actor: ACTOR_B });
+  });
+
+  it('still refuses when a colleague has put a device in the rack you added', () => {
+    const { doc, rackId } = docWithRack(ACTOR_A, NOW);
+    const theirs = placeChassis(doc, rackId, MODEL_1U, 1, 'front', { actor: ACTOR_B, now: NOW + 2 });
+    expect(conflict(theirs, doc.batches[0].id, ACTOR_A)).toMatchObject({ kind: 'later-change', actor: ACTOR_B });
+  });
+
+  it('still refuses when a colleague has written the very field you would put back', () => {
+    const { doc, deviceId } = placedAt(1);
+    const mine = setDeviceField(doc, deviceId, 'hostname', 'sw-01', { actor: ACTOR_A, now: NOW + 2 });
+    const theirs = setDeviceField(mine, deviceId, 'hostname', 'sw-02', { actor: ACTOR_B, now: NOW + 3 });
+    expect(conflict(theirs, mine.batches.at(-1)!.id, ACTOR_A)).toMatchObject({ kind: 'later-change', actor: ACTOR_B, element: deviceId });
+  });
+});
+
 describe('undo — ADR-0053 §2, archived through every field-write module', () => {
   it('setSupplyField (supplies.ts): undo restores the prior value, not "unknown"', () => {
     const { doc, rackId } = docWithRack(ACTOR_A, NOW);

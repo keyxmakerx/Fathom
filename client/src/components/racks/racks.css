@@ -274,3 +274,22 @@
 .canvas-add {
   white-space: nowrap;
 }
+
+.racks-trail__more {
+  display: block;
+  width: calc(100% - var(--s4) * 2);
+  margin: var(--s3) var(--s4);
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The day of a row that is not from today, under its time. */
+.racks-trail__day {
+  display: block;
+  color: var(--muted);
+  font-size: var(--t-micro);
+}

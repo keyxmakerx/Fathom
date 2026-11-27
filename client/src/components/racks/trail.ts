@@ -58,9 +58,11 @@ export interface TrailRow {
  * `withBatch`, always appended), which is also what puts an undo's own
  * entry above the change it reverses without any extra sort: an undo batch
  * is always minted after the batch it reverses. */
-export function trailRows(doc: Document, nameOf: (account: string) => string, sealedBatchIds: ReadonlySet<string>): TrailRow[] {
+export function trailRows(doc: Document, nameOf: (account: string) => string, sealedBatchIds: ReadonlySet<string>, limit = Infinity): TrailRow[] {
   const partsOf = historyPartsOf(doc);
-  return [...doc.batches].reverse().map((batch) => {
+  // Only the rows asked for are read off the document: a long-lived design has thousands of batches.
+  const newest = limit >= doc.batches.length ? doc.batches : doc.batches.slice(doc.batches.length - limit);
+  return [...newest].reverse().map((batch) => {
     const actor = batchActor(doc, batch);
     const { said, to } = partsOf(batch);
     return {
@@ -75,6 +77,29 @@ export function trailRows(doc: Document, nameOf: (account: string) => string, se
       sealed: sealedBatchIds.has(batch.id),
     };
   });
+}
+
+/** How many rows the trail draws at first, and how many more each "Show more" adds. */
+export const TRAIL_PAGE = 50;
+
+/** The time a row shows, in two parts: the hour and minute, and for any day but today the day (under the time on the row), so a row
+ * from last week does not read as if it were this morning's ("20 Nov", with the year for another year). `now` is a
+ * parameter so a test can fix it. */
+export function rowWhenParts(ms: number, now: number = Date.now()): { day: string | null; clock: string } {
+  if (!Number.isFinite(ms) || ms <= 0) return { day: null, clock: '—' };
+  const d = new Date(ms);
+  const two = (n: number) => String(n).padStart(2, '0');
+  const clock = `${two(d.getHours())}:${two(d.getMinutes())}`;
+  const today = new Date(now);
+  if (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()) return { day: null, clock };
+  const year = d.getFullYear() === today.getFullYear() ? '' : ` ${d.getFullYear()}`;
+  return { day: `${d.getDate()} ${MONTHS[d.getMonth()]}${year}`, clock };
+}
+
+/** `rowWhenParts` as one line: "09:05" or "20 Nov 15:19". */
+export function rowWhen(ms: number, now: number = Date.now()): string {
+  const { day, clock } = rowWhenParts(ms, now);
+  return day === null ? clock : `${day} ${clock}`;
 }
 
 /** One line of a row's record: what it is, and its value. */

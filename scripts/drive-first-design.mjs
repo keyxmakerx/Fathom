@@ -886,10 +886,11 @@ async function runProof(browser, seed) {
   await two.bringToFront();
   check("browser two (drawer): ends with the steward's first address and its own second", (await shows(two, 0, '10.0.0.1')) && (await shows(two, 1, '10.0.0.99')), JSON.stringify(await addresses(two)));
 
-  // A refused Undo. The steward gives the second device an address again and the drawer tags that device. A tag is
-  // not a field of the device, so Undo cannot leave it alone and take back the rest: it is refused. History opens
-  // and says whose change stood in the way and what it was, by name and never by an id, and what the next press
-  // does. The refused step is set aside like the one before, and the next press goes on to the change behind it.
+  // A colleague's work beside yours is not in the way (ADR-0053 §3, narrowed 2026-11-27). The steward gives the
+  // second device an address again and the drawer tags that device. The tag is not the address, so Undo puts the
+  // address back and the tag stays. (Before, a tag on the device refused the Undo; a refusal is still driven below,
+  // for a device the drawer has named, and in `drive-undo-notes.mjs`.) The trail names the people and says each
+  // change in words and, for a device with no name, where it stands.
   await one.bringToFront();
   check('browser one (steward): gives the second device an address again', await setAddress(one, 1, '10.0.0.3'), JSON.stringify(await addresses(one)));
   await two.bringToFront();
@@ -899,21 +900,20 @@ async function runProof(browser, seed) {
   await showColumn(one, 'Tags');
   check("browser one (steward): sees the drawer's tag live", await cellShows(one, 1, 'Tags', 'edge'));
   await one.locator('[data-testid="bar-undo"]').click();
-  await one.locator('.racks-trail__refusal').waitFor({ timeout: 5000 }).catch(() => {});
-  const refusedSaid = ((await one.locator('.racks-trail__refusal').allInnerTexts())[0] ?? '').replace(/\s+/g, ' ').trim();
-  check(
-    'browser one (steward): a refused Undo says in History whose change stood in the way and what it was, and what the next press does',
-    refusedSaid === 'Nothing was undone: an unnamed device was changed by Drawer since (tag added). Undo again takes back the change you made before it.',
-    refusedSaid,
-  );
-  check('browser one (steward): and quotes no id', !/[0-9A-HJKMNP-TV-Z]{26}/.test(refusedSaid) && !/\b(device|chassis|tag|tagged):/i.test(refusedSaid), refusedSaid);
-  check('browser one (steward): and has changed nothing', JSON.stringify(await addresses(one)) === JSON.stringify(['10.0.0.1', '10.0.0.3']), JSON.stringify(await addresses(one)));
-  await one.waitForTimeout(400); // History has slid in
-  await one.screenshot({ path: `${SHOTS}s7-undo-refused.png` });
+  const beside = await shows(one, 1, '10.0.0.99', 5000);
+  check('browser one (steward): Undo goes through beside the drawer\'s tag: the address is back and the tag stays', beside && (await cellShows(one, 1, 'Tags', 'edge')), JSON.stringify(await addresses(one)));
+  check('browser one (steward): and no refusal is shown', (await one.locator('.racks-trail__refusal').count()) === 0, String(await one.locator('.racks-trail__refusal').count()));
+  await one.waitForTimeout(400);
+  await one.screenshot({ path: `${SHOTS}s7-undo-beside.png` });
 
-  // The trail under that sentence. It names people as every other history does, "you" and the name heard for a
-  // colleague, never the start of an account id, and says each change in words and what it was made to. The record
-  // stays readable: the whole account id behind a name and the label as it was written show when pointed at.
+  // The trail names people as every other history does, "you" and the name heard for a colleague, never the start
+  // of an account id, and says each change in words and what it was made to. The record stays readable: the whole
+  // account id behind a name and the label as it was written show when pointed at.
+  if ((await one.locator('.racks-trail__row').count()) === 0) {
+    if ((await one.locator('[data-testid="history-tab-trail"]').count()) === 0) await one.locator('[data-testid="dock-history"]').click();
+    await one.locator('[data-testid="history-tab-trail"]').click();
+    await one.locator('.racks-trail__row').first().waitFor({ timeout: 5000 });
+  }
   const trailTop = await one.evaluate(() =>
     [...document.querySelectorAll('.racks-trail__row')].slice(0, 2).map((row) => {
       const who = row.querySelector('.racks-trail__col--who');
@@ -922,19 +922,19 @@ async function runProof(browser, seed) {
     }),
   );
   check(
-    "browser one (steward): the trail names the drawer and says the tag in words, with the account and the label as recorded behind them",
-    trailTop[0]?.who === 'Drawer' && /^Drawer · account [0-9A-HJKMNP-TV-Z]{26}$/.test(trailTop[0].account) && trailTop[0].what === 'Tag added · an unnamed device' && trailTop[0].recorded === 'Recorded as: tag',
+    'browser one (steward): the trail reads "you" for the Undo, in words, with the device told by where it stands',
+    trailTop[0]?.who === 'you' && / · account [0-9A-HJKMNP-TV-Z]{26}$/.test(trailTop[0].account) && /^Undone: address changed · an unnamed device in Rack 1 U\d+/.test(trailTop[0].what),
     JSON.stringify(trailTop[0]),
   );
   check(
-    'browser one (steward): and reads "you" for its own change beneath that, in words too',
-    trailTop[1]?.who === 'you' && / · account [0-9A-HJKMNP-TV-Z]{26}$/.test(trailTop[1].account) && trailTop[1].what === 'Address changed · an unnamed device' && trailTop[1].recorded === 'Recorded as: set Device.management_address',
+    'browser one (steward): and names the drawer beneath it, with the tag in words, the account and the label as recorded behind them',
+    trailTop[1]?.who === 'Drawer' && /^Drawer · account [0-9A-HJKMNP-TV-Z]{26}$/.test(trailTop[1].account) && /^Tag added · an unnamed device in Rack 1 U\d+/.test(trailTop[1].what) && trailTop[1].recorded === 'Recorded as: tag',
     JSON.stringify(trailTop[1]),
   );
   await one.locator('[data-testid="bar-undo"]').click();
   check(
-    'browser one (steward): the next Undo goes on to the change before the refused one, and the refusal is put away',
-    (await shows(one, 0, unset, 5000)) && (await addresses(one))[1] === '10.0.0.3' && (await one.locator('.racks-trail__refusal').count()) === 0,
+    'browser one (steward): the next Undo goes one change further back',
+    (await shows(one, 0, unset, 5000)) && (await addresses(one))[1] === '10.0.0.99' && (await one.locator('.racks-trail__refusal').count()) === 0,
     `${JSON.stringify(await addresses(one))} refusals shown: ${await one.locator('.racks-trail__refusal').count()}`,
   );
 
@@ -947,7 +947,7 @@ async function runProof(browser, seed) {
   // the drawing undid there while the button was greyed. A save on show greys both, and each says why.
   const offered = async (page) => `Undo ${await page.locator('[data-testid="bar-undo"]').isEnabled()}, Redo ${await page.locator('[data-testid="bar-redo"]').isEnabled()}`;
   const LOOKING_BACK = 'You are looking at a save, not the design as it is now. Press Back to now in History.';
-  const whyGreyed = (page, id) => page.locator(`[data-testid="${id}"]`).evaluate((b) => ({ greyed: b.disabled, why: b.getAttribute('data-hint-more'), keys: b.getAttribute('data-hint-keys') }));
+  const whyGreyed = (page, id) => page.locator(`[data-testid="${id}"]`).evaluate((b) => ({ greyed: b.disabled || b.getAttribute('aria-disabled') === 'true', why: b.getAttribute('data-hint-more'), keys: b.getAttribute('data-hint-keys') }));
   const gone = (page, selector, timeout = 5000) => page.waitForFunction((sel) => document.querySelector(sel) == null, selector, { timeout }).then(() => true, () => false);
   const toPlace = async (page, name, landmark) => {
     await page.locator('.shell-bar').getByText(name, { exact: true }).first().click();
@@ -955,7 +955,7 @@ async function runProof(browser, seed) {
   };
   const offeredBefore = await offered(one);
   const addressesNow = JSON.stringify(await addresses(one));
-  // The refused Undo above left History showing its Trail. Saves is the tab beside it.
+  // The trail check above left History showing its Trail. Saves is the tab beside it.
   if ((await one.locator('[data-testid="history-tab-saves"]').count()) === 0) await one.locator('[data-testid="dock-history"]').click();
   if ((await one.locator('[data-testid="history-panel"]').count()) === 0) await one.locator('[data-testid="history-tab-saves"]').click();
   const savesListed = await one.locator('.history__row').nth(1).waitFor({ timeout: 15000 }).then(() => true, () => false);

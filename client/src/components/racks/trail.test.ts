@@ -5,7 +5,7 @@ import { setRackField } from '../../document/edit';
 import { LOCAL_ACTOR, emptyDocument, formatNodeId, type Document } from '../../document/model';
 import { newUlid } from '../../document/ulid';
 import { redo, undo } from '../../document/undo';
-import { recordLines, recordWhen, redoable, trailRows, utcOffset, whoLabel, type TrailRow } from './trail';
+import { recordLines, recordWhen, redoable, rowWhen, trailRows, utcOffset, whoLabel, type TrailRow } from './trail';
 
 const NOW = 1_700_000_000_000;
 const ACTOR_A = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -231,5 +231,32 @@ describe('the record behind a row', () => {
       { label: 'Account', value: 'ana@example.net' },
       { label: 'Account id', value: ACTOR_A },
     ]);
+  });
+});
+
+describe('rowWhen', () => {
+  const noon = new Date(2026, 10, 27, 12, 0).getTime();
+  it('shows only the time for today', () => {
+    expect(rowWhen(new Date(2026, 10, 27, 9, 5).getTime(), noon)).toBe('09:05');
+  });
+  it('puts the day in front for another day, and the year for another year', () => {
+    expect(rowWhen(new Date(2026, 10, 20, 15, 19).getTime(), noon)).toBe('20 Nov 15:19');
+    expect(rowWhen(new Date(2025, 11, 31, 23, 59).getTime(), noon)).toBe('31 Dec 2025 23:59');
+  });
+  it('is a dash for a batch whose id carries no time', () => {
+    expect(rowWhen(0, noon)).toBe('—');
+  });
+});
+
+describe('trailRows with a limit', () => {
+  it('reads only the newest rows asked for, newest first', () => {
+    const { doc: d0, rackId } = docWithRack(ACTOR_A, NOW);
+    let doc = d0;
+    for (let i = 0; i < 5; i += 1) doc = setRackField(doc, rackId, 'label', `R${i}`, { actor: ACTOR_A, now: NOW + 10 + i });
+    const all = trailRows(doc, nameOf, new Set());
+    const two = trailRows(doc, nameOf, new Set(), 2);
+    expect(two).toHaveLength(2);
+    expect(two.map((r) => r.batchId)).toEqual(all.slice(0, 2).map((r) => r.batchId));
+    expect(trailRows(doc, nameOf, new Set(), 1000)).toHaveLength(all.length);
   });
 });

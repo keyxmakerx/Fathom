@@ -3,9 +3,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../../api/catalogue';
-import { createRack, placeChassis, removeChassis } from '../../document/commands';
+import { createRack, createShelf, createSketchDevice, placeChassis, placeOnShelf, removeChassis } from '../../document/commands';
+import { connectOneEnd, connectPorts, setCableField } from '../../document/cables';
 import { setDeviceField } from '../../document/edit';
-import { edgesIn, emptyDocument, formatNodeId, type Document } from '../../document/model';
+import { elementName } from '../../document/liveDoc';
+import { parseNodeId, edgesIn, edgesOut, emptyDocument, formatNodeId, type Document } from '../../document/model';
 import { addNote, removeNote } from '../../document/notes';
 import { newUlid } from '../../document/ulid';
 import { UndoConflictError, conflict, undo, type UndoConflict } from '../../document/undo';
@@ -50,10 +52,10 @@ function refusalOf(doc: Document, batchId: string): UndoConflict {
 
 describe('what a refused undo says', () => {
   it('names the rack someone else has put a device in since, and says what they did', () => {
+    // Mine is the rack itself, so a device put in it would be taken with it.
     const { doc, rackId } = rackDoc();
-    const mine = placeChassis(doc, rackId, MODEL, 10, 'front', { actor: ME, now: T + 1 });
-    const mineId = mine.batches.at(-1)!.id;
-    const theirs = placeChassis(mine, rackId, MODEL, 20, 'front', { actor: THEM, now: T + 2 });
+    const mineId = doc.batches.at(-1)!.id;
+    const theirs = placeChassis(doc, rackId, MODEL, 20, 'front', { actor: THEM, now: T + 2 });
 
     const c = conflict(theirs, mineId, ME, { skipChangedFields: true })!;
     expect(refusedSentence(theirs, c, 'undo', bob)).toBe('Nothing was undone: R1 was changed by Bob Roe since (added EX4300-48P to R1).');
@@ -68,7 +70,7 @@ describe('what a refused undo says', () => {
     const mine = setDeviceField(placed, deviceId, 'management_address', '10.0.0.2', { actor: ME, now: T + 2 });
     const mineId = mine.batches.at(-1)!.id;
     const theirs = setDeviceField(mine, deviceId, 'management_address', '10.0.0.99', { actor: THEM, now: T + 3 });
-    expect(refusedSentence(theirs, refusalOf(theirs, mineId), 'undo', bob)).toBe('Nothing was undone: an unnamed device was changed by Bob Roe since (address changed).');
+    expect(refusedSentence(theirs, refusalOf(theirs, mineId), 'undo', bob)).toBe('Nothing was undone: an unnamed device in R1 U10 was changed by Bob Roe since (address changed).');
 
     const named = setDeviceField(theirs, deviceId, 'hostname', 'core-sw-01', { actor: THEM, now: T + 4 });
     expect(refusedSentence(named, refusalOf(named, mineId), 'undo', bob)).toBe('Nothing was undone: core-sw-01 was changed by Bob Roe since (address changed).');
@@ -115,6 +117,38 @@ describe('what a refused undo says', () => {
   });
 });
 
+describe('a refusal about a cable', () => {
+  it('says what the cable joins, and what it leaves open', () => {
+    const { doc, rackId } = rackDoc();
+    let working = placeChassis(doc, rackId, MODEL, 10, 'front', { actor: ME, now: T + 1 });
+    working = placeChassis(working, rackId, MODEL, 12, 'front', { actor: ME, now: T + 2 });
+    const chassis = edgesIn(working, rackId, 'MountedIn').map((e) => e.from);
+    const devices = chassis.map((c) => edgesIn(working, c, 'HasChassis')[0]!.from);
+    working = setDeviceField(working, devices[0]!, 'hostname', 'core-sw-01', { actor: ME, now: T + 3 });
+    working = setDeviceField(working, devices[1]!, 'hostname', 'edge-sw-02', { actor: ME, now: T + 4 });
+    const ports = chassis.map((c) => edgesOut(working, c, 'HasPort')[0]!.to);
+    const cabled = connectPorts(working, ports[0]!, ports[1]!, {}, { actor: ME, now: T + 5 });
+    const mineId = cabled.batches.at(-1)!.id;
+    const cableId = cabled.nodes.find((n) => n.id.startsWith('cable:'))!.id;
+    const theirs = setCableField(cabled, cableId, 'label', 'uplink', { actor: THEM, now: T + 6 });
+    const said = refusedSentence(theirs, refusalOf(theirs, mineId), 'undo', bob);
+    expect(said).toMatch(/^Nothing was undone: the cable from (core-sw-01 to edge-sw-02|edge-sw-02 to core-sw-01) was changed by Bob Roe since/);
+    expect(said).not.toContain('cable:');
+  });
+
+  it('says the one end it has when the other is open', () => {
+    const { doc, rackId } = rackDoc();
+    let working = placeChassis(doc, rackId, MODEL, 10, 'front', { actor: ME, now: T + 1 });
+    const chassisId = edgesIn(working, rackId, 'MountedIn')[0]!.from;
+    const deviceId = edgesIn(working, chassisId, 'HasChassis')[0]!.from;
+    working = setDeviceField(working, deviceId, 'hostname', 'core-sw-01', { actor: ME, now: T + 2 });
+    const portId = edgesOut(working, chassisId, 'HasPort')[0]!.to;
+    const cabled = connectOneEnd(working, portId, {}, { actor: ME, now: T + 3 });
+    const cableId = cabled.nodes.find((n) => n.id.startsWith('cable:'))!.id;
+    expect(elementName(cabled, cableId)).toBe('the cable from core-sw-01');
+  });
+});
+
 describe('why Undo or Redo is greyed', () => {
   const free = { canDraw: true, phoneCanvas: false, lookingBack: false, any: true };
 
@@ -151,5 +185,23 @@ describe('why Undo or Redo is greyed', () => {
       expect(said.short, why).toMatch(/^[A-Z].*[^.]$/);
       expect(said.short.length, why).toBeLessThanOrEqual(40);
     }
+  });
+});
+
+describe('two devices with no name', () => {
+  it('are told apart by where each stands, in a rack and on a shelf', () => {
+    const { doc, rackId } = rackDoc();
+    const a = placeChassis(doc, rackId, MODEL, 12, 'front', { actor: ME, now: T + 1 });
+    const b = placeChassis(a, rackId, MODEL, 20, 'front', { actor: ME, now: T + 2 });
+    const [one, two] = edgesIn(b, rackId, 'MountedIn').map((e) => e.from);
+    expect(elementName(b, one!)).toBe('an unnamed device in R1 U12');
+    expect(elementName(b, two!)).toBe('an unnamed device in R1 U20');
+
+    const shelved = createShelf(b, rackId, { positionU: 30, label: 'Shelf A', actor: ME, now: T + 3 });
+    const shelfId = shelved.nodes.find((n) => parseNodeId(n.id).kind === 'PassiveNode')!.id;
+    const sketch = createSketchDevice(shelved, { actor: ME, now: T + 4 });
+    const chassisId = sketch.nodes.filter((n) => parseNodeId(n.id).kind === 'Chassis').at(-1)!.id;
+    const onShelf = placeOnShelf(sketch, chassisId, shelfId, 1, { actor: ME, now: T + 5 });
+    expect(elementName(onShelf, chassisId)).toBe('an unnamed device on Shelf A');
   });
 });

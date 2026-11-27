@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type Ke
 import type { Document } from '../../document/model';
 import { whoNamer } from '../collab/changesSince';
 import { nextFocus } from './jumpTree';
-import { recordLines, trailRows, type RecordLine, type TrailRow } from './trail';
+import { recordLines, rowWhenParts, trailRows, TRAIL_PAGE, type RecordLine, type TrailRow } from './trail';
 import './racks.css';
 import { EmptyState } from '../ui/EmptyState';
 
@@ -54,10 +54,10 @@ function selectedIn(row: HTMLElement, clicks: number): boolean {
   return sel != null && !sel.isCollapsed && (row.contains(sel.anchorNode) || row.contains(sel.focusNode));
 }
 
-function formatWhen(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '—';
-  const d = new Date(ms);
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+/** The time of a row; the day goes under it when it is not today's. */
+function WhenCell({ ms }: { ms: number }) {
+  const { day, clock } = rowWhenParts(ms);
+  return day === null ? <>{clock}</> : <>{clock}<span className="racks-trail__day">{day}</span></>;
 }
 
 /** The person reading: their own rows carry their address. */
@@ -102,7 +102,9 @@ const TrailItem = memo(function TrailItem({ row, reader, open, stop, pulsing, re
           if (!selectedIn(e.currentTarget, e.detail)) onToggle(row.batchId);
         }}
       >
-        <span className="racks-trail__cell racks-trail__col--when">{formatWhen(row.whenMs)}</span>
+        <span className="racks-trail__cell racks-trail__col--when">
+          <WhenCell ms={row.whenMs} />
+        </span>
         <span className="racks-trail__cell racks-trail__col--who" title={accountTitle(row, reader)}>
           {row.who}
         </span>
@@ -181,7 +183,10 @@ function TrailList({ rows, pulsingId, accountId, accountAddress }: { rows: reado
  * change pulses once and settles. Never blinks, never loops."
  */
 export function Trail({ doc, accountId, accountAddress, designId, sealedBatchIds, undoRefusal, pendingComment, onPendingCommentChange }: TrailProps) {
-  const rows = trailRows(doc, whoNamer(accountId, designId), sealedBatchIds);
+  // A page at a time: the newest rows first, and the older ones when asked for.
+  const [shown, setShown] = useState(TRAIL_PAGE);
+  const total = doc.batches.length;
+  const rows = useMemo(() => trailRows(doc, whoNamer(accountId, designId), sealedBatchIds, shown), [doc, accountId, designId, sealedBatchIds, shown]);
 
   // Motion #4: "a new entry pulses once and settles" — never on the very
   // first render (there is nothing "new" about a trail that just loaded),
@@ -202,7 +207,7 @@ export function Trail({ doc, accountId, accountAddress, designId, sealedBatchIds
   return (
     <div className="racks-trail" aria-label="Trail">
       <div className="racks-trail__head">
-        <span className="racks-trail__sub">append-only · nothing here is ever rewritten · press a row for its full record</span>
+        <span className="racks-trail__sub">changes are only ever added, never rewritten · press a row for its full record</span>
       </div>
 
       <div className="racks-trail__cols" aria-hidden="true">
@@ -218,6 +223,11 @@ export function Trail({ doc, accountId, accountAddress, designId, sealedBatchIds
         ) : (
           <TrailList rows={rows} pulsingId={pulsingId} accountId={accountId} accountAddress={accountAddress} />
         )}
+        {total > rows.length ? (
+          <button type="button" className="racks-trail__more" onClick={() => setShown((n) => n + TRAIL_PAGE)}>
+            Show {Math.min(TRAIL_PAGE, total - rows.length)} older changes ({total - rows.length} not shown)
+          </button>
+        ) : null}
       </div>
 
       {undoRefusal != null ? <div className="racks-trail__refusal">{undoRefusal}</div> : null}

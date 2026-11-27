@@ -11,8 +11,10 @@
 // (`scripts/drive-lib/seed.ts`):
 //   trail    — ADR-0053 §1/§4: undo as a new batch, "undo of <label>" above
 //              the change it reverses, both standing, the cable gone.
-//   conflict — ADR-0053 §3: a colleague's batch on the same element refuses
+//   conflict — ADR-0053 §3: a colleague's change to the cable itself refuses
 //              the undo by name; nothing is undone.
+//   beside   — ADR-0053 §3, narrowed 2026-11-27: a colleague's note on a port beside the cable does not block
+//              taking the cable back; the note stays.
 //   note     — ADR-0053 §5/§6: a pasted note's real-length Junos PSK is
 //              destroyed at the gate; the intercepted save body is free of it.
 //   typed    — ADR-0053 §6: a typed note is stored as typed, and says so.
@@ -418,7 +420,7 @@ try {
     // In words: what was changed, by whom as histories name people, and what that change was. No id is quoted.
     check(
       "conflict: the refusal says what was changed since, and what the colleague's change was",
-      refusal.some((t) => t.includes('Nothing was undone: core-01 was changed by a colleague since (note added).') && !t.includes(colleague)),
+      refusal.some((t) => /Nothing was undone: the cable from \S+ to \S+ was changed by a colleague since \(cable label changed\)\./.test(t) && !t.includes(colleague)),
       refusal.join(' | '),
     );
     check('conflict: the cable is still on the drawing (nothing undone)', (await page.locator('.react-flow__edge-cable').count()) === 1);
@@ -428,6 +430,52 @@ try {
 
     await page.screenshot({ path: SHOTS + 's6i-conflict.png' });
     console.log('    wrote ' + SHOTS + 's6i-conflict.png');
+    await page.close();
+  }
+
+  // -------------------------------------------------------------------------
+  // Scene 2b — beside: a colleague's note on a port of mine is not in the way of taking the cable back.
+  // -------------------------------------------------------------------------
+  {
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=beside`);
+    await page.waitForSelector('.react-flow__edge-cable', { timeout: 15_000 });
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(600);
+    await openTheTrail(page);
+    check('beside: the cable is gone, the undo went through', (await page.locator('.react-flow__edge-cable').count()) === 0);
+    check('beside: no refusal is shown', (await page.locator('.racks-trail__refusal').count()) === 0);
+    const rows = await page.locator('.racks-trail__row').allTextContents();
+    check('beside: an undo row landed, and the colleague\'s note row stands', rows.some((r) => r.includes('Undone')) && rows.some((r) => r.includes('Note added')), rows.join(' | '));
+    check('beside: no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
+    await page.close();
+  }
+
+  // -------------------------------------------------------------------------
+  // Scene 2c — long: a trail longer than a page is drawn a page at a time.
+  // -------------------------------------------------------------------------
+  {
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=long`);
+    await page.waitForSelector('[data-testid=dock-history]', { timeout: 15_000 }).catch(async (e) => {
+      await page.screenshot({ path: SHOTS + 'r161-long-debug.png' });
+      console.log(pageErrors.join(' | '), (await page.locator('body').innerText()).slice(0, 300));
+      throw e;
+    });
+    await openTheTrail(page);
+    const more = page.locator('.racks-trail__more');
+    check('long: the first page is 50 rows', (await page.locator('.racks-trail__row').count()) === 50, String(await page.locator('.racks-trail__row').count()));
+    check('long: the button says how many are not shown', ((await more.textContent()) ?? '').includes('not shown'), await more.textContent());
+    await page.screenshot({ path: SHOTS + 'r161-long-first.png' });
+    await more.click();
+    const after = await page.locator('.racks-trail__row').count();
+    check('long: a press draws the rest, one page being enough for it', after >= 62 && after <= 100, String(after));
+    check('long: the button goes when every change is drawn', (await page.locator('.racks-trail__more').count()) === 0);
+    check('long: no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
     await page.close();
   }
 

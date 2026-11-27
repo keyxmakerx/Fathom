@@ -296,14 +296,15 @@ export function Bar({
           </>
         )}
 
-        {/* Undo and Redo act on an open design, so they are on every view of one (r116). */}
+        {/* Undo and Redo act on an open design, so they are on every view of one (r116). One that cannot be pressed
+            is aria-disabled and not disabled: Tab still stops on it, so a keyboard reads why from its hint. */}
         {hasEdits && !editsFolded && (
           <>
             <div className="shell-bar__undoredo">
-              <button type="button" className="shell-chip shell-chip--ink" {...editHint('Undo', BAR_HINT.undo, shortcutText('undo'), undoWhy)} disabled={!canUndo} onClick={onUndo} data-testid="bar-undo">
+              <button type="button" className="shell-chip shell-chip--ink" {...editHint('Undo', BAR_HINT.undo, shortcutText('undo'), undoWhy)} aria-disabled={!canUndo || undefined} onClick={canUndo ? onUndo : undefined} data-testid="bar-undo">
                 Undo
               </button>
-              <button type="button" className="shell-chip shell-chip--ink" {...editHint('Redo', BAR_HINT.redo, shortcutText('redo'), redoWhy)} disabled={!canRedo} onClick={onRedo} data-testid="bar-redo">
+              <button type="button" className="shell-chip shell-chip--ink" {...editHint('Redo', BAR_HINT.redo, shortcutText('redo'), redoWhy)} aria-disabled={!canRedo || undefined} onClick={canRedo ? onRedo : undefined} data-testid="bar-redo">
                 Redo
               </button>
             </div>

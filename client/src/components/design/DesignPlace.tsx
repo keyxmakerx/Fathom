@@ -417,6 +417,20 @@ export function DesignPlace(props: DesignPlaceProps) {
     [session],
   );
 
+  // A refusal is said in the Trail, which the refusal opens. With the list of saves open that would take the panel
+  // from it, so the refusal is said in the live note instead and the list stays.
+  const refusalSeen = useCallback(
+    (sentence: string) => {
+      if (historyOpen) {
+        sayOfPress(sentence);
+        return;
+      }
+      setTrailOpen(true);
+      sayOfPress(null);
+    },
+    [historyOpen, sayOfPress],
+  );
+
   const handleUndo = useCallback(() => {
     if (!session.canDraw) return; // ADR-0052 §5: a reader undoes nothing, even via a stray Ctrl+Z
     if (doc == null || accountId == null) return;
@@ -436,14 +450,14 @@ export function DesignPlace(props: DesignPlaceProps) {
       setUndoRefusal(null);
     } catch (error) {
       // A refused step is set aside, so the next press goes on. Any other failure may pass, and the step stays.
-      setUndoRefusal(failureSaid(doc, error, 'undo', more, personName));
-      setTrailOpen(true);
-      sayOfPress(null);
+      const said = failureSaid(doc, error, 'undo', more, personName);
+      setUndoRefusal(said);
+      refusalSeen(said);
       if (error instanceof UndoConflictError) putAside(target.id);
     }
     // `undoCandidates` is read off `steps`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, accountId, session, steps, putAside, sayOfPress, personName]);
+  }, [doc, accountId, session, steps, putAside, sayOfPress, refusalSeen, personName]);
 
   const handleRedo = useCallback(() => {
     if (!session.canDraw) return; // ADR-0052 §5: a reader redoes nothing, even via a stray Ctrl+Shift+Z
@@ -460,13 +474,13 @@ export function DesignPlace(props: DesignPlaceProps) {
       }
       setUndoRefusal(null);
     } catch (error) {
-      setUndoRefusal(failureSaid(doc, error, 'redo', more, personName));
-      setTrailOpen(true);
-      sayOfPress(null);
+      const said = failureSaid(doc, error, 'redo', more, personName);
+      setUndoRefusal(said);
+      refusalSeen(said);
       if (error instanceof UndoConflictError) putAside(redoCandidate.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, accountId, session, steps, putAside, sayOfPress, personName]);
+  }, [doc, accountId, session, steps, putAside, sayOfPress, refusalSeen, personName]);
 
   // ------------------------------------------------------------------
   // ADR-0053 §4 — "a comment on a pending change is a batch field." Held
@@ -733,6 +747,8 @@ export function DesignPlace(props: DesignPlaceProps) {
   // taken back, as Ctrl+Z on the drawing always could.
   const editsNow = { canDraw: session.canDraw, phoneCanvas: phone && props.place === 'racks', lookingBack: pickedSave != null };
   const undoOff = notOffered('undo', { ...editsNow, any: undoCandidates.length > 0 });
+  // The View only chip says why too: a save on show, the phone's Canvas, or an AI idea drawn to look at.
+  const chipWhy: 'save' | 'phoneCanvas' | 'idea' | null = undoOff === 'save' || undoOff === 'phoneCanvas' ? undoOff : aiPreviewDoc != null ? 'idea' : null;
   const redoOff = notOffered('redo', { ...editsNow, any: redoCandidate != null });
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
@@ -1025,7 +1041,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     undoOff,
     redoOff,
     // The chip beside them says the same reason, where it would say this person may only look.
-    viewOnlyWhy: undoOff === 'save' || undoOff === 'phoneCanvas' ? undoOff : null,
+    viewOnlyWhy: chipWhy,
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,

@@ -27,7 +27,8 @@ export function refusedSentence(doc: Document, c: UndoConflict, press: 'undo' | 
     case 'revive-refused': {
       if (c.taken === undefined) return `${nothing}: what it was attached to is gone now.`;
       const rack = elementName(doc, c.taken.rack);
-      const by = elementName(doc, c.taken.by);
+      // The sentence already says where, so the device that took it is not given a place again.
+      const by = elementName(doc, c.taken.by, false);
       return `${nothing}: U${c.taken.positionU}${rack === NO_NAME ? '' : ` in ${rack}`} is taken now${by === NO_NAME ? '' : `, by ${by}`}.`;
     }
     case 'recorded-plan':

@@ -4,7 +4,7 @@
 import { setPortSpeed } from './document/portSpeed';
 import { parseCatalogueModel, type CatalogueModel } from './api/catalogue';
 import { createPremises } from './components/racks/emptyDesign';
-import { connectPorts, type Sheath } from './document/cables';
+import { connectPorts, setCableField, type Sheath } from './document/cables';
 import {
   addSketchPort,
   createRack,
@@ -174,17 +174,52 @@ export function seedConnectedDevices(catalogue: CatalogueModel[], me: string): D
   return connectPorts(working, a.portId, b.portId, { sheath }, { actor: me });
 }
 
-/** `seedConnectedDevices`, plus a colleague's own batch landed after it: a
- * note added to one of the two ports the cable just connected. A port is
- * `Notable` (`document/notes.ts`), and it is one of the elements
- * `document/undo.ts`'s own `touchedElements` reads off the cable-connect
- * batch — so Ctrl+Z on "connect ports" conflicts, ADR-0053 §3: undo refuses
- * rather than overwrite a colleague's later touch on the same element. */
+/** `seedConnectedDevices`, plus a colleague's own batch landed after it: the cable's label changed. The cable is
+ * what Ctrl+Z on "connect ports" would remove, so the undo is refused (ADR-0053 §3, narrowed 2026-11-27:
+ * refused when it would take a colleague's work with it). */
 export function seedConflictingChange(catalogue: CatalogueModel[], me: string, colleague: string): Document {
+  const doc = seedConnectedDevices(catalogue, me);
+  const cable = doc.nodes.find((n) => n.id.startsWith('cable:'));
+  if (!cable) throw new Error('the connected devices scene has no cable');
+  return setCableField(doc, cable.id, 'label', 'uplink', { actor: colleague });
+}
+
+/** `seedConnectedDevices`, plus a colleague's note on one of the two ports the cable joins. The note is beside
+ * the cable and not on it, so Ctrl+Z on "connect ports" goes through and the note stays (ADR-0053 §3, narrowed
+ * 2026-11-27). Before that it was refused. */
+export function seedBesideChange(catalogue: CatalogueModel[], me: string, colleague: string): Document {
   const doc = seedConnectedDevices(catalogue, me);
   const a = frontRj45(doc, catalogue, 'core-01');
   const how: NoteHow = 'typed';
   return addNote(doc, a.portId, { text: 'checked the cabling', how, actor: colleague });
+}
+
+/** Two devices with no name, each given an address: the trail has to say which is which. */
+export function seedUnnamedDevices(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const model = catalogue.find((m) => m.model === 'SRX340');
+  if (!model) throw new Error('the drive catalogue fixture has no juniper/SRX340');
+  let working = doc;
+  for (const u of [40, 31]) {
+    working = placeChassis(working, rackId, model, u, 'front', { actor: me });
+    const rack = viewOf(working, catalogue).racks.find((r) => r.id === rackId)!;
+    const chassis = rack.chassis.find((c) => c.positionU === u)!;
+    working = setDeviceField(working, chassis.deviceId, 'management_address', `10.0.0.${u}`, { actor: me });
+  }
+  return working;
+}
+
+/** One device renamed sixty times, so the trail has more rows than its first page. */
+export function seedLongHistory(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const model = catalogue.find((m) => m.model === 'SRX340');
+  if (!model) throw new Error('the drive catalogue fixture has no juniper/SRX340');
+  let working = place(doc, catalogue, rackId, model, 42, 'hq-fw-01', me);
+  const device = working.nodes.find((n) => parseNodeId(n.id).kind === 'Device');
+  if (!device) throw new Error('no device placed');
+  // The first twenty were a week ago, so a row from another day shows its day.
+  for (let i = 0; i < 60; i += 1) working = setDeviceField(working, device.id, 'hostname', `fw-${i}`, { actor: me, now: Date.now() - (i < 20 ? 8 * 86_400_000 : 0) + i });
+  return working;
 }
 
 /** ADR-0051 §1/§2's equipment that is never rack-mounted: one rack (`sw-01`)

@@ -17,8 +17,19 @@ private-notes half of OPEN-QUESTIONS D2.
    value exists when an undo asks for it. It did not; a value was gone the moment it was edited.
 3. **You undo your own changes.** The sign-in answer gains the account id, the client stamps it as
    the actor on every change, and the all-zero placeholder stays as the read-side sentinel; a
-   batch it stamped is not undoable and the chip says why. A colleague's batch in between on any
-   element the undo touches is a refusal wash naming that change, never a silent overwrite.
+   batch it stamped is not undoable and the chip says why. **An undo is refused only when taking
+   your change back would take a colleague's work with it, or write over it**, and the refusal names
+   that change; it is never a silent overwrite. It asks what the undo would do:
+   - *Remove something you added or brought back* (a device, a rack, a cable): refused when a
+     colleague has since changed that thing, moved it, removed it or attached something to it (a
+     name, a note, a cable to one of its ports, a device put in the rack you added).
+   - *Bring back something you removed*: refused when its place has been taken or what it was
+     attached to is gone (§1's revive check), and the refusal says what stands there now.
+   - *Put a value back*: that field is left alone when a colleague has written it since, and the
+     press says so.
+   What a colleague did to the things around yours does not count: the rack your device stands in,
+   the port your cable plugs into, a tag or note on the device whose address you set. A recorded
+   plan stays history as written and is never reversed.
 4. **The trail beside the drawing is the document's batches**, who and when from provenance,
    sealed when present in the last version opened or saved, pending otherwise. The server's
    history stays one row per version. **A comment on a pending change is a batch field**, with a
@@ -36,6 +47,19 @@ private-notes half of OPEN-QUESTIONS D2.
    binding; the door never writes the graph, the client writes the note with the returned text.
    Typed text is stored as typed and the editor says: Fathom does not redact what you type, only
    what you paste.
+
+**Amended 2026-11-27 (sign-off r152, rule A, approved by the owner).** Decision 3 said a colleague's batch
+in between on *any element the undo touches* was a refusal, and a change touched both ends of whatever it
+joined, so a device placed beside yours in the same rack, or a tag on a device whose address you set,
+blocked your undo for good (the rack case was tried with two people on 20 November 2026: three presses
+refused for a device that was no longer even there). The rule above replaces it. The promise is the same:
+a colleague's work is never overwritten or taken back by your undo. Only the reach is narrower, to the
+level Figma's multiplayer account says it counts a conflict at, the same property of the same object
+(Evan Wallace, *How Figma's multiplayer technology works*, 16 October 2019, read 20 November 2026). The
+cost: a colleague's note that leans on your work without touching it ("uplink, do not unplug", written
+because your cable is in that port) no longer stops you taking the cable out; their note stays, the trail
+shows your undo under your name, and they see it happen live. Built in `client/src/document/undo.ts`
+(`conflict`, `laterHit`); `document/undo.test.ts` runs each case, and the cases that must still refuse.
 
 **Amended 2026-09-19, from the Session 7 checker.** The actor a payload names in its batches is
 written by the client and never re-derived by the server; the sealed chain entry records the

@@ -35,6 +35,7 @@ export const EDITS_OFF: Record<EditsOff, { hint: string; short: string }> = {
   viewOnly: { hint: 'You can look at this design but not change it.', short: 'View only' },
   phoneCanvas: { hint: 'On a phone the Canvas is to look at. Changes are made in Find.', short: 'The Canvas is to look at on a phone' },
   save: { hint: 'You are looking at a save, not the design as it is now. Press Back to now in History.', short: 'Press Back to now in History first' },
+  idea: { hint: 'An AI idea is drawn on the canvas to look at. Accept it or hide it to change the design.', short: 'An AI idea is on show' },
   nothingToUndo: { hint: 'Nothing to undo.', short: 'Nothing to undo' },
   nothingToRedo: { hint: 'Nothing to redo.', short: 'Nothing to redo' },
 };
