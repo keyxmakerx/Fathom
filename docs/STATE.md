@@ -853,6 +853,15 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   and do not reach the drawing, which would move a selected device. A drag over a row still selects its words
   (`drive-undo-notes.mjs`). A save that drew nothing different is listed in those words, and one that edited one
   thing names it.
+- **History trail follow-ups (r161).** A device with no name is told apart by where it stands, "an unnamed device
+  in R1 U12" or "on Shelf A", in the trail, in Undo's sentences and on the "changed just after you" card
+  (`document/liveDoc.ts` `ownName`; Undo's "taken by" leaves the place off, since the sentence says it). The trail
+  draws 50 rows and "Show 50 older changes" adds a page (`racks/trail.ts` `trailRows` `limit`, `TRAIL_PAGE`); a row
+  from another day shows its day (`rowWhen`). A greyed Undo or Redo is `aria-disabled`, so Tab stops on it and its
+  hint says why; Search shows no keys beside a greyed one; the View only chip says an AI idea is on show when that
+  is why; a refused Undo with the list of saves open is said in the live note and leaves the list. Undo's refusal is
+  the narrower rule of ADR-0053 §3 (amended 2026-11-27): only what would take a colleague's work with it or write
+  over it (`document/undo.ts` `laterHit`).
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
   Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.
