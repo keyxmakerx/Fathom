@@ -147,6 +147,17 @@ describe('SurfaceNode (render-to-string)', () => {
     expect(markup).not.toContain('drawing-surface__fixture-anchor');
   });
 
+  it('a selected fixture is marked, whether the selection names it a fixture or a chassis, and no other is', () => {
+    const cam = fixture({ id: 'cam-1', label: 'camera-1', kind: 'chassis', xMm: 0, yMm: 0 });
+    const other = fixture({ id: 'cam-2', label: 'camera-2', kind: 'chassis', xMm: 600, yMm: 0 });
+    const s = surface({ id: 'wall-out', label: 'Outside wall', form: 'wall', fixtures: [cam, other] });
+    const marked = (markup: string) => [...markup.matchAll(/data-device-chassis="([^"]+)" class="([^"]*)"/g)].filter((m) => m[2]!.includes('drawing-surface__fixture--selected')).map((m) => m[1]);
+    expect(marked(renderSurface(baseData({ placement: placement(s) })))).toEqual([]);
+    expect(marked(renderSurface(baseData({ placement: placement(s) }), { selected: { kind: 'fixture', id: 'cam-1' } }))).toEqual(['cam-1']);
+    expect(marked(renderSurface(baseData({ placement: placement(s) }), { selected: { kind: 'chassis', id: 'cam-2' } }))).toEqual(['cam-2']);
+    expect(marked(renderSurface(baseData({ placement: placement(s) }), { selected: { kind: 'rack', id: 'cam-1' } }))).toEqual([]);
+  });
+
   it('a fixture with no catalogue entry (model: null) is marked typed, not blank', () => {
     const f = fixture({ id: 'nuc-01', label: 'nuc-01', xMm: 0, yMm: 0, model: null });
     const s = surface({ id: 'wall-west', label: 'west wall', form: 'wall', fixtures: [f] });
@@ -201,6 +212,16 @@ describe('SurfaceNode (render-to-string)', () => {
     const markup = renderSurface(baseData({ placement: placement(s) }));
     expect(markup).toMatch(/<button type="button" data-port-id="sw2-4" class="[^"]*"[^>]*>\s*<svg[^>]*role="img" aria-label="Port 4 · RJ45 · free"/);
     expect(markup).not.toContain('title="Port 4');
+  });
+
+  // The style sheet hides a row marked so (`visibility: hidden`): its buttons take no Tab stop and no press, and
+  // nothing in it is read out. A wall port that was not drawn once took both, and a press there jumped the zoom.
+  it("a fixture's ports and inlets are marked out of reach until the camera is close enough to draw them", () => {
+    const f = fixture({ id: 'ups-1', label: 'ups-1', xMm: 0, yMm: 0, ports: [port({ id: 'ups-eth', label: 'eth0' })], psuInlets: [inlet({ id: 'ups-in', label: 'inlet', slot: 'PSU1' })] });
+    const s = surface({ id: 'wall-office', label: 'Office', form: 'wall', fixtures: [f] });
+    const rows = (markup: string) => [...markup.matchAll(/class="(drawing-surface__port-row[^"]*)"/g)].map((m) => m[1]);
+    expect(rows(renderSurface(baseData({ placement: placement(s) })))).toEqual(['drawing-surface__port-row drawing-surface__port-row--undrawn', 'drawing-surface__port-row drawing-surface__port-row--undrawn']);
+    expect(rows(renderSurface(baseData({ placement: placement(s) }), { showPortGlyphs: true }))).toEqual(['drawing-surface__port-row', 'drawing-surface__port-row']);
   });
 
   it("a fixture's inlet has its tip on the button too, in the words its picture has", () => {

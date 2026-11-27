@@ -18,6 +18,7 @@ import { clickAnswer, nextEscape, openAbove, useDetailsOpen } from '../shell/cli
 import { useGhostRef } from '../shell/ghost';
 import { SHOW_DETAILS_EVENT } from '../shell/useRightTab';
 import type { ClosetView } from './contract';
+import { OWN_PRESS_EVENT } from './ownPress';
 import { thingOf } from './PortPeek';
 import { quickCard, quickPortCard, type QuickCardFacts } from './quickCard';
 import type { PeekTarget } from './thingPeek';
@@ -142,14 +143,21 @@ export function QuickCard({ view, doc = null }: { view: ClosetView; doc?: Docume
       e.stopPropagation();
       close();
     };
+    // A thing that stops its own click sends it on by name (`ownPress.ts`).
+    const onOwnPress = (e: Event) => {
+      const click = (e as CustomEvent<MouseEvent>).detail;
+      if (click != null) onClick(click);
+    };
     document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('click', onClick);
+    window.addEventListener(OWN_PRESS_EVENT, onOwnPress);
     document.addEventListener('dblclick', close);
     document.addEventListener('contextmenu', close, true);
     window.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('click', onClick);
+      window.removeEventListener(OWN_PRESS_EVENT, onOwnPress);
       document.removeEventListener('dblclick', close);
       document.removeEventListener('contextmenu', close, true);
       window.removeEventListener('keydown', onKey, true);

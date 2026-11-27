@@ -656,9 +656,23 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
   plate, an optic or an empty cage, and cabled or free. On a wall and on a shelf a port is drawn in a plain row,
   so where it sits is left out. Before, such a button had its label alone as a name ("1") and no tip. A wall
   port's tip follows its picture: the row is not drawn until the camera is past the Rack stop, and until then the
-  button has its name and no tip, as a rack port has none until its glyph is drawn. An inlet on a wall has its
-  tip on the button too: its slot, and fed, fitted with no lead, or not fitted (`drive-sample.mjs` reads the
-  wall's; the sample's shelf draws no ports, so the shelf's are held by `ShelfPlate.render.test.ts`).
+  port has no tip and is out of reach (the next entry), as a rack port is until its glyph is drawn. An inlet on a
+  wall has its tip on the button too: its slot, and fed, fitted with no lead, or not fitted (`drive-sample.mjs`
+  reads the wall's; the sample's shelf draws no ports, so the shelf's are held by `ShelfPlate.render.test.ts`).
+- **A device on a wall answers as one in a rack does** (`drawing/SurfaceNode.tsx`, `drawing/ownPress.ts`). A wall,
+  a desk and a ceiling keep a press on one of their things to themselves, and the quick card, which listens on
+  the document, never heard it. Such a press is now sent on to the card by name (`ownPress`). The card says what
+  a rack device's says: its kind, its name, the management address to copy, the model, where it is and how many
+  of its ports are cabled (`quickCard.ts` reads the device's record wherever it sits, and the peek has the same
+  rows). It offers no double-click, which does not open a device on a wall. Selected, a thing on a wall has the
+  four corner ticks; it had no mark. A device on a wall or a shelf that is picked in Search is brought into view
+  at the faceplate stop (`Drawing.tsx` `showRequest`): the camera once went to that stop about the middle of the
+  view and left the device off the screen. Until a wall thing's ports are drawn they are out of reach
+  (`.drawing-surface__port-row--undrawn`): no Tab stop, no press, nothing read out, and a press there is a press
+  on the thing. Each once took a Tab stop, and a press where one was selected the port and took the camera to
+  the faceplate stop. The inlets of a thing on a wall are marked the same way, by the style sheet's rule; no
+  design to hand has one, so that is not seen in a browser. `drive-sample.mjs` drives the card, the mark, Search
+  and the ports.
 - **The arrow keys go through an open menu's rows** (`shell/menuKeys.ts`, wired in `shell/Popover.tsx`, so in every
   menu the bar opens: the design's, Sample, Doing, the account's, the lens's, Layers, Look, Views and the zoom
   stops; and in the ⋯ of the It's down panel, the one panel head that has rows). Down and Right step on, Up and
@@ -684,7 +698,9 @@ leaves out the hidden pass that counts its pages. A copy is never printed.
 - **Quick card and peek** (sign-off r59, r66; `drawing/quickCard.ts`, `scripts/drive-quick-card.mjs`). A
   click on a device (or one of its ports), rack, shelf, cable or free box also puts a small card beside
   it on a dotted line: what it is, its name, the management address with Copy, model, place and ports,
-  and Details, which shows the panel even when it was folded. It follows the camera and goes on Esc, a
+  and Details, which shows the panel even when it was folded. As measured for card r156, a racked device, a
+  rack and a device on a wall get the card; a port, a shelf, a thing on a shelf and a cable get none, since each
+  keeps its press to itself and the card never hears it. It follows the camera and goes on Esc, a
   click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card. The pause has to
   be the person's: after a press, a key or the wheel nothing shows until the pointer has moved, so what a
   gliding camera brings under a resting pointer puts up no card (r149).

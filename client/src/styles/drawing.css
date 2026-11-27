@@ -379,8 +379,21 @@
   pointer-events: none;
 }
 
+/* A thing on a wall, selected: the same ticks, on the box that places it, so the thing's own box is not touched. */
+.drawing-surface__fixture-anchor:has(> .drawing-surface__fixture--selected)::after,
+.drawing-surface__floor-anchor:has(> .drawing-surface__fixture--selected)::after {
+  --tick-len: 8px;
+  content: '';
+  position: absolute;
+  inset: -5px;
+  z-index: 2;
+  pointer-events: none;
+}
+
 /* Selection is four corner ticks (UI-SPEC "Look", Blueprint). */
 .react-flow__node:has(.drawing-chassis--selected)::after,
+.drawing-surface__fixture-anchor:has(> .drawing-surface__fixture--selected)::after,
+.drawing-surface__floor-anchor:has(> .drawing-surface__fixture--selected)::after,
 .drawing-rack--selected .drawing-rack__frame::after,
 .drawing-diagram-box--selected::after {
   background:
@@ -1406,6 +1419,12 @@
 
 .drawing-surface__port-group--uplink {
   margin-left: auto;
+}
+
+/* Too small to be drawn (opacity 0, above), a wall thing's ports are out of reach as well: no Tab stop, no press,
+   nothing read out. They keep their place, so a cable still ends where its port is. */
+.drawing-surface__port-row--undrawn {
+  visibility: hidden;
 }
 
 /* In a narrow fixture box the two groups stack and each fills the width, so

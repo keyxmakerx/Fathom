@@ -26,7 +26,16 @@ const VIEW = {
   ],
   cables: [{ id: 'k1', kind: 'patch', media: 'cat6', sheath: 'blue', label: null, lengthM: 3, ends: [{ portId: 'p1', chassisId: 'c1', rackId: 'r1' }, { portId: 'p9', chassisId: 'c2', rackId: 'r1' }] }],
   rows: [],
-  surfaces: [],
+  surfaces: [
+    {
+      id: 'w1',
+      label: 'Outside wall',
+      form: 'wall',
+      widthMm: null,
+      heightMm: null,
+      fixtures: [{ id: 'c7', kind: 'chassis', label: 'ap-01', model: 'G5', form: null, xMm: 0, yMm: 0, ports: [port('p7', false)], psuInlets: [], fixtures: [], chassis: chassis('c7', 'ap-01', 'access_point', '10.0.0.7', [port('p7', false)]) }],
+    },
+  ],
   unplaced: [],
   free: [{ id: 'f1', hostname: 'nas', role: null, model: '', x: 0, y: 0, portCount: 0 }],
   lines: [],
@@ -47,6 +56,17 @@ describe('quickCard', () => {
     const card = quickCard(VIEW, { kind: 'device', id: 'c2' })!;
     expect(card.address).toBeNull();
     expect(card.kind).toBe('Access point');
+  });
+
+  it('gives a device on a wall the same: its kind, its address to copy, and its ports', () => {
+    const card = quickCard(VIEW, { kind: 'device', id: 'c7' })!;
+    // A double-click does not open a device on a wall, so the card does not say it does.
+    expect(card).toMatchObject({ kind: 'Access point', title: 'ap-01', address: '10.0.0.7', opens: false });
+    expect(card.rows.map((r) => [r.key, r.value])).toEqual([
+      ['Model', 'arista 7050SX3'],
+      ['Where', 'Outside wall'],
+      ['Ports', '0 of 1 cabled'],
+    ]);
   });
 
   it('calls a free box with no role a device', () => {

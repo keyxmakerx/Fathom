@@ -529,6 +529,8 @@ export function RacksPlace(props: RacksPlaceProps) {
   // already use. `doc` is a new object after every change, so the request
   // answered last is kept: a change is not a request (`focusRequest.ts`).
   const [openRequest, setOpenRequest] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
+  // A device on a shelf or a wall has no config drawer to bring the camera to it; the drawing is asked to show it.
+  const [showRequest, setShowRequest] = useState<{ deviceId: string } | null>(null);
   const answeredFocus = useRef<Selection | null>(null);
   useEffect(() => {
     const focus = focusToAnswer(initialFocus, doc != null, answeredFocus.current);
@@ -536,6 +538,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     answeredFocus.current = focus;
     setSelection(focus);
     if (focus.kind === 'chassis') setOpenRequest({ id: focus.id, view: 'config' });
+    if (focus.kind === 'chassis' || focus.kind === 'occupant' || focus.kind === 'fixture') setShowRequest({ deviceId: focus.id });
     onZoomChange(CAMERA_STOPS.faceplate);
     // Edge-triggered on the `initialFocus` object identity and `doc` becoming available;
     // `onZoomChange` is a stable setter from `App.tsx`.
@@ -2353,6 +2356,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           groupClearRequest={groupClear}
           canDraw={canDraw && jot === null && shelfOpen === null}
           openRequest={openRequest}
+          showRequest={showRequest}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
           onTraceFrom={trace.openFrom}

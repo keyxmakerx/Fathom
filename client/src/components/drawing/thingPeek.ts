@@ -68,9 +68,18 @@ function devicePeek(view: ClosetView, id: string): ThingPeekCard | null {
   }
   const fix = findFixture(view, id);
   if (fix != null) {
+    // A device on a wall says what one in a rack says: its address and how many of its ports are cabled.
+    const device = fix.fixture.chassis;
+    const ports = fix.fixture.ports;
+    const cabled = ports.filter((p) => p.cable != null).length;
     return {
       title: fix.fixture.label || UNNAMED_HOSTNAME,
-      rows: [row('Model', fix.fixture.model, NO_MODEL), row('Where', fix.surface.label, 'Not placed')],
+      rows: [
+        row('Model', device != null ? [device.vendor, device.model].filter(Boolean).join(' ') : fix.fixture.model, NO_MODEL),
+        row('Where', fix.surface.label, 'Not placed'),
+        ...(device != null ? [row('Address', device.managementAddress, 'No address')] : []),
+        row('Ports', ports.length > 0 ? `${cabled} of ${ports.length} cabled` : null, 'No ports'),
+      ],
     };
   }
   const box = view.free.find((f) => f.id === id);

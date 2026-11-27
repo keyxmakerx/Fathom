@@ -19,6 +19,7 @@ import { mmRailTicks, mmToPx } from './rows';
 import { SURFACE_HEADER_PX } from './geometry';
 import { portSays } from './faceplate';
 import { isLoosePort, portHandleFlags } from './missingLinks';
+import { ownPress } from './ownPress';
 import { SHEATH_VAR } from './sheath';
 
 /**
@@ -145,8 +146,9 @@ interface PlateProps {
 /** One row of port glyphs — non-uplink left, uplink right, UI-SPEC "Ports":
  * "uplinks right", the same shape `ChassisNode.tsx`'s `PortRow` keeps. */
 function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: PlateProps) {
-  // The row is not drawn until the camera is past the rack stop (`drawing.css`), and a tip follows the picture:
-  // none while there is no port to see. The name for a screen reader stays, as the button does.
+  // The row is not drawn until the camera is past the rack stop (`drawing.css`). Until then its ports keep their
+  // place, so a cable still ends where its port is, and are out of reach: no Tab stop, no press, nothing read
+  // out, no tip. A press there is the fixture's, as a press on an undrawn port in a rack is the device's.
   const drawn = useLive((s) => s.showPortGlyphs);
   if (ports.length === 0) return null;
   const downlink = ports.filter((p) => !p.uplink);
@@ -186,7 +188,7 @@ function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: P
     );
   };
   return (
-    <div className="drawing-surface__port-row">
+    <div className={drawn ? 'drawing-surface__port-row' : 'drawing-surface__port-row drawing-surface__port-row--undrawn'}>
       <div className="drawing-surface__port-group">{downlink.map(glyph)}</div>
       <div className="drawing-surface__port-group drawing-surface__port-group--uplink">{uplink.map(glyph)}</div>
     </div>
@@ -208,9 +210,11 @@ function InletStrip({
   onSelectPort: (portId: string) => void;
   litCableId: string | null;
 }) {
+  // As the ports above: out of reach until the camera is close enough for the strip to be drawn.
+  const drawn = useLive((s) => s.showPortGlyphs);
   if (inlets.length === 0) return null;
   return (
-    <div className="drawing-surface__port-row">
+    <div className={drawn ? 'drawing-surface__port-row' : 'drawing-surface__port-row drawing-surface__port-row--undrawn'}>
       <div className="drawing-surface__port-group drawing-surface__port-group--uplink">
         {inlets.map((inlet) => {
           const cabled = inlet.cable != null;
@@ -309,6 +313,9 @@ function FixtureBox({
   litCableId,
   upright = false,
 }: FixtureBoxProps) {
+  // Selected, a thing on a wall is marked as a device in a rack is. Search names it a fixture; a device opened
+  // from Inventory arrives as a chassis.
+  const selected = useLive((s) => (s.selected?.kind === 'fixture' || s.selected?.kind === 'chassis') && s.selected.id === fixture.id);
   if (fixture.form === 'board') {
     const { widthPx, heightPx } = boardContentSizePx(fixture.fixtures, uPx);
     const children = fixture.fixtures.filter(isPositioned);
@@ -319,7 +326,7 @@ function FixtureBox({
           className="drawing-surface__board-header nodrag"
           style={{ cursor: 'pointer' }}
           onClick={(event: MouseEvent) => {
-            event.stopPropagation();
+            ownPress(event);
             onSelectFixture(fixture.id);
           }}
         >
@@ -379,18 +386,21 @@ function FixtureBox({
   return (
     <div
       data-device-chassis={fixture.kind === 'chassis' ? fixture.id : undefined}
-      className={
-        upright
-          ? 'drawing-surface__fixture drawing-surface__fixture--upright nodrag'
-          : 'drawing-surface__fixture nodrag'
-      }
+      className={[
+        'drawing-surface__fixture',
+        upright ? 'drawing-surface__fixture--upright' : '',
+        selected ? 'drawing-surface__fixture--selected' : '',
+        'nodrag',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       style={{
         width: upright ? FLOOR_FIXTURE_WIDTH_PX : FIXTURE_WIDTH_PX,
         minHeight: upright ? FLOOR_FIXTURE_HEIGHT_PX : FIXTURE_MIN_HEIGHT_PX,
         cursor: 'pointer',
       }}
       onClick={(event: MouseEvent) => {
-        event.stopPropagation();
+        ownPress(event);
         onSelectFixture(fixture.id);
       }}
     >

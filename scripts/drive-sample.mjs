@@ -1115,7 +1115,9 @@ try {
 
   // The ports of a thing on a wall say what they are: each button's tip, and its name for a screen reader, are a
   // rack port's words. The label alone once named it ("1"), and it had no tip. The tip follows the picture: as the
-  // sample opens the ports are too small to be drawn, and a tip there would speak for nothing on the screen.
+  // sample opens the ports are too small to be drawn, and a tip there would speak for nothing on the screen. Not
+  // drawn, they are out of reach as well: they once took a Tab stop each, and a press where one was selected it
+  // and took the camera to the Faceplate stop.
   {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
@@ -1144,10 +1146,54 @@ try {
       (await rowShown()) === 0 && asItOpens.length > 0 && asItOpens.every((p) => p.tip == null && /^Port \S.* · \S+ · (cabled|free)$/.test(p.name ?? '')),
       `${asItOpens.length} ports; the first: tip ${asItOpens[0]?.tip}, name ${asItOpens[0]?.name}`,
     );
+    // How many wall ports the keyboard can be put on, and how many are the top thing at their own middle.
+    const reach = () =>
+      page.evaluate(() => {
+        const buttons = [...document.querySelectorAll('button.drawing-surface__port')];
+        const takes = buttons.filter((b) => {
+          b.focus();
+          const took = document.activeElement === b;
+          b.blur();
+          return took;
+        }).length;
+        const onTop = buttons.filter((b) => {
+          const r = b.getBoundingClientRect();
+          return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('button.drawing-surface__port') === b;
+        }).length;
+        return { ports: buttons.length, takes, onTop };
+      });
+    const outOfReach = await reach();
+    check('not drawn, no wall port takes the keyboard or a press', outOfReach.ports > 0 && outOfReach.takes === 0 && outOfReach.onTop === 0, JSON.stringify(outOfReach));
+    // A press where a port of the desk's switch is, with nothing drawn there, is a press on the switch.
+    const spot = await page.evaluate(() => {
+      const box = [...document.querySelectorAll('.drawing-surface__fixture')].find((f) => (f.textContent ?? '').includes('switch-2'));
+      for (const b of box?.querySelectorAll('button.drawing-surface__port') ?? []) {
+        const r = b.getBoundingClientRect();
+        const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        const top = document.elementFromPoint(at.x, at.y);
+        if (top != null && box.contains(top)) return at;
+      }
+      return null;
+    });
+    const zoomOf = () => page.evaluate(() => document.querySelector('.react-flow__viewport')?.style.transform.match(/scale\(([^)]+)\)/)?.[1] ?? '');
+    const zoomAsItOpens = await zoomOf();
+    if (spot != null) await page.mouse.click(spot.x, spot.y);
+    await page.waitForTimeout(900);
+    const pressedCard = (await page.getByTestId('quick-card').textContent().catch(() => '')) ?? '';
+    check(
+      'a press where an undrawn port is selects the device it is on, and the camera stays',
+      spot != null && pressedCard.includes('switch-2') && !pressedCard.startsWith('Port') && (await zoomOf()) === zoomAsItOpens,
+      `card: ${pressedCard.slice(0, 40)}; zoom ${zoomAsItOpens} to ${await zoomOf()}`,
+    );
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
     await page.locator('.shell-pill__value').click();
     await page.locator('.shell-pill__stop', { hasText: 'Faceplate' }).click();
     await page.waitForTimeout(1200);
     check('at the Faceplate stop the ports of a thing on a wall are drawn', (await rowShown()) === 1);
+    const inReach = await reach();
+    check('drawn, every wall port takes the keyboard again', inReach.ports > 0 && inReach.takes === inReach.ports, JSON.stringify(inReach));
     const onWalls = await portsOf('button.drawing-surface__port');
     const wrongOnWalls = wrongOf(onWalls);
     check(
@@ -1158,6 +1204,79 @@ try {
     const first = onWalls[0]?.tip ?? '';
     check('and the browser gives a button that name', first !== '' && (await page.getByRole('button', { name: first, exact: true }).count()) > 0, first);
     check('no uncaught page errors (the ports on a wall)', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
+  // A device on a wall, a desk or a ceiling answers as one in a rack does. A press on it gets its card: it once got
+  // none, since the wall kept the press to itself. Selected, it has the four corner ticks: it once had no mark. A
+  // pick in Search brings it into view: the camera once went to the Faceplate stop about the middle of the view,
+  // which left the device off the screen, and one on a shelf the same.
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(`${BASE}/drive.html?scene=home`);
+    await page.waitForSelector('.home-sample', { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Open sample' }).click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 20_000 });
+    await page.waitForTimeout(2000);
+    const card = page.getByTestId('quick-card');
+    const zoomOf = () => page.evaluate(() => document.querySelector('.react-flow__viewport')?.style.transform.match(/scale\(([^)]+)\)/)?.[1] ?? '');
+    const onWall = (name) => page.locator('.drawing-surface__fixture', { hasText: name }).first();
+    const marked = (name) => onWall(name).evaluate((el) => el.classList.contains('drawing-surface__fixture--selected') && getComputedStyle(el.parentElement, '::after').content !== 'none');
+    const zoomAsItOpens = await zoomOf();
+    const cam = await onWall('camera-1').boundingBox();
+    await page.mouse.click(cam.x + cam.width / 2, cam.y + 6);
+    await page.waitForTimeout(700);
+    const says = (await card.textContent().catch(() => '')) ?? '';
+    check('a press on a device on a wall shows its card', (await card.count()) === 1 && says.includes('camera-1'), says.slice(0, 80));
+    check("the card says where it is and how many of its ports are cabled, as a rack device's does", /Where\s*Outside wall/.test(says) && /Ports\s*1 of 1 cabled/.test(says), says);
+    check('the card offers no double-click, which does not open a device on a wall', !/Double-click/.test(says), says);
+    check('the device is marked as the selected one', await marked('camera-1'));
+    check('and the camera stays where it was', (await zoomOf()) === zoomAsItOpens, `${zoomAsItOpens} to ${await zoomOf()}`);
+    const ap = await onWall('ap-1').boundingBox();
+    await page.mouse.click(ap.x + ap.width / 2, ap.y + 6);
+    await page.waitForTimeout(700);
+    const next = (await card.textContent().catch(() => '')) ?? '';
+    check('a press on another moves the card and the mark to it', (await card.count()) === 1 && next.includes('ap-1') && (await marked('ap-1')) && !(await marked('camera-1')), next.slice(0, 60));
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    check('Esc twice puts the card away and clears the mark', (await card.count()) === 0 && !(await marked('ap-1')));
+
+    // Where a device is after a pick in Search: its middle inside the drawing, with nothing over it.
+    const whereIs = (name) =>
+      page.evaluate((name) => {
+        const el = [...document.querySelectorAll('.shell__drawing [data-device-chassis]')].find((n) => (n.textContent ?? '').includes(name));
+        const pane = document.querySelector('.shell__drawing .react-flow')?.getBoundingClientRect();
+        if (el == null || pane == null) return null;
+        const r = el.getBoundingClientRect();
+        const x = r.x + r.width / 2;
+        const y = r.y + r.height / 2;
+        const top = document.elementFromPoint(x, y);
+        return { inView: x > pane.left && x < pane.right && y > pane.top && y < pane.bottom, onTop: top != null && el.contains(top), at: [Math.round(x), Math.round(y)] };
+      }, name);
+    const pick = async (name) => {
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('.palette input', { timeout: 5_000 });
+      await page.keyboard.type(name);
+      await page.waitForTimeout(500);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(2600);
+    };
+    await pick('switch-2');
+    const desk = await whereIs('switch-2');
+    check('a pick in Search brings a device on a desk into view, at the Faceplate stop', desk != null && desk.inView && desk.onTop && (await zoomOf()) === '2', `${JSON.stringify(desk)} at zoom ${await zoomOf()}`);
+    check('and marks it', await marked('switch-2'));
+    await shot(page, 'SN-15-search-brings-a-desk-device-into-view');
+    await pick('camera-2');
+    const wall = await whereIs('camera-2');
+    check('one on a wall the same, from wherever the camera was left', wall != null && wall.inView && wall.onTop && (await marked('camera-2')), JSON.stringify(wall));
+    await pick('nas-1');
+    const shelf = await whereIs('nas-1');
+    check('and one on a shelf', shelf != null && shelf.inView && shelf.onTop, JSON.stringify(shelf));
+    check('no uncaught page errors (a device on a wall)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
 

@@ -209,8 +209,8 @@ const SHAKE_MS = 220;
  * `useState(initialFocus ?? null)` sets it synchronously, before this
  * component's own first render, whenever the design was already loaded) —
  * the one case this defers to. */
-export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null): boolean {
-  return !(isFirstRun && selected?.kind === 'chassis');
+export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null, showPending = false): boolean {
+  return !(isFirstRun && (selected?.kind === 'chassis' || showPending));
 }
 
 /** Room left between an opened shelf box's inset and the pane's edge. */
@@ -359,6 +359,9 @@ export interface DrawingProps extends DrawingActions {
   /** Opens a device's config drawer or inside view, as a double-click does;
    * a new object each time (the same edge-triggered shape `fitRequest` has). */
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
+  /** Search's pick of a device: one on a shelf or a wall is brought into view at the faceplate stop (one in a
+   * rack unit has the config drawer's own move); a new object each time, like `openRequest`. */
+  showRequest?: { deviceId: string } | null;
   /** Missing links' Go: brings this cable into view; a new object each time, like `openRequest`. */
   revealRequest?: { cableId: string } | null;
   /** The devices picked together (two or more, by chassis id), or empty. Racked and free devices both count. */
@@ -512,6 +515,7 @@ function DrawingInner({
   emptyHint,
   onAddEquipment,
   openRequest,
+  showRequest,
   revealRequest,
   onFinishCable,
   onGroupChange,
@@ -979,11 +983,13 @@ function DrawingInner({
   // documents — flips true on the first qualifying run and stays there, so
   // only that first run can ever be skipped.
   const hasFitOnceRef = useRef(false);
+  // The request to show a device that the camera answered last (its effect is further down, after the bar's zoom).
+  const handledShowRef = useRef<object | null>(null);
   useEffect(() => {
     if (!allRacksPositioned || view.racks.length === 0) return;
     const isFirstRun = !hasFitOnceRef.current;
     hasFitOnceRef.current = true;
-    if (!lookSwitched && !shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
+    if (!lookSwitched && !shouldFitOnMount(isFirstRun, selected, showRequest != null && showRequest !== handledShowRef.current)) return; // a pending focus wins outright, once
     if (isFirstRun && restoredCameraRef.current && initialViewport != null) {
       // The camera was restored: that replaces the fit, unless it no longer shows anything that is drawn. A wall,
       // a desk and a box on the open canvas count as a rack does: a design left zoomed in on its desk reopens there.
@@ -1380,6 +1386,36 @@ function DrawingInner({
     else void rf.setViewport(pane == null ? { ...live, zoom: nextZoom } : zoomAboutPaneCentre(live, nextZoom, pane.clientWidth, pane.clientHeight), { ...GLIDE });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to the bar alone; the drawer and chassis are read as they are now.
   }, [zoom, rf]);
+
+  // Search's pick of a device on a shelf or a wall: glide to it at the faceplate stop. It is drawn inside its
+  // shelf's or its wall's node, so where it stands is read off the page. A device in a rack unit is left to the
+  // config drawer's move above. The request is kept until the device is drawn (the drawing may have only just
+  // mounted). After the bar's zoom effect, so that in a render with both this is the move that stands.
+  useEffect(() => {
+    if (showRequest == null || showRequest === handledShowRef.current) return undefined;
+    const { deviceId } = showRequest;
+    if (view.racks.some((r) => r.chassis.some((c) => c.id === deviceId))) {
+      handledShowRef.current = showRequest;
+      return undefined;
+    }
+    let frame = 0;
+    let tries = 0;
+    const attempt = () => {
+      const el = containerRef.current?.querySelector(`[data-device-chassis="${CSS.escape(deviceId)}"]`);
+      if (el == null) {
+        tries += 1;
+        if (tries < 30) frame = requestAnimationFrame(attempt);
+        return;
+      }
+      handledShowRef.current = showRequest;
+      const box = el.getBoundingClientRect();
+      const centre = rf.screenToFlowPosition({ x: box.left + box.width / 2, y: box.top + box.height / 2 }, { snapToGrid: false });
+      void rf.setCenter(centre.x, centre.y, { zoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
+    };
+    attempt();
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- answers the request alone; the racks are read as they are now.
+  }, [showRequest, rf]);
 
   // Pans the camera to the selected port's own owning box at the faceplate
   // stop (`buildDrawingNodes.ts` resolves which box that is). Already that close
