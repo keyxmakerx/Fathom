@@ -208,7 +208,8 @@ try {
     const click = (sel, text) => p4.evaluate(([q, t]) => { const el = [...document.querySelectorAll(q)].find((e) => !t || new RegExp(t, 'i').test(e.textContent)); el?.click(); return el != null; }, [sel, text]);
     await p4.goto(`${BASE}/drive.html?scene=canvas&capability=steward`);
     await p4.waitForSelector('.drawing', { timeout: 240_000 });
-    await click('[data-testid=shell-doing]');
+    // At 1280 wide the bar has folded Doing into More (UI-SPEC "The bar"); a wide bar still has its own Doing.
+    await click((await p4.locator('[data-testid=shell-doing]').count()) > 0 ? '[data-testid=shell-doing]' : '[data-testid=shell-more]');
     await click('[data-testid=doing-plan]');
     await click('.plans-btn', 'New plan');
     await p4.locator('.plans-new input').first().fill('Swap the core switch in rack A-04 for the new Juniper EX4400 before Friday');

@@ -157,11 +157,9 @@ try {
   // Add ports `eth` 0 to 7 in one go (`addSketchPortRange`, the editor's
   // "a range" mode).
   await page.locator('.drawing-editor__panel button', { hasText: '+ Add a port' }).click();
-  await page.locator('.drawing-editor__panel').getByRole('radio', { name: 'A range' }).click();
-  await page.locator('.drawing-editor__panel').getByLabel('Label prefix').fill('eth');
-  await page.locator('.drawing-editor__panel').getByLabel('First').fill('0');
-  await page.locator('.drawing-editor__panel').getByLabel('Last').fill('7');
-  await page.locator('.drawing-editor__panel').getByRole('button', { name: 'Add ports', exact: true }).click();
+  // One field takes a name or a pattern (the "A range" radio is gone): braces make many at once.
+  await page.locator('.drawing-editor__panel').getByLabel('Name, or a pattern').fill('eth{0-7}');
+  await page.locator('.drawing-editor__panel').getByRole('button', { name: 'Add 8 ports', exact: true }).click();
   await page.waitForTimeout(300);
   const panelTextAfterRange = await page.locator('.drawing-editor__panel').innerText();
   check('eth0 typed onto the faceplate', panelTextAfterRange.includes('eth0'));
@@ -199,7 +197,7 @@ try {
 
   // Duplicate the device (`duplicateDevice`), from the panel's ⋯ menu.
   await page.locator('[data-testid="device-more"] > summary').click();
-  await page.locator('.drawing-editor__panel button', { hasText: 'Duplicate' }).click();
+  await page.getByRole('menuitem', { name: /Duplicate/ }).click();
   await page.waitForTimeout(400);
   check('a second chassis appeared', (await page.locator('.react-flow__node-chassis').count()) === 2);
   await page.screenshot({ path: SHOTS + 'H-03-duplicate.png' });
@@ -343,9 +341,11 @@ try {
   await page.keyboard.press('Escape');
   check('Escape closes the menu', (await menu.count()) === 0);
   await page.mouse.click(panePoint.x, panePoint.y, { button: 'right' });
-  await menu.getByRole('menuitem', { name: 'Add a 24U rack' }).click();
+  // r116: "Add a rack…" asks its one question after the click, in a menu where the first was.
+  await menu.getByRole('menuitem', { name: 'Add a rack…' }).click();
+  await menu.getByRole('menuitem', { name: '24U', exact: true }).click();
   await page.waitForTimeout(400);
-  check('"Add a 24U rack" adds a rack', (await page.locator('.react-flow__node-rack').count()) === racksBeforeMenu + 1);
+  check('"Add a rack…" then 24U adds a rack', (await page.locator('.react-flow__node-rack').count()) === racksBeforeMenu + 1);
 
   const devicePoint = await page.evaluate(() => {
     const pane = document.querySelector('.react-flow__pane').getBoundingClientRect();

@@ -132,7 +132,8 @@ try {
     check('it names the device and its address', text.includes('sw-core') && text.includes('10.20.0.2'), text);
     const look = await card.evaluate((el) => { const cs = getComputedStyle(el); return { bg: cs.backgroundColor, blur: cs.backdropFilter }; });
     check('the card is solid, nothing shows through it', !/rgba\(.*,\s*0?\.\d+\)$/.test(look.bg) && look.blur === 'none', JSON.stringify(look));
-    check('the right panel opened as before', await page.getByRole('button', { name: /^open inside$/i }).first().isVisible());
+    // Since ADR-0091 a press gives one answer: the card while the editor is folded. Details on the card is the way in.
+    check('the card offers Details, which opens the editor', await card.getByRole('button', { name: 'Details' }).isVisible());
     const cardBox = await card.boundingBox();
     const devBox = await sw.boundingBox();
     check('the card sits beside the device, not over it', cardBox != null && devBox != null && (cardBox.x >= devBox.x + devBox.width || cardBox.x + cardBox.width <= devBox.x), JSON.stringify({ cardBox, devBox }));
@@ -175,7 +176,8 @@ try {
     check('Escape puts the card away', (await card.count()) === 0);
     await sw.click();
     await page.waitForTimeout(300);
-    await page.mouse.click(pb.x + 20, pb.y + 20);
+    // The top-left corner of the pane is the tool row and Back now; bare canvas is low on the left.
+    await page.mouse.click(pb.x + 20, pb.y + pb.height * 0.8);
     await page.waitForTimeout(300);
     check('a click on empty canvas puts it away', (await card.count()) === 0);
 
@@ -231,7 +233,9 @@ try {
     await page.mouse.down({ clickCount: 2 });
     await page.mouse.up({ clickCount: 2 });
     await page.waitForTimeout(800);
-    check('a double-click on a port opens the device', (await page.locator('[data-testid=jot]').count()) === 1);
+    // Since r116 a port is its own thing: a double-click on it opens that port's panel, and the device stays shut.
+    const portPanel = (await page.locator('.drawing-editor__panel').innerText().catch(() => '')).trim();
+    check('a double-click on a port opens that port\'s panel, not the device', (await page.locator('[data-testid=jot]').count()) === 0 && /Et8/.test(portPanel), portPanel.slice(0, 80));
     check('no uncaught page errors (close in)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }

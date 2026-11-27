@@ -134,6 +134,8 @@ try {
   // brand-new name, one chip created.
   // -------------------------------------------------------------------------
   await page.locator('.react-flow__node-chassis', { hasText: 'core-01' }).click();
+  // A device's Details are a tab of the right-hand dock, not a panel that opens by itself.
+  if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
   await page.getByRole('tab', { name: 'Notes' }).click();
   const seededChips = await page.locator('.drawing-editor__panel .tag-chip .tag-chip__name').allTextContents();

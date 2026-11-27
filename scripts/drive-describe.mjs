@@ -143,7 +143,7 @@ try {
     await shot(page, 'D1-nothing-matches');
     await page.getByRole('button', { name: 'Not here? Describe it' }).click();
     await page.waitForSelector('.describe', { timeout: 5_000 });
-    check('the name starts as what was searched', (await page.getByLabel('Name').inputValue()) === 'NUC 13');
+    check('the name starts as what was searched', (await page.locator('.describe').getByLabel('Name', { exact: true }).inputValue()) === 'NUC 13');
     await shot(page, 'D2-describe-start');
     await setRow(page, 0, 'copper', 1, 'rear');
     await setRow(page, 1, 'copper', 1, 'left');
@@ -172,8 +172,11 @@ try {
 
     // Open it: every face's ports are there, and each says which face.
     check('it is named from its description', (await page.getByText('nuc-13-1').count()) >= 1 && (await page.getByText('nuc-13-2').count()) >= 1);
+    // A press selects it; Open is in the ⋯ menu of its Details (a double-click on its name renames it instead).
     await devices(page).first().click();
-    await page.getByRole('button', { name: 'Open', exact: true }).click();
+    if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
+    await page.locator('[data-testid="device-more"] > summary').click();
+    await page.getByRole('menuitem', { name: 'Open', exact: true }).click();
     await page.waitForSelector('[data-testid=jot]', { timeout: 10_000 });
     const titles = await page.locator('[data-testid=jot-device] .jot-port').evaluateAll((els) => els.map((e) => e.getAttribute('title') ?? ''));
     check('the opened device draws all six ports', titles.length === 6, titles.join(' | '));
@@ -192,10 +195,10 @@ try {
     const before = await page.locator('.react-flow__node-chassis').count();
     await openEquipment(page);
     await page.getByRole('button', { name: 'Not here? Describe it' }).click();
-    await page.getByLabel('Name').fill('');
+    await page.locator('.describe').getByLabel('Name', { exact: true }).fill('');
     await page.getByRole('button', { name: 'Use this model' }).click();
     check('a nameless device is refused in words', (await page.getByRole('alert').filter({ hasText: 'Give it a name.' }).count()) === 1);
-    await page.getByLabel('Name').fill('USW Lite 8 PoE');
+    await page.locator('.describe').getByLabel('Name', { exact: true }).fill('USW Lite 8 PoE');
     await setRow(page, 0, 'copper', 8, 'front');
     await setRow(page, 1, 'sfp', 2, 'front');
     await shot(page, 'D6-describe-switch');
