@@ -4,7 +4,7 @@
 // The kind of thing is said in place of React Flow's "node" and "edge" (`SAID_AS`). Pure; `buildDrawingNodes.ts`,
 // `Drawing.tsx`, the free layer and the Diagram look hand these to React Flow as `ariaLabel` and `domAttributes`.
 
-import type { FixtureView, SurfaceView } from '../../document/view';
+import { naturalLabelCompare, type FixtureView, type SurfaceView } from '../../document/view';
 import { deviceNameIndex } from './cableGroups';
 import { UNNAMED_HOSTNAME, type CableView, type ChassisView, type ClosetView } from './contract';
 
@@ -50,6 +50,14 @@ function roleSaid(role: string | null | undefined): string {
 
 const joined = (parts: readonly string[]): string => parts.filter((p) => p !== '').join(', ');
 
+/** Name order, a number in a name by its value: "switch-2" before "switch-10". What is read out goes in this order
+ * wherever the design keeps no order of its own: the two ends of a cable, the things on a wall. Left as the design
+ * holds them, two things made in the same millisecond came out either way round, so one design said "a to b" and
+ * its copy "b to a". */
+function byName(a: string, b: string): number {
+  return naturalLabelCompare(a.toLowerCase(), b.toLowerCase()) || naturalLabelCompare(a, b);
+}
+
 /** "router-1, router, Rack 1 U10". */
 export function deviceSays(chassis: Pick<ChassisView, 'hostname' | 'role' | 'positionU' | 'heightU'>, rackLabel: string): string {
   return joined([chassis.hostname.trim() || UNNAMED_HOSTNAME, roleSaid(chassis.role), `${rackLabel.trim() || 'Rack'} ${units(chassis.positionU, chassis.heightU)}`]);
@@ -72,9 +80,10 @@ export function shelfSays(shelf: { label: string; positionU: number; heightU: nu
   return joined([shelf.label.trim() || 'Shelf', `${rackLabel.trim() || 'Rack'} ${units(shelf.positionU, shelf.heightU)}`, on !== '' ? `holds ${on}` : 'nothing on it']);
 }
 
-/** Every thing fixed to a wall, the things on its boards included, in the order they are drawn. */
+/** Every thing fixed to a wall, the things on its boards included, in name order. */
 function fixtureNames(fixtures: readonly FixtureView[]): string[] {
-  return fixtures.flatMap((f) => [f.label, ...fixtureNames(f.fixtures)]);
+  const all = (list: readonly FixtureView[]): string[] => list.flatMap((f) => [f.label, ...all(f.fixtures)]);
+  return all(fixtures).sort(byName);
 }
 
 /** "Outside wall, holds camera-1 and camera-2". */
@@ -139,13 +148,15 @@ function portWords(view: ClosetView): ReadonlyMap<string, string> {
 export function cableSays(view: ClosetView, cable: Pick<CableView, 'label' | 'ends'>): string {
   const names = deviceNameIndex(view);
   const ports = portWords(view);
-  // The end in this room first, so the words start on a thing that is on the drawing.
-  const ends = [...cable.ends]
-    .sort((a, b) => Number('outside' in a) - Number('outside' in b))
+  // The end in this room first, so the words start on a thing that is on the drawing; two ends in this room in
+  // name order, whichever the design holds first.
+  const ends = cable.ends
     .map((end) => {
-      if ('outside' in end) return end.label.trim() !== '' ? `${end.label.trim()}, outside this room` : 'outside this room';
-      return [names.get(end.chassisId) ?? UNNAMED_HOSTNAME, ports.get(end.portId) ?? ''].filter((s) => s !== '').join(' ');
-    });
+      if ('outside' in end) return { outside: true, words: end.label.trim() !== '' ? `${end.label.trim()}, outside this room` : 'outside this room' };
+      return { outside: false, words: [names.get(end.chassisId) ?? UNNAMED_HOSTNAME, ports.get(end.portId) ?? ''].filter((s) => s !== '').join(' ') };
+    })
+    .sort((a, b) => Number(a.outside) - Number(b.outside) || byName(a.words, b.words))
+    .map((end) => end.words);
   const run = ends.length >= 2 ? `${ends[0]} to ${ends[1]}` : ends.length === 1 ? `${ends[0]}, other end not connected` : 'not connected';
   return joined([(cable.label ?? '').trim(), run]);
 }
@@ -155,8 +166,9 @@ export function lineSays(label: string | null, nameA: string, nameB: string): st
   return joined([(label ?? '').trim(), `${nameA.trim() || UNNAMED_HOSTNAME} to ${nameB.trim() || UNNAMED_HOSTNAME}`]);
 }
 
-/** "2 cables, router-1 to switch-1": a band that stands for several. */
+/** "2 cables, router-1 to switch-1": a band that stands for several, its two devices in name order. */
 export function cablesSay(view: ClosetView, count: number, chassisA: string, chassisB: string): string {
   const names = deviceNameIndex(view);
-  return `${count} cables, ${names.get(chassisA) ?? UNNAMED_HOSTNAME} to ${names.get(chassisB) ?? UNNAMED_HOSTNAME}`;
+  const [first, second] = [names.get(chassisA) ?? UNNAMED_HOSTNAME, names.get(chassisB) ?? UNNAMED_HOSTNAME].sort(byName);
+  return `${count} cables, ${first} to ${second}`;
 }

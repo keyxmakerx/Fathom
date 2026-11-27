@@ -68,7 +68,14 @@ describe('what a thing in a rack says', () => {
 
 describe('what a thing outside a rack says', () => {
   it('names a wall and what is fixed to it, the things on its boards included', () => {
-    expect(surfaceSays(WALL as never)).toBe('Outside wall, holds camera-1, Board and camera-2');
+    expect(surfaceSays(WALL as never)).toBe('Outside wall, holds Board, camera-1 and camera-2');
+  });
+
+  it('says them in name order, however the design holds them: two made in the same moment come either way round', () => {
+    const held = [fixture('f1', 'switch-2'), fixture('f2', 'printer-1'), fixture('f3', 'desktop-10'), fixture('f4', 'desktop-9')];
+    const said = 'Office desk, holds desktop-9, desktop-10, printer-1 and 1 more';
+    expect(surfaceSays({ label: 'Office desk', form: 'desk', fixtures: held } as never)).toBe(said);
+    expect(surfaceSays({ label: 'Office desk', form: 'desk', fixtures: [...held].reverse() } as never)).toBe(said);
   });
 
   it('calls a wall with no name by its kind, and says when nothing is on it', () => {
@@ -119,6 +126,13 @@ describe('what a cable says', () => {
     expect(cableSays(VIEW, { label: null, ends: [end('c1', 'c1p1'), { outside: true, label: '' }] })).toBe('router-1 port 1 to outside this room');
   });
 
+  it('says its two ends in name order, whichever the cable holds first', () => {
+    const said = 'Office run, switch-1 port 2 to switch-2 port 1';
+    expect(cableSays(VIEW, { label: 'Office run', ends: [end('c2', 'c2p2'), end('c9', 'c9p1')] })).toBe(said);
+    expect(cableSays(VIEW, { label: 'Office run', ends: [end('c9', 'c9p1'), end('c2', 'c2p2')] })).toBe(said);
+    expect(cableSays(VIEW, { label: null, ends: [end('c2', 'c2p2'), end('c1', 'c1p1')] })).toBe('router-1 port 1 to switch-1 port 2');
+  });
+
   it('starts on the end that is in this room, whichever end the cable holds first', () => {
     expect(cableSays(VIEW, { label: null, ends: [{ outside: true, label: 'ISP modem' }, end('c1', 'c1p1')] })).toBe('router-1 port 1 to ISP modem, outside this room');
   });
@@ -131,6 +145,8 @@ describe('what a cable says', () => {
   it('names a band of several by how many it stands for and the two devices', () => {
     expect(cablesSay(VIEW, 2, 'c1', 'c2')).toBe('2 cables, router-1 to switch-1');
     expect(cablesSay(VIEW, 3, 'c1', 'gone')).toBe('3 cables, router-1 to unnamed');
+    // The band keeps its two devices in the order of their ids, which says nothing about their names.
+    expect(cablesSay(VIEW, 2, 'c2', 'c1')).toBe('2 cables, router-1 to switch-1');
   });
 });
 
